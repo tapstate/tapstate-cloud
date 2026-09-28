@@ -49,7 +49,7 @@ class C2StatusReportIT extends BaseIT {
 
         String orgId = orgsApi.create(Map.of(
             "name", "C2-" + name,
-            "slug", "c2-" + name.toLowerCase())).getId();
+            "slug", "c2-" + name.toLowerCase())).getData().getId();
 
         // Create cluster via subscription flow
         SubscriptionApi subApi = new SubscriptionApi(client);

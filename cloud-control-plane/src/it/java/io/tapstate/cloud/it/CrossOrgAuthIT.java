@@ -43,7 +43,7 @@ class CrossOrgAuthIT extends BaseIT {
         auth.register(new RegisterRequest().email(email).password("StrongPass123!").displayName(email.split("@")[0]));
         auth.login(new LoginRequest().email(email).password("StrongPass123!"));
 
-        String orgId = orgs.create(Map.of("name", orgName, "slug", orgName.toLowerCase())).getId();
+        String orgId = orgs.create(Map.of("name", orgName, "slug", orgName.toLowerCase())).getData().getId();
         subs.createSubscription(orgId, new CreateSubscriptionRequest()
             .region("ap-southeast-1").clusterName(clusterName).specKey("basic"));
         // Poll for cluster via raw HTTP

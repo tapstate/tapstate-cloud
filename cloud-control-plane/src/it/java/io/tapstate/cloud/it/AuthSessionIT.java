@@ -35,7 +35,7 @@ class AuthSessionIT extends BaseIT {
     @DisplayName("T1 — Register new user → 201, ApiResponse envelope unwrapped via .getData()")
     void register_returns201() throws ApiException {
         UserResponse resp = authApi.register(
-            new RegisterRequest().email(EMAIL).password(PASSWORD).displayName("IT User"));
+            new RegisterRequest().email(EMAIL).password(PASSWORD).displayName("IT User")).getData();
         captureSessionCookie();
 
         assertEquals("ACTIVE", resp.getStatus(), "User status should be ACTIVE");
@@ -59,7 +59,7 @@ class AuthSessionIT extends BaseIT {
         signupAndLogin(EMAIL, PASSWORD);
         assertNotNull(sessionCookieValue, "Session cookie should be captured after login");
 
-        LoginResult meResp = authApi.me();
+        LoginResult meResp = authApi.me().getData();
         assertNotNull(meResp, "me() should return data");
         assertEquals(EMAIL, meResp.getEmail(), "Authenticated user should match");
     }
@@ -68,7 +68,7 @@ class AuthSessionIT extends BaseIT {
     @DisplayName("T4 — Logout → session invalidated → /me returns 401")
     void logout_invalidatesSession() throws ApiException {
         signupAndLogin(EMAIL, PASSWORD);
-        assertNotNull(authApi.me(), "me() should return data before logout");
+        assertNotNull(authApi.me().getData(), "me() should return data before logout");
         authApi.logout();
 
         ApiException ex = assertThrows(ApiException.class, () -> authApi.me());

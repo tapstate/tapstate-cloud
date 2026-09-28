@@ -38,7 +38,7 @@ import java.util.StringJoiner;
   ExchangeResponse.JSON_PROPERTY_ORG_ID,
   ExchangeResponse.JSON_PROPERTY_CLUSTER_ID
 })
-@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-28T22:40:38.643326+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
+@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-28T22:56:41.346093+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
 public class ExchangeResponse {
   public static final String JSON_PROPERTY_JWT = "jwt";
   @jakarta.annotation.Nullable
