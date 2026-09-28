@@ -80,7 +80,7 @@ import java.text.DateFormat;
 import io.tapstate.cloud.sdk.auth.Authentication;
 import io.tapstate.cloud.sdk.auth.ApiKeyAuth;
 
-@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-28T22:10:40.121065+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
+@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-28T22:19:51.925080+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
 public class ApiClient {
   protected Map<String, String> defaultHeaderMap = new HashMap<String, String>();
   protected Map<String, String> defaultCookieMap = new HashMap<String, String>();

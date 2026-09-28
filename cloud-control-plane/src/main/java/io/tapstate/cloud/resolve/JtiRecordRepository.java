@@ -13,8 +13,10 @@ import java.util.Optional;
 @Repository
 public interface JtiRecordRepository extends MongoRepository<JtiRecord, String> {
 
-    /** Find all active (non-revoked, non-expired) JWT records for a user. */
-    List<JtiRecord> findByUserEmailAndRevokedAtIsNullAndExpiresAtAfter(String userEmail, Instant now);
+    /** Find all active (non-revoked) JWT records for a user — REGARDLESS of JWT expiry.
+     *  Cluster local sessions outlive the 15min JWT window (30min sliding idle → max ~24h),
+     *  so Cloud logout must fire revocation even for expired JWTs whose Cluster sessions may still be active. */
+    List<JtiRecord> findByUserEmailAndRevokedAtIsNull(String userEmail);
 
     Optional<JtiRecord> findByJti(String jti);
 }

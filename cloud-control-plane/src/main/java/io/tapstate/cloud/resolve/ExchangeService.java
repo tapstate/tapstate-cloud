@@ -226,6 +226,7 @@ public class ExchangeService {
             jwtId, consumed.getClusterId(), consumed.getUserEmail(), consumed.getUserId());
 
         // Track JWT for Cloud-side logout revocation (Issue #5 items 3/4)
+        // retentionUntil = 7 days after expiry (Cluster local session outlives JWT window)
         jtiRecordRepo.save(JtiRecord.builder()
             .jti(jwtId)
             .userEmail(consumed.getUserEmail())
@@ -235,6 +236,7 @@ public class ExchangeService {
             .clusterBaseUri(consumed.getTargetOrigin())
             .issuedAt(now)
             .expiresAt(jwtExp)
+            .retentionUntil(jwtExp.plus(7, ChronoUnit.DAYS))
             .revokedAt(null)
             .build());
 

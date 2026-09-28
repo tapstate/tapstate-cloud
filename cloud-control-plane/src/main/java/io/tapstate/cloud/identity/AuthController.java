@@ -184,8 +184,11 @@ public class AuthController extends BaseController {
      * callbacks or the local revocation — GC must not hang logout on Cluster reachability.
      */
     private void revokeAllActiveJwts(String userEmail) {
+        // IMPORTANT: no expiry filter here — Issue #5 requires Cloud logout after JWT expiry
+        // (t+20min while JWT expired at t+15min) still fires revocation, because the Cluster's
+        // local HttpOnly session may still be active (30min sliding idle timeout).
+        List<JtiRecord> active = jtiRecordRepo.findByUserEmailAndRevokedAtIsNull(userEmail);
         Instant now = Instant.now();
-        List<JtiRecord> active = jtiRecordRepo.findByUserEmailAndRevokedAtIsNullAndExpiresAtAfter(userEmail, now);
 
         for (JtiRecord rec : active) {
             try {

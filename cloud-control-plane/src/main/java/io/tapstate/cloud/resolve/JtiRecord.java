@@ -56,10 +56,17 @@ public class JtiRecord {
     /** JWT issued-at timestamp (Cloud side). */
     private Instant issuedAt;
 
-    /** JWT exp claim — expiry timestamp. TTL index auto-deletes records after expiry. */
-    @Indexed(expireAfterSeconds = 0)
+    /** JWT exp claim — expiry timestamp. NOT the TTL index (see retentionUntil below). */
     private Instant expiresAt;
 
     /** Revocation timestamp — null while active, set on logout or expiry. */
     private Instant revokedAt;
+
+    /**
+     * Cloud-side retention window — TTL index auto-deletes records this many days after expiry.
+     * Must be LONGER than the Cluster's local session lifetime (30min sliding idle → max ~24h after JWT issue).
+     * We use 7 days to be safe; MongoDB's TTL index fires at a minute-level granularity.
+     */
+    @Indexed(expireAfterSeconds = 7 * 24 * 3600)
+    private Instant retentionUntil;
 }

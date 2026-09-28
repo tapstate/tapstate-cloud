@@ -33,7 +33,7 @@ import java.util.StringJoiner;
   ExchangeRequest.JSON_PROPERTY_EXCHANGE_CODE,
   ExchangeRequest.JSON_PROPERTY_CLUSTER_ID
 })
-@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-28T22:10:40.121065+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
+@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-28T22:19:51.925080+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
 public class ExchangeRequest {
   public static final String JSON_PROPERTY_EXCHANGE_CODE = "exchangeCode";
   @jakarta.annotation.Nonnull
