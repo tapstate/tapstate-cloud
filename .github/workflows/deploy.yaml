@@ -1,0 +1,119 @@
+# ============================================================
+# CD — Deploy to k3s (push main)
+# Per ADR-0124 D6: push main → docker build → ECR push → kubectl rollout restart
+#     — k3s EC2 self-hosted cluster; NOT ECS Fargate
+# ============================================================
+# Prerequisites (GitHub Repository Secrets):
+#   AWS_ACCESS_KEY_ID       — for ECR push + CloudFormation API
+#   AWS_SECRET_ACCESS_KEY   — for ECR push + CloudFormation API
+#   AWS_REGION              — ap-southeast-1
+#   ECR_REPO_URI            — e.g., 123456789012.dkr.ecr.ap-southeast-1.amazonaws.com/tapstate-cloud
+#   KUBECONFIG_BASE64       — base64-encoded k3s kubeconfig (kubectl rollout restart)
+# ============================================================
+
+name: CD — Deploy to k3s
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    name: Build → ECR → k3s rollout
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://cloud.tapstate.io/health
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ========== Step 1: Build with Maven ==========
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+
+      - name: Build fat jar
+        run: mvn clean package -B -DskipTests -q
+
+      # ========== Step 2: Login to AWS ECR ==========
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # ========== Step 3: Build & Push Docker image to ECR ==========
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push Docker image
+        id: build-and-push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ secrets.ECR_REPO_URI }}:${{ github.sha }}
+            ${{ secrets.ECR_REPO_URI }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ========== Step 4: kubectl rollout restart on k3s ==========
+      # ADR-0120: k3s kubectl rollout restart (NOT ECS update-service)
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: 'latest'
+
+      - name: Decode kubeconfig
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBECONFIG_BASE64 }}" | base64 -d > $HOME/.kube/config
+          chmod 600 $HOME/.kube/config
+          kubectl cluster-info
+
+      - name: Update deployment image
+        run: |
+          kubectl --namespace tapstate-cloud-control \
+            set image deployment/tapstate-cloud-control \
+            tapstate-cloud-control=${{ secrets.ECR_REPO_URI }}:${{ github.sha }}
+
+      - name: Wait for rollout to complete
+        run: |
+          kubectl --namespace tapstate-cloud-control \
+            rollout status deployment/tapstate-cloud-control \
+            --timeout=300s
+
+      - name: Verify deployment health
+        run: |
+          # Check pod status
+          kubectl --namespace tapstate-cloud-control get pods -l app=tapstate-cloud-control
+          
+          # Port-forward and health check
+          kubectl --namespace tapstate-cloud-control port-forward \
+            deployment/tapstate-cloud-control 8080:8080 &
+          sleep 5
+          curl -f http://localhost:8080/health || {
+            echo "Health check FAILED!"
+            exit 1
+          }
+          kill %1
+
+      # ========== Step 5: Notification (optional) ==========
+      - name: Post-deploy summary
+        run: |
+          echo "============================================"
+          echo "✅ Deployment successful!"
+          echo "Image: ${{ secrets.ECR_REPO_URI }}:${{ github.sha }}"
+          echo "URL:   https://cloud.tapstate.io"
+          echo "============================================"

@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Tapstate Cloud — Global Control Plane (multi-module).
+  Parent POM: manages shared versions, dependencyManagement, and pluginManagement.
+  -->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>io.tapstate</groupId>
+  <artifactId>tapstate-cloud-parent</artifactId>
+  <version>0.1.0-SNAPSHOT</version>
+  <packaging>pom</packaging>
+
+  <name>Tapstate Cloud — Parent (multi-module)</name>
+
+  <modules>
+    <module>common</module>
+    <module>cloud-control-plane</module>
+    <module>client/java</module>
+  </modules>
+
+  <parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>4.1.0</version>
+    <relativePath/>
+  </parent>
+
+  <properties>
+    <revision>0.1.0-SNAPSHOT</revision>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <maven.compiler.release>21</maven.compiler.release>
+    <project.build.outputTimestamp>2026-09-27T00:00:00Z</project.build.outputTimestamp>
+
+    <!-- OpenAPI / SpringDoc → dynamic OpenAPI generation from Swagger annotations -->
+    <springdoc.version>2.8.8</springdoc.version>
+
+    <!-- OpenAPI Generator → generates SDK from OpenAPI spec -->
+    <openapi-generator.version>7.25.0</openapi-generator.version>
+
+    <!-- JJWT — RS256 signing for resolve JWT (ADR-0122 D4) -->
+    <jjwt.version>0.12.6</jjwt.version>
+
+    <!-- Spring Statemachine — Cluster + Subscription lifecycle state machines -->
+    <spring-statemachine.version>4.0.2</spring-statemachine.version>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <!-- Internal modules -->
+      <dependency>
+        <groupId>io.tapstate</groupId>
+        <artifactId>tapstate-cloud-common</artifactId>
+        <version>${revision}</version>
+      </dependency>
+      <dependency>
+        <groupId>io.tapstate</groupId>
+        <artifactId>cloud-control-plane-sdk</artifactId>
+        <version>${revision}</version>
+      </dependency>
+
+      <!-- OpenAPI / Swagger annotations -->
+      <dependency>
+        <groupId>org.springdoc</groupId>
+        <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+        <version>${springdoc.version}</version>
+      </dependency>
+
+      <!-- JJWT — resolve JWT signing -->
+      <dependency>
+        <groupId>io.jsonwebtoken</groupId>
+        <artifactId>jjwt-api</artifactId>
+        <version>${jjwt.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>io.jsonwebtoken</groupId>
+        <artifactId>jjwt-impl</artifactId>
+        <version>${jjwt.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>io.jsonwebtoken</groupId>
+        <artifactId>jjwt-jackson</artifactId>
+        <version>${jjwt.version}</version>
+      </dependency>
+
+      <!-- Spring Session MongoDB — Spring Boot 4.x uses mongodb-spring-session artifact -->
+      <!-- org.mongodb:mongodb-spring-session will be added when ready; for now we use Tomcat default session -->
+      <!-- See ADR-0122 for Spring Session upgrade strategy -->
+      <!-- <dependency>
+        <groupId>org.mongodb</groupId>
+        <artifactId>mongodb-spring-session</artifactId>
+        <version>4.0.0-rc0</version>
+      </dependency> -->
+
+      <!-- Spring Statemachine — 4.0.x compatible with Spring Boot 3.5 / 4.1 -->
+      <dependency>
+        <groupId>org.springframework.statemachine</groupId>
+        <artifactId>spring-statemachine-starter</artifactId>
+        <version>${spring-statemachine.version}</version>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <build>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <groupId>org.springframework.boot</groupId>
+          <artifactId>spring-boot-maven-plugin</artifactId>
+        </plugin>
+        <plugin>
+          <groupId>org.openapitools</groupId>
+          <artifactId>openapi-generator-maven-plugin</artifactId>
+          <version>${openapi-generator.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-failsafe-plugin</artifactId>
+          <version>3.5.1</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-surefire-plugin</artifactId>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+  </build>
+</project>

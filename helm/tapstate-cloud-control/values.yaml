@@ -1,0 +1,136 @@
+# ============================================================
+# Default values — works for local k3s development
+# Override with: -f values-aws.yaml (for AWS EC2 self-hosted k3s)
+# ============================================================
+
+replicaCount: 2
+
+image:
+  # In local dev: image built locally and loaded into k3s
+  # In AWS ECR: image pushed to ECR repo
+  repository: tapstate-cloud
+  pullPolicy: IfNotPresent  # AlwaysPull for ECR
+  tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# ========== k3s Secrets (must be pre-created in namespace) ==========
+# Per ADR-0121 D4: ALL credentials come from k3s Secrets
+secrets:
+  # MongoDB Atlas connection string (read-only Control Plane DB user)
+  mongoUri:
+    name: tapstate-cloud-control-mongo-uri
+    key: mongo-uri
+  # JWKS signing private key (PEM)
+  jwksSigningKey:
+    name: tapstate-cloud-control-jwks-signing-key
+    key: signing-key
+  # AWS credentials (CloudFormation API calls)
+  awsCredentials:
+    name: tapstate-cloud-control-aws-credentials
+    accessKeyIdKey: access-key-id
+    secretAccessKeyKey: secret-access-key
+  # Atlas Admin API key (Atlas DB/user auto-provisioning)
+  atlasAdminKey:
+    name: tapstate-cloud-control-atlas-admin-key
+    apiKeyKey: api-key
+    apiKeySecretKey: api-key-secret
+
+# ========== ConfigMap (non-sensitive config) ==========
+config:
+  serverPort: 8080
+  springProfilesActive: prod
+  jwtIssuer: https://cloud.tapstate.io
+  resolveJwtExpiryMinutes: "15"
+  sessionExpiryDays: "7"
+  defaultRegion: ap-southeast-1
+  awsRegion: ap-southeast-1
+  corsAllowedOrigins: "https://cloud.tapstate.io,http://localhost:3000"
+
+# ========== Kubernetes resources ==========
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podSecurityContext: {}
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+
+service:
+  type: NodePort
+  port: 8080
+  # k3s NodePort 30080 (per ADR-0120 deployment topology)
+  nodePort: 30080
+
+ingress:
+  enabled: true
+  className: "traefik"  # k3s default ingress controller
+  annotations:
+    # TLS handled by CloudFront in production; local k3s: cert-manager or self-signed
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+  hosts:
+    - host: cloud.tapstate.io
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  # tls:
+  #   - secretName: tapstate-cloud-tls
+  #     hosts:
+  #       - cloud.tapstate.io
+
+# ========== Resource limits ==========
+resources:
+  requests:
+    cpu: "200m"
+    memory: "512Mi"
+  limits:
+    cpu: "1000m"
+    memory: "1Gi"
+
+# ========== Liveness / Readiness probes ==========
+livenessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 30
+  periodSeconds: 30
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /actuator/health
+    port: http
+  initialDelaySeconds: 15
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# ========== Rolling update strategy ==========
+# Per ADR-0120: kubectl rollout restart tapstate-cloud-api
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 1
+    maxUnavailable: 0

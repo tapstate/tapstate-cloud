@@ -1,0 +1,16 @@
+# ============================================================
+# .openapi-generator-ignore — files openapi-generator must NOT touch
+# during `mvn generate-sources`. These are project-owned files, not
+# generator output.
+# ============================================================
+
+# --- Our Maven module definition ---
+pom.xml
+
+# --- VCS / project metadata ---
+.gitignore
+.openapi-generator-ignore
+
+# --- Generator metadata (we don't want the generator to recreate its
+#     own tracking folder — we rely on .gitignore instead) ---
+.openapi-generator/

@@ -1,0 +1,213 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Cloud Control Plane — Global Control Plane runnable application.
+  Depends on common module for ApiResponse, BaseController, shared DTOs.
+  SDK generation lives in cloud-control-plane-sdk module (NOT here).
+
+  Integration tests live in src/it/java — run via maven-failsafe-plugin during
+  the verify phase. The application is started as a separate Spring Boot process
+  by spring-boot-maven-plugin (pre-integration-test) and stopped after
+  post-integration-test. IT tests call real HTTP endpoints on localhost:8080
+  against a real local MongoDB (mongodb://localhost:27017/tapstate_cloud).
+  -->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>io.tapstate</groupId>
+    <artifactId>tapstate-cloud-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>tapstate-cloud-control-plane</artifactId>
+  <packaging>jar</packaging>
+  <name>Tapstate Cloud — Cloud Control Plane</name>
+
+  <properties>
+    <!-- IT server port — must match application-it.yml and ApiClient base URL in BaseIT -->
+    <it.server.port>8081</it.server.port>
+  </properties>
+
+  <dependencies>
+    <!-- Internal: shared DTOs + ApiResponse framework -->
+    <dependency>
+      <groupId>io.tapstate</groupId>
+      <artifactId>tapstate-cloud-common</artifactId>
+    </dependency>
+
+    <!-- Spring Boot core -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-validation</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-actuator</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-security</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-data-mongodb</artifactId>
+    </dependency>
+
+    <!-- OpenAPI / Swagger annotations → springdoc generates /v3/api-docs at runtime -->
+    <dependency>
+      <groupId>org.springdoc</groupId>
+      <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+    </dependency>
+
+    <!-- JJWT — resolve JWT signing (ADR-0122 D4) -->
+    <dependency>
+      <groupId>io.jsonwebtoken</groupId>
+      <artifactId>jjwt-api</artifactId>
+    </dependency>
+
+    <!-- Spring Statemachine — Cluster + Subscription lifecycle FSMs -->
+    <dependency>
+      <groupId>org.springframework.statemachine</groupId>
+      <artifactId>spring-statemachine-starter</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.jsonwebtoken</groupId>
+      <artifactId>jjwt-impl</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.jsonwebtoken</groupId>
+      <artifactId>jjwt-jackson</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+
+    <!-- Utilities -->
+    <dependency>
+      <groupId>org.projectlombok</groupId>
+      <artifactId>lombok</artifactId>
+      <optional>true</optional>
+    </dependency>
+
+    <!-- ========== Unit + Integration test dependencies ========== -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.security</groupId>
+      <artifactId>spring-security-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+
+    <!-- OpenAPI-generated SDK — used by IT tests to call real HTTP endpoints -->
+    <dependency>
+      <groupId>io.tapstate</groupId>
+      <artifactId>cloud-control-plane-sdk</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <finalName>${project.artifactId}</finalName>
+    <plugins>
+      <!-- Spring Boot — main artifact repackage + pre/post integration-test lifecycle -->
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+        <configuration>
+          <excludes>
+            <exclude>
+              <groupId>org.projectlombok</groupId>
+              <artifactId>lombok</artifactId>
+            </exclude>
+          </excludes>
+        </configuration>
+        <executions>
+          <!-- Default: repackage the fat jar during package phase -->
+          <execution>
+            <goals><goal>repackage</goal></goals>
+          </execution>
+          <!-- Start Spring Boot as a FORKED process BEFORE integration tests -->
+          <execution>
+            <id>start-spring-boot</id>
+            <phase>pre-integration-test</phase>
+            <goals><goal>start</goal></goals>
+            <configuration>
+              <fork>true</fork>
+              <jvmArguments>-Dspring.profiles.active=it -Dserver.port=${it.server.port}</jvmArguments>
+              <arguments>
+                <argument>--spring.profiles.active=it</argument>
+                <argument>--server.port=${it.server.port}</argument>
+              </arguments>
+              <wait>15000</wait>
+            </configuration>
+          </execution>
+          <!-- Stop Spring Boot AFTER integration tests (success OR failure) -->
+          <execution>
+            <id>stop-spring-boot</id>
+            <phase>post-integration-test</phase>
+            <goals><goal>stop</goal></goals>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!-- build-helper — declare src/it/java as additional test source root
+           so failsafe picks up *IT.java classes alongside src/test/java -->
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>build-helper-maven-plugin</artifactId>
+        <version>3.6.0</version>
+        <executions>
+          <execution>
+            <id>add-it-source</id>
+            <phase>generate-test-sources</phase>
+            <goals><goal>add-test-source</goal></goals>
+            <configuration>
+              <sources>
+                <source>${project.basedir}/src/it/java</source>
+              </sources>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!-- maven-failsafe-plugin — runs *IT.java integration tests during verify.
+           Excludes *Test.java (surefire's job), includes *IT.java and *Tests.java. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-failsafe-plugin</artifactId>
+        <configuration>
+          <includes>
+            <include>**/*IT.java</include>
+            <include>**/*Tests.java</include>
+          </includes>
+          <excludes>
+            <exclude>**/*Test.java</exclude>
+          </excludes>
+          <systemPropertyVariables>
+            <!-- Pass server port to IT tests via System property → BaseIT reads it -->
+            <it.server.port>${it.server.port}</it.server.port>
+            <!-- Spring profile for IT (controls MongoDB DB name, etc.) -->
+            <spring.profiles.active>it</spring.profiles.active>
+          </systemPropertyVariables>
+          <argLine>-Xms512m -Xmx1024m</argLine>
+        </configuration>
+        <executions>
+          <execution>
+            <goals>
+              <goal>integration-test</goal>
+              <goal>verify</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

@@ -1,0 +1,125 @@
+package io.tapstate.cloud.org;
+
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import io.tapstate.cloud.common.api.ApiResponse;
+import io.tapstate.cloud.common.api.AppErrorCode;
+import io.tapstate.cloud.common.api.BaseController;
+import io.tapstate.cloud.common.api.BusinessException;
+import io.tapstate.cloud.common.CurrentUser;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Organization endpoints — create, list, membership.
+ * <p>
+ * Access requires Cloud Console session (ADR-0122 D2).
+ */
+@RestController
+@RequestMapping("/v1/orgs")
+@RequiredArgsConstructor
+@Tag(name = "Organizations", description = "Organization management — isolation boundary for Clusters")
+public class OrganizationController extends BaseController {
+
+    private final OrganizationService organizationService;
+
+    @GetMapping
+    @Operation(
+        summary = "List current user's organizations",
+        description = "Returns all Organizations the authenticated user is a member of. " +
+                      "Organizations are the isolation boundary for Clusters and subscriptions."
+    )
+    @ApiResponses(value = {
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "List of Organizations (may be empty)",
+            content = @Content(schema = @Schema(implementation = OrganizationResponse.class))),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "Not authenticated")
+    })
+    public ResponseEntity<ApiResponse<List<OrganizationResponse>>> listMyOrganizations() {
+        String userEmail = CurrentUser.getEmail();
+        if (userEmail == null) {
+            return fail(AppErrorCode.UNAUTHORIZED, HttpStatus.UNAUTHORIZED);
+        }
+        List<Organization> orgs = organizationService.listUserOrganizations(userEmail);
+        return ok(orgs.stream().map(OrganizationResponse::from).toList());
+    }
+
+    @PostMapping
+    @Operation(
+        summary = "Create new organization (user becomes owner automatically)",
+        description = "Creates a new Organization and adds the caller as its first member with owner role. " +
+                      "A default TRIAL subscription is automatically created for the new Org. " +
+                      "Organization slug must be unique system-wide (lowercase, hyphenated)."
+    )
+    @ApiResponses(value = {
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Organization created",
+            content = @Content(schema = @Schema(implementation = OrganizationResponse.class))),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Invalid input (missing name/slug, slug format)"),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "Not authenticated"),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "Slug already taken")
+    })
+    public ResponseEntity<ApiResponse<OrganizationResponse>> create(
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(description = "Organization create payload: {\"name\": \"Acme Corp\", \"slug\": \"acme-corp\"}")
+            @RequestBody Map<String, String> request) {
+        String userEmail = CurrentUser.getEmail();
+        if (userEmail == null) {
+            return fail(AppErrorCode.UNAUTHORIZED, HttpStatus.UNAUTHORIZED);
+        }
+        Organization org = organizationService.createOrganization(
+            request.get("name"),
+            request.get("slug"),
+            userEmail
+        );
+        return ok(OrganizationResponse.from(org));
+    }
+
+    @GetMapping("/{orgId}")
+    @Operation(
+        summary = "Get organization by ID",
+        description = "Returns Organization details including owner and status. " +
+                      "Caller must be a member of this Organization."
+    )
+    @ApiResponses(value = {
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Organization details",
+            content = @Content(schema = @Schema(implementation = OrganizationResponse.class))),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "Not authenticated"),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "Not a member of this Organization"),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Organization not found")
+    })
+    public ResponseEntity<ApiResponse<OrganizationResponse>> getOrg(
+            @Parameter(description = "Organization UUID") @PathVariable String orgId) {
+        String userEmail = CurrentUser.getEmail();
+        if (userEmail == null) {
+            return fail(AppErrorCode.UNAUTHORIZED, HttpStatus.UNAUTHORIZED);
+        }
+        if (!organizationService.isMember(orgId, userEmail)) {
+            return fail(AppErrorCode.ORG_NOT_MEMBER, HttpStatus.FORBIDDEN, orgId);
+        }
+        Organization org = organizationService.listUserOrganizations(userEmail).stream()
+            .filter(o -> o.getId().equals(orgId))
+            .findFirst()
+            .orElseThrow(() -> new BusinessException(AppErrorCode.ORG_NOT_FOUND, 404, orgId));
+        return ok(OrganizationResponse.from(org));
+    }
+
+    public record OrganizationResponse(
+        @Schema(description = "Organization UUID") String id,
+        @Schema(description = "Organization display name") String name,
+        @Schema(description = "URL-friendly slug (lowercase, hyphenated, unique)") String slug,
+        @Schema(description = "Owner user email") String ownerEmail,
+        @Schema(description = "Organization status: ACTIVE / SUSPENDED") String status
+    ) {
+        public static OrganizationResponse from(Organization org) {
+            return new OrganizationResponse(
+                org.getId(), org.getName(), org.getSlug(), org.getOwnerEmail(), org.getStatus());
+        }
+    }
+}

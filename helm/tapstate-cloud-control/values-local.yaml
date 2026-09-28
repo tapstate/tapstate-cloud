@@ -1,0 +1,30 @@
+# ============================================================
+# Local k3s development environment
+# Usage: helm install tapstate-cloud-control ./helm/tapstate-cloud-control -f helm/tapstate-cloud-control/values-local.yaml
+# ============================================================
+
+replicaCount: 1
+
+image:
+  repository: tapstate-cloud
+  pullPolicy: Never  # load image into k3s via `k3s ctr images import`
+  tag: "latest"
+
+config:
+  springProfilesActive: dev
+  corsAllowedOrigins: "http://localhost:3000,http://localhost:8080"
+
+service:
+  type: NodePort
+  nodePort: 30080
+
+ingress:
+  enabled: false  # use NodePort directly in local dev
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "256Mi"
+  limits:
+    cpu: "500m"
+    memory: "512Mi"

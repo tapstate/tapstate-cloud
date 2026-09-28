@@ -1,0 +1,113 @@
+# ============================================================
+# Tapstate Cloud — Global Control Plane application config
+# ============================================================
+# Credentials and sensitive values MUST come from environment variables
+# (k3s Secret envFrom.secretRef). This file contains only defaults and
+# non-sensitive configuration per ADR-0121 D4 (3-tier priority:
+# env vars > external application.yml > classpath application.yml).
+# ============================================================
+
+spring:
+  application:
+    name: tapstate-cloud-control
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+
+  # ========== MongoDB Atlas — Control Plane metadata (ADR-0121 D2) ==========
+  data:
+    mongodb:
+      uri: ${MONGODB_URI:mongodb://localhost:27017}
+      database: ${MONGODB_DATABASE:tapstate_cloud}
+      # Control Plane metadata DB (User/Org/Cluster/CloudFormation templates)
+      # Separate Atlas project from per-Cluster runtime DBs (ADR-0123 D2)
+
+  # ========== Session — Tomcat HttpSession (Spring Session MongoDB deferred) ==========
+  # Session cookie name TAPSTATE_CLOUD_SESSION handled by server.servlet.session.cookie below
+  # 7-day idle timeout via server.servlet.session.timeout
+  # Spring Session MongoDB will replace this when mongodb-spring-session 4.x stabilizes
+
+  # ========== Spring Security ==========
+  security:
+    user:
+      name: ${CLOUD_DEV_USERNAME:admin}
+      password: ${CLOUD_DEV_PASSWORD:admin}
+
+  # ========== Jackson (Spring Boot 4.x uses Jackson 3.x) ==========
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: false
+
+# ========== Server ==========
+server:
+  port: ${SERVER_PORT:8080}
+  servlet:
+    context-path: ${SERVER_CONTEXT_PATH:/}
+    session:
+      timeout: 7d
+      cookie:
+        name: TAPSTATE_CLOUD_SESSION
+        http-only: true
+        secure: false    # dev; production set to true
+        same-site: lax
+
+# ========== Actuator — health endpoints (ADR-0120 acceptance) ==========
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,openapi
+  endpoint:
+    health:
+      show-details: when-authorized
+  info:
+    env:
+      enabled: true
+
+# ========== OpenAPI / SpringDoc ==========
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+    version: OPENAPI_3_1
+  swagger-ui:
+    path: /swagger-ui.html
+    enabled: ${SWAGGER_UI_ENABLED:true}
+  packages-to-scan: io.tapstate.cloud
+  default-flat-param-object: true
+
+# ========== Knife4j — enhanced Swagger UI ==========
+knife4j:
+  enable: ${KNIFE4J_ENABLED:true}
+  setting:
+    language: en
+    swagger-model-name: Model Examples
+
+# ========== Tapstate Cloud custom config ==========
+tapstate:
+  cloud:
+    # Global Control Plane issuer for resolve JWT (ADR-0122 D4)
+    issuer: ${CLOUD_JWT_ISSUER:https://cloud.tapstate.io}
+    # Resolve JWT expiry in minutes
+    resolve-jwt-expiry-minutes: ${CLOUD_RESOLVE_JWT_EXPIRY_MINUTES:15}
+    # JWKS signing key — MUST come from k3s Secret (ADR-0121 D4)
+    jwks-signing-key: ${CLOUD_JWKS_SIGNING_KEY:}
+    # Session expiry — 7 days idle (ADR-0122 D1)
+    session-expiry-days: ${CLOUD_SESSION_EXPIRY_DAYS:7}
+    # Default region for Week 2 (ADR-0124 D1)
+    default-region: ${CLOUD_DEFAULT_REGION:ap-southeast-1}
+    # AWS credentials from k3s Secret (ADR-0121 D4)
+    aws:
+      access-key-id: ${AWS_ACCESS_KEY_ID:}
+      secret-access-key: ${AWS_SECRET_ACCESS_KEY:}
+      region: ${AWS_REGION:ap-southeast-1}
+    # Atlas Admin API key from k3s Secret (ADR-0121 D2)
+    atlas:
+      admin-api-key: ${ATLAS_ADMIN_API_KEY:}
+      admin-api-key-secret: ${ATLAS_ADMIN_API_KEY_SECRET:}
+
+# ========== Logging ==========
+logging:
+  level:
+    io.tapstate.cloud: ${LOG_LEVEL_CLOUD:INFO}
+    org.springframework.security: ${LOG_LEVEL_SECURITY:WARN}
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"

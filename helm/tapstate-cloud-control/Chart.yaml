@@ -1,0 +1,16 @@
+# tapstate-cloud-control — Helm chart for Global Control Plane
+# Deployable to: local k3s OR AWS EC2 self-hosted k3s
+# Per ADR-0121 D4 / ADR-0124 D2
+
+apiVersion: v2
+name: tapstate-cloud-control
+description: Tapstate Cloud Global Control Plane — Kubernetes Deployment, Service, and Ingress
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+
+# Chart can be installed to both local k3s and AWS EC2 self-hosted k3s
+# See values-local.yaml and values-aws.yaml for environment-specific overrides
+maintainers:
+  - name: Tapstate Engineering
+    email: cloud@tapstate.io
