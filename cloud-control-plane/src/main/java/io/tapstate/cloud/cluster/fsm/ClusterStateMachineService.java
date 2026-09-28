@@ -3,10 +3,6 @@ package io.tapstate.cloud.cluster.fsm;
 import io.tapstate.cloud.cluster.Cluster;
 import io.tapstate.cloud.cluster.ClusterRepository;
 import io.tapstate.cloud.cluster.ClusterState;
-import io.tapstate.cloud.mdb.AtlasMdbService;
-import io.tapstate.cloud.mdb.MdbAllocation;
-import io.tapstate.cloud.mdb.MdbAllocationRepository;
-import io.tapstate.cloud.mdb.MdbAllocationStatus;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.statemachine.StateMachine;
@@ -22,17 +18,22 @@ import java.util.concurrent.TimeUnit;
  * Cluster state machine orchestrator — wraps Spring Statemachine factory with
  * per-Cluster state resolution from DB.
  * <p>
- * The pattern (from hare {@code JobStateMachineConfig}): every call to
- * {@link StateMachineFactory#getStateMachine(String)} creates a fresh instance
- * starting from {@code initial}. This service is the single point that:
+ * The pattern: every call to {@link StateMachineFactory#getStateMachine(String)}
+ * creates a fresh instance starting from {@code initial}. This service is the
+ * single point that:
  * <ol>
  *   <li>Loads the Cluster from MongoDB</li>
  *   <li>Rebuilds the fresh state machine with {@link #resetTo(StateMachine, ClusterState)}
  *       so it starts from the Cluster's persisted state, not {@code initial}</li>
  *   <li>Sends the requested event</li>
  *   <li>If the transition was accepted, persists the new state back to MongoDB</li>
- *   <li>Applies transition effects — including async Atlas Mdb allocation via {@link AtlasMdbService}</li>
+ *   <li>Applies transition effects — async CloudFormation simulation, runtime field setup</li>
  * </ol>
+ * <p>
+ * <b>MDB allocation is independent</b> — managed by
+ * {@link io.tapstate.cloud.mdb.fsm.MdbAllocationStateMachineService}. The two
+ * FSMs run in parallel; subscription-level orchestration (SubscriptionService)
+ * coordinates them.
  */
 @Service
 @Slf4j
@@ -40,29 +41,19 @@ public class ClusterStateMachineService {
 
     private final StateMachineFactory<ClusterState, ClusterEventType> clusterStateMachineFactory;
     private final ClusterRepository clusterRepository;
-    private final AtlasMdbService atlasMdbService;
-    private final MdbAllocationRepository allocationRepo;
 
     private final SecureRandom secureRandom = new SecureRandom();
 
     public ClusterStateMachineService(
         @Qualifier("clusterStateMachineFactory")
         StateMachineFactory<ClusterState, ClusterEventType> clusterStateMachineFactory,
-        ClusterRepository clusterRepository,
-        AtlasMdbService atlasMdbService,
-        MdbAllocationRepository allocationRepo) {
+        ClusterRepository clusterRepository) {
         this.clusterStateMachineFactory = clusterStateMachineFactory;
         this.clusterRepository = clusterRepository;
-        this.atlasMdbService = atlasMdbService;
-        this.allocationRepo = allocationRepo;
     }
 
     /**
      * Send an event to the Cluster state machine and persist the new state.
-     * <p>
-     * If the state machine rejects the event (transition not defined from the
-     * current state), returns {@link TransitionResult#REJECTED} without mutating
-     * the Cluster record.
      *
      * @param clusterId target Cluster UUID
      * @param event     event to fire
@@ -118,24 +109,23 @@ public class ClusterStateMachineService {
      * Apply side-effects after a successful state transition.
      * <p>
      * PROVISIONING_PENDING → PROVISIONING:
-     *   - Fire async Atlas Mdb allocation (createDatabase + createDatabaseUser) via AtlasMdbService
-     *   - Fire simulated CloudFormation success/failure (85% success rate)
-     * PROVISIONING → PROVISIONING_SUCCESS:
-     *   - Mark allocation READY, set cluster runtime fields (EC2, DNS, elasticIp)
+     *   - Fire simulated CloudFormation success/failure (85% success rate, virtual thread)
+     * PROVISIONING → READY:
+     *   - Set runtime fields (EC2 instance ID, elastic IP, public DNS, heartbeat)
+     * PROVISIONING → PROVISIONING_FAILED:
+     *   - Record provisionErrorCode + detail
      * TERMINATED:
-     *   - Decrement Atlas instance capacity, drop DB user + database (async)
+     *   - Clear runtime credentials, record terminatedAt
      */
     private void applyTransitionEffects(Cluster cluster, ClusterState from, ClusterState to, ClusterEventType event) {
 
-        // === PROVISIONING_PENDING → PROVISIONING: start async Atlas MDB + CloudFormation ===
+        // === PROVISIONING_PENDING → PROVISIONING: async simulated CloudFormation ===
         if (from == ClusterState.PROVISIONING_PENDING && to == ClusterState.PROVISIONING) {
-            startAsyncProvisioning(cluster);
+            startAsyncCloudFormation(cluster);
         }
 
-        // === PROVISIONING → READY: confirm allocation READY, set runtime fields ===
+        // === PROVISIONING → READY: set runtime fields ===
         if (from == ClusterState.PROVISIONING && to == ClusterState.READY) {
-            markAllocationReady(cluster);
-
             cluster.setReadyAt(Instant.now());
             cluster.setEc2InstanceId("i-" + cluster.getId().substring(0, 12));
             cluster.setElasticIp("54." + secureRandom.nextInt(256) + "." +
@@ -144,11 +134,10 @@ public class ClusterStateMachineService {
             cluster.setLastHeartbeatAt(Instant.now());
         }
 
-        // === PROVISIONING → PROVISIONING_FAILED: allocation also marked failed ===
+        // === PROVISIONING → PROVISIONING_FAILED ===
         if (from == ClusterState.PROVISIONING && to == ClusterState.PROVISIONING_FAILED) {
             cluster.setProvisionErrorCode(io.tapstate.cloud.cluster.ProvisionErrorCode.CLOUDFORMATION_FAILED);
             cluster.setProvisionErrorDetail("{\"error\": \"Simulated provisioning failure\"}");
-            markAllocationFailed(cluster);
         }
 
         if (from == ClusterState.READY && to == ClusterState.DEGRADED) {
@@ -159,22 +148,21 @@ public class ClusterStateMachineService {
             log.info("[Cluster FSM] cluster {} recovered from DEGRADED", cluster.getId());
         }
 
-        // === TERMINATED: release Atlas slot + async drop DB/user ===
+        // === TERMINATED: clear runtime credentials ===
         if (to == ClusterState.TERMINATED) {
             cluster.setTerminatedAt(Instant.now());
             cluster.setSdkStaticToken(null);
             cluster.setBootstrapToken(null);
             log.warn("[Cluster FSM] cluster {} TERMINATED — cleanup triggered", cluster.getId());
-
-            startAsyncDeallocation(cluster);
         }
     }
 
-    // ========== Async provisioning (Atlas MDB + simulated CloudFormation) ==========
+    // ========== Async simulated CloudFormation ==========
 
-    private void startAsyncProvisioning(Cluster cluster) {
+    private void startAsyncCloudFormation(Cluster cluster) {
         Thread.ofVirtual().start(() -> {
             try {
+                // Simulate CloudFormation stack creation delay (5–15s)
                 long delay = 5000 + secureRandom.nextInt(10000);
                 TimeUnit.MILLISECONDS.sleep(delay);
 
@@ -183,22 +171,7 @@ public class ClusterStateMachineService {
                     return; // terminated mid-provision
                 }
 
-                // --- Atlas MDB provisioning ---
-                MdbAllocation allocation = findAllocation(latest);
-                if (allocation != null) {
-                    try {
-                        atlasMdbService.createDatabase(allocation);
-                        atlasMdbService.createDatabaseUser(allocation);
-                        log.info("[Cluster FSM] MdbAllocation {} provisioned (db={}, user={})",
-                            allocation.getId(), allocation.getDatabaseName(), allocation.getDbUsername());
-                    } catch (Exception e) {
-                        log.error("[Cluster FSM] Atlas MDB provisioning failed for cluster {}: {}",
-                            latest.getId(), e.getMessage());
-                        // Even if Atlas fails, let simulated CloudFormation decide final outcome
-                    }
-                }
-
-                // --- Simulated CloudFormation ---
+                // 85% success rate for Week 2 scaffold
                 boolean success = secureRandom.nextInt(100) < 85;
                 if (success) {
                     transition(latest.getId(), ClusterEventType.PROVISION_SUCCESS, "system(auto-provision)");
@@ -209,64 +182,6 @@ public class ClusterStateMachineService {
                 log.error("[Cluster FSM] auto-provisioning error for cluster {}: {}", cluster.getId(), e.getMessage());
             }
         });
-    }
-
-    // ========== Async deallocation ==========
-
-    private void startAsyncDeallocation(Cluster cluster) {
-        Thread.ofVirtual().start(() -> {
-            try {
-                MdbAllocation allocation = findAllocation(cluster);
-                if (allocation != null) {
-                    try {
-                        allocation.setStatus(MdbAllocationStatus.DELETING);
-                        allocationRepo.save(allocation);
-
-                        atlasMdbService.dropDatabaseUser(allocation);
-                        atlasMdbService.dropDatabase(allocation);
-
-                        allocation.setStatus(MdbAllocationStatus.DELETED);
-                        allocation.setDeletedAt(Instant.now());
-                        allocationRepo.save(allocation);
-
-                        log.info("[Cluster FSM] MdbAllocation {} released", allocation.getId());
-                    } catch (Exception e) {
-                        log.warn("[Cluster FSM] Deallocation failed for {}: {}", allocation.getId(), e.getMessage());
-                    }
-                }
-            } catch (Exception e) {
-                log.error("[Cluster FSM] Deallocation error for cluster {}: {}", cluster.getId(), e.getMessage());
-            }
-        });
-    }
-
-    // ========== Helpers ==========
-
-    private MdbAllocation findAllocation(Cluster cluster) {
-        if (cluster.getMdbAllocationId() == null) {
-            log.warn("[Cluster FSM] Cluster {} has no mdbAllocationId", cluster.getId());
-            return null;
-        }
-        return allocationRepo.findById(cluster.getMdbAllocationId()).orElse(null);
-    }
-
-    private void markAllocationReady(Cluster cluster) {
-        MdbAllocation allocation = findAllocation(cluster);
-        if (allocation != null && allocation.getStatus() != MdbAllocationStatus.READY) {
-            allocation.setStatus(MdbAllocationStatus.READY);
-            allocation.setReadyAt(Instant.now());
-            allocationRepo.save(allocation);
-        }
-    }
-
-    private void markAllocationFailed(Cluster cluster) {
-        MdbAllocation allocation = findAllocation(cluster);
-        if (allocation != null) {
-            allocation.setStatus(MdbAllocationStatus.PROVISIONING_FAILED);
-            allocation.setProvisionErrorCode("CLUSTER_PROVISION_FAILED");
-            allocation.setProvisionErrorDetail(cluster.getProvisionErrorDetail());
-            allocationRepo.save(allocation);
-        }
     }
 
     // ========== Result DTO ==========

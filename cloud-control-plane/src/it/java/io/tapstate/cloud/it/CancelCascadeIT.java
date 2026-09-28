@@ -1,94 +1,110 @@
 package io.tapstate.cloud.it;
 
-import io.tapstate.cloud.sdk.ApiException;
-import io.tapstate.cloud.sdk.api.ClustersApi;
-import io.tapstate.cloud.sdk.api.OrganizationsApi;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.tapstate.cloud.sdk.api.SubscriptionApi;
-import io.tapstate.cloud.sdk.model.ClusterResponse;
 import io.tapstate.cloud.sdk.model.ClusterResponse.StateEnum;
-import io.tapstate.cloud.sdk.model.CreateClusterRequest;
+import io.tapstate.cloud.sdk.model.CreateSubscriptionRequest;
+import io.tapstate.cloud.sdk.model.SubscriptionResponse;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.net.http.HttpResponse;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Cancel / termination flows — direct cluster cancel + subscription cancel cascade.
+ * Subscription cancel cascade IT — Cluster termination + MDB reclaim.
  * <p>
- * Covers (Week 2 Gap Closure #3 — cancel endpoint):
- * <ul>
- *   <li>Direct cluster cancel (READY → TERMINATED)</li>
- *   <li>Cancel subscription → async cascade → ALL org clusters reach TERMINATED</li>
- *   <li>Cancel cluster already TERMINATED → idempotent 200</li>
- * </ul>
+ * Cluster creation via subscriptionApi.createSubscription (SDK).
+ * Cancel via subscriptionApi.cancelSubscription (SDK).
+ * Cluster listing via raw HTTP (SDK return-type bug for list).
  */
-@DisplayName("CancelCascadeIT — cluster cancel + subscription→cluster cascade")
+@DisplayName("CancelCascadeIT — subscription cancel cascades Cluster + MDB")
 class CancelCascadeIT extends BaseIT {
 
-    /** Create + READY cluster, return [orgId, clusterId]. */
-    private String[] createProvisionedCluster(String name) throws Exception {
-        signupAndLogin(name.toLowerCase() + "@tapstate.io", "StrongPass123!");
+    private final ObjectMapper mapper = new ObjectMapper();
+    private String orgId;
 
-        String orgId = orgsApi.create(Map.of(
-            "name", "Cancel-" + name,
-            "slug", "cancel-" + name.toLowerCase())).getData().getId();
+    @BeforeEach
+    void setUpOrg() throws Exception {
+        signupAndLogin("cancel-" + System.nanoTime() + "@tapstate.io", "StrongPass123!");
+        HttpResponse<String> resp = get("/v1/orgs", Map.of("Cookie", "TAPSTATE_CLOUD_SESSION=" + sessionCookieValue));
+        JsonNode orgs = mapper.readTree(resp.body()).path("data");
+        orgId = orgs.isArray() ? orgs.get(0).path("id").asText() : orgs.path("id").asText();
+    }
 
-        String clusterId = clustersApi.createCluster(orgId,
-            new CreateClusterRequest().region("ap-southeast-1").name(name)).getData().getId();
+    private String createWithCluster(String clusterName) throws Exception {
+        subscriptionApi.createSubscription(orgId,
+            new CreateSubscriptionRequest().region("ap-southeast-1").clusterName(clusterName).specKey("basic"));
+        // Poll until visible
+        for (int i = 0; i < 10; i++) {
+            HttpResponse<String> resp = get("/v1/orgs/" + orgId + "/clusters",
+                Map.of("Cookie", "TAPSTATE_CLOUD_SESSION=" + sessionCookieValue));
+            JsonNode clusters = mapper.readTree(resp.body()).path("data");
+            if (clusters.isArray()) {
+                for (JsonNode c : clusters) {
+                    if (clusterName.equals(c.path("name").asText())) return c.path("id").asText();
+                }
+            }
+            Thread.sleep(500);
+        }
+        throw new AssertionError("Cluster " + clusterName + " not created");
+    }
 
+    @Test
+    @DisplayName("T1 — Cancel subscription → 1 cluster TERMINATED")
+    void cancelSubscription_cascadesOneCluster() throws Exception {
+        String clusterId = createWithCluster("Single");
         waitForReady(orgId, clusterId);
-        return new String[]{orgId, clusterId};
+
+        subscriptionApi.cancelSubscription(orgId);
+
+        boolean ok = false;
+        for (int i = 0; i < 20; i++) {
+            if (clustersApi.getCluster(orgId, clusterId).getState() == StateEnum.TERMINATED) { ok = true; break; }
+            Thread.sleep(1000);
+        }
+        assertTrue(ok, "Cluster should TERMINATE");
+        assertEquals("CANCELLED", subscriptionApi.getSubscription(orgId).getStatus());
     }
 
     @Test
-    @DisplayName("T1 — Direct cancel cluster → TERMINATED")
-    void cancelCluster_ready_becomesTerminated() throws Exception {
-        String[] t = createProvisionedCluster("Direct");
-        String orgId = t[0], clusterId = t[1];
-
-        ClusterResponse canceled = clustersApi.cancelCluster(orgId, clusterId).getData();
-        assertEquals(StateEnum.TERMINATED, canceled.getState());
-    }
-
-    @Test
-    @DisplayName("T2 — Cancel subscription → 2 clusters cascade to TERMINATED")
-    void cancelSubscription_cascadesAllClusters() throws Exception {
-        signupAndLogin("cascade@tapstate.io", "StrongPass123!");
-
-        String orgId = orgsApi.create(Map.of(
-            "name", "Cascade",
-            "slug", "cascade")).getData().getId();
-
-        String c1 = clustersApi.createCluster(orgId,
-            new CreateClusterRequest().region("ap-southeast-1").name("Cascade-A")).getData().getId();
-        String c2 = clustersApi.createCluster(orgId,
-            new CreateClusterRequest().region("ap-southeast-1").name("Cascade-B")).getData().getId();
-
+    @DisplayName("T2 — Cancel subscription → 2 clusters both TERMINATED")
+    void cancelSubscription_cascadesMultipleClusters() throws Exception {
+        String c1 = createWithCluster("Multi-A");
+        String c2 = createWithCluster("Multi-B");
         waitForReady(orgId, c1);
         waitForReady(orgId, c2);
 
-        // Cancel subscription → async cascade
         subscriptionApi.cancelSubscription(orgId);
-        Thread.sleep(5000);  // @EventListener @Async needs a tick
 
-        assertEquals(StateEnum.TERMINATED, clustersApi.getCluster(orgId, c1).getData().getState(),
-            "Cluster A not terminated");
-        assertEquals(StateEnum.TERMINATED, clustersApi.getCluster(orgId, c2).getData().getState(),
-            "Cluster B not terminated");
+        for (int i = 0; i < 20; i++) {
+            if (clustersApi.getCluster(orgId, c1).getState() == StateEnum.TERMINATED
+                && clustersApi.getCluster(orgId, c2).getState() == StateEnum.TERMINATED) break;
+            Thread.sleep(1000);
+        }
+        assertEquals(StateEnum.TERMINATED, clustersApi.getCluster(orgId, c1).getState());
+        assertEquals(StateEnum.TERMINATED, clustersApi.getCluster(orgId, c2).getState());
     }
 
     @Test
-    @DisplayName("T3 — Cancel already TERMINATED → idempotent success")
-    void cancelTerminated_isIdempotent() throws Exception {
-        String[] t = createProvisionedCluster("Idem");
-        String orgId = t[0], clusterId = t[1];
+    @DisplayName("T3 — Cancel already CANCELLED → idempotent")
+    void cancelAlreadyCancelled_isIdempotent() throws Exception {
+        subscriptionApi.cancelSubscription(orgId);
+        SubscriptionResponse first = subscriptionApi.getSubscription(orgId);
+        assertEquals("CANCELLED", first.getStatus());
 
-        clustersApi.cancelCluster(orgId, clusterId);
+        subscriptionApi.cancelSubscription(orgId);
+        SubscriptionResponse second = subscriptionApi.getSubscription(orgId);
+        assertEquals("CANCELLED", second.getStatus());
+    }
 
-        // Second cancel — should still return TERMINATED
-        ClusterResponse r2 = clustersApi.cancelCluster(orgId, clusterId).getData();
-        assertEquals(StateEnum.TERMINATED, r2.getState());
+    @Test
+    @DisplayName("T4 — Cancel org with no clusters → safe no-op")
+    void cancelSubscription_noClusters_isSafe() {
+        assertDoesNotThrow(() -> subscriptionApi.cancelSubscription(orgId));
     }
 }

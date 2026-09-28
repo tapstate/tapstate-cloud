@@ -2,10 +2,10 @@ package io.tapstate.cloud.it;
 
 import io.tapstate.cloud.sdk.ApiException;
 import io.tapstate.cloud.sdk.api.AuthApi;
-import io.tapstate.cloud.sdk.model.ApiResponseLoginResult;
-import io.tapstate.cloud.sdk.model.ApiResponseUserResponse;
 import io.tapstate.cloud.sdk.model.LoginRequest;
+import io.tapstate.cloud.sdk.model.LoginResult;
 import io.tapstate.cloud.sdk.model.RegisterRequest;
+import io.tapstate.cloud.sdk.model.UserResponse;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -34,14 +34,13 @@ class AuthSessionIT extends BaseIT {
     @Test
     @DisplayName("T1 — Register new user → 201, ApiResponse envelope unwrapped via .getData()")
     void register_returns201() throws ApiException {
-        ApiResponseUserResponse resp = authApi.register(
+        UserResponse resp = authApi.register(
             new RegisterRequest().email(EMAIL).password(PASSWORD).displayName("IT User"));
         captureSessionCookie();
 
-        assertEquals("ok", resp.getCode(), "Business code should be 'ok'");
-        assertNotNull(resp.getData(), "ApiResponse.data should not be null");
-        assertNotNull(resp.getData().getId(), "User id should be present");
-        assertEquals(EMAIL, resp.getData().getEmail(), "User email should match");
+        assertEquals("ACTIVE", resp.getStatus(), "User status should be ACTIVE");
+        assertNotNull(resp.getId(), "User id should be present");
+        assertEquals(EMAIL, resp.getEmail(), "User email should match");
     }
 
     @Test
@@ -60,16 +59,16 @@ class AuthSessionIT extends BaseIT {
         signupAndLogin(EMAIL, PASSWORD);
         assertNotNull(sessionCookieValue, "Session cookie should be captured after login");
 
-        ApiResponseLoginResult meResp = authApi.me();
-        assertNotNull(meResp.getData(), "ApiResponse.data should not be null");
-        assertEquals(EMAIL, meResp.getData().getEmail(), "Authenticated user should match");
+        LoginResult meResp = authApi.me();
+        assertNotNull(meResp, "me() should return data");
+        assertEquals(EMAIL, meResp.getEmail(), "Authenticated user should match");
     }
 
     @Test
     @DisplayName("T4 — Logout → session invalidated → /me returns 401")
     void logout_invalidatesSession() throws ApiException {
         signupAndLogin(EMAIL, PASSWORD);
-        assertNotNull(authApi.me().getData(), "me() should return data before logout");
+        assertNotNull(authApi.me(), "me() should return data before logout");
         authApi.logout();
 
         ApiException ex = assertThrows(ApiException.class, () -> authApi.me());

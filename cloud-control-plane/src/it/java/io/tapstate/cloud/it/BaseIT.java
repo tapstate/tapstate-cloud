@@ -225,7 +225,7 @@ public abstract class BaseIT {
         for (int i = 0; i < maxAttempts; i++) {
             try {
                 var resp = clustersApi.getCluster(orgId, clusterId);
-                String state = resp.getData().getState().getValue();
+                String state = resp.getState().getValue();
                 if (targetState.equals(state)) return;
             } catch (Exception ignored) { /* keep polling */ }
             Thread.sleep(intervalMs);

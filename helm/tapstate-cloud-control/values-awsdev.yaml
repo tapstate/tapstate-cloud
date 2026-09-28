@@ -1,0 +1,33 @@
+# ============================================================
+# awsdev environment — ECR image + AWS EC2 k3s cluster
+# Usage:
+#   helm install tapstate-cloud-control ./helm/tapstate-cloud-control \
+#     -f helm/tapstate-cloud-control/values.yaml \
+#     -f helm/tapstate-cloud-control/values-awsdev.yaml \
+#     -n tapstate --create-namespace
+# ============================================================
+
+replicaCount: 1
+
+image:
+  # ECR (AWS HK ap-east-1) — immutable tags, use per-deploy timestamp
+  repository: 263186327888.dkr.ecr.ap-east-1.amazonaws.com/tapstate-cloud/tapstate-cloud-control
+  pullPolicy: IfNotPresent
+  tag: "awsdev-20260928-1612"
+
+# ECR uses IAM auth — in k3s we use pull secret created by deploy.sh
+imagePullSecrets:
+  - name: tapstate-ecr-pull
+
+# Single-node k3s on EC2 — no nodeSelector needed
+config:
+  springProfilesActive: dev
+  corsAllowedOrigins: "*"
+
+service:
+  type: NodePort
+  port: 8080
+  nodePort: 30180
+
+ingress:
+  enabled: false

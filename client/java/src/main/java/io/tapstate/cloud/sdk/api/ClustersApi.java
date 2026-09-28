@@ -22,7 +22,7 @@ import io.tapstate.cloud.sdk.Pair;
 
 import io.tapstate.cloud.sdk.model.ApiResponseClusterResponse;
 import io.tapstate.cloud.sdk.model.ApiResponseListClusterResponse;
-import io.tapstate.cloud.sdk.model.CreateClusterRequest;
+import io.tapstate.cloud.sdk.model.ClusterResponse;
 
 
 import java.util.ArrayList;
@@ -32,7 +32,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.StringJoiner;
 
-@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-28T08:51:50.502820+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
+@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-28T20:46:36.289357+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
 public class ClustersApi extends BaseApi {
 
   public ClustersApi() {
@@ -44,179 +44,14 @@ public class ClustersApi extends BaseApi {
   }
 
   /**
-   * Cancel subscription — terminate this Cluster
-   * Initiates Cluster termination by firing the state-machine INITIATE_TERMINATION event.  State transition chain (ADR-0124 D3):   READY / DEGRADED / PROVISIONING_FAILED → DRAINING → TERMINATED  Resource cleanup (Async): CloudFormation deleteStack → kubectl delete Secret → Atlas deleteDatabase → Route53 delete alias.  Allowed states: READY, DEGRADED, PROVISIONING_FAILED. Rejected: PROVISIONING_PENDING / PROVISIONING (wait for completion), TERMINATED (already done, idempotent success).
-   * @param orgId Organization UUID (required)
-   * @param clusterId Cluster UUID (required)
-   * @return ApiResponseClusterResponse
-   * @throws ApiException if fails to make API call
-   */
-  public ApiResponseClusterResponse cancelCluster(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull String clusterId) throws ApiException {
-    return this.cancelCluster(orgId, clusterId, Collections.emptyMap());
-  }
-
-
-  /**
-   * Cancel subscription — terminate this Cluster
-   * Initiates Cluster termination by firing the state-machine INITIATE_TERMINATION event.  State transition chain (ADR-0124 D3):   READY / DEGRADED / PROVISIONING_FAILED → DRAINING → TERMINATED  Resource cleanup (Async): CloudFormation deleteStack → kubectl delete Secret → Atlas deleteDatabase → Route53 delete alias.  Allowed states: READY, DEGRADED, PROVISIONING_FAILED. Rejected: PROVISIONING_PENDING / PROVISIONING (wait for completion), TERMINATED (already done, idempotent success).
-   * @param orgId Organization UUID (required)
-   * @param clusterId Cluster UUID (required)
-   * @param additionalHeaders additionalHeaders for this call
-   * @return ApiResponseClusterResponse
-   * @throws ApiException if fails to make API call
-   */
-  public ApiResponseClusterResponse cancelCluster(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull String clusterId, Map<String, String> additionalHeaders) throws ApiException {
-    Object localVarPostBody = null;
-    
-    // verify the required parameter 'orgId' is set
-    if (orgId == null) {
-      throw new ApiException(400, "Missing the required parameter 'orgId' when calling cancelCluster");
-    }
-    
-    // verify the required parameter 'clusterId' is set
-    if (clusterId == null) {
-      throw new ApiException(400, "Missing the required parameter 'clusterId' when calling cancelCluster");
-    }
-    
-    // create path and map variables
-    String localVarPath = "/v1/orgs/{orgId}/clusters/{clusterId}/cancel"
-      .replaceAll("\\{" + "orgId" + "\\}", apiClient.escapeString(apiClient.parameterToString(orgId)))
-      .replaceAll("\\{" + "clusterId" + "\\}", apiClient.escapeString(apiClient.parameterToString(clusterId)));
-
-    StringJoiner localVarQueryStringJoiner = new StringJoiner("&");
-    String localVarQueryParameterBaseName;
-    List<Pair> localVarQueryParams = new ArrayList<Pair>();
-    List<Pair> localVarCollectionQueryParams = new ArrayList<Pair>();
-    Map<String, String> localVarHeaderParams = new HashMap<String, String>();
-    Map<String, String> localVarCookieParams = new HashMap<String, String>();
-    Map<String, Object> localVarFormParams = new HashMap<String, Object>();
-
-    
-    localVarHeaderParams.putAll(additionalHeaders);
-
-    
-    
-    final String[] localVarAccepts = {
-      "*/*"
-    };
-    final String localVarAccept = apiClient.selectHeaderAccept(localVarAccepts);
-
-    final String[] localVarContentTypes = {
-      
-    };
-    final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
-
-    String[] localVarAuthNames = new String[] { "session-cookie" };
-
-    TypeReference<ApiResponseClusterResponse> localVarReturnType = new TypeReference<ApiResponseClusterResponse>() {};
-    return apiClient.invokeAPI(
-        localVarPath,
-        "POST",
-        localVarQueryParams,
-        localVarCollectionQueryParams,
-        localVarQueryStringJoiner.toString(),
-        localVarPostBody,
-        localVarHeaderParams,
-        localVarCookieParams,
-        localVarFormParams,
-        localVarAccept,
-        localVarContentType,
-        localVarAuthNames,
-        localVarReturnType
-    );
-  }
-
-  /**
-   * Create Cluster (async auto-provisioning)
-   * Creates a new Cluster and triggers Global Control Plane auto-provisioning. Returns immediately with state PROVISIONING_PENDING — poll GET for state updates.  Provisioning pipeline: CloudFormation → EC2 + security group → k3s Secret (atlas-uri + sdk-static-token) → Atlas Admin API DB+User+Secret → Route53 → ready.  Idempotency: orgId + region + name must be unique. Duplicate returns 409. Cluster creation is gated by subscription status (TRIAL / ACTIVE only).
-   * @param orgId Organization UUID (required)
-   * @param createClusterRequest  (required)
-   * @return ApiResponseClusterResponse
-   * @throws ApiException if fails to make API call
-   */
-  public ApiResponseClusterResponse createCluster(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull CreateClusterRequest createClusterRequest) throws ApiException {
-    return this.createCluster(orgId, createClusterRequest, Collections.emptyMap());
-  }
-
-
-  /**
-   * Create Cluster (async auto-provisioning)
-   * Creates a new Cluster and triggers Global Control Plane auto-provisioning. Returns immediately with state PROVISIONING_PENDING — poll GET for state updates.  Provisioning pipeline: CloudFormation → EC2 + security group → k3s Secret (atlas-uri + sdk-static-token) → Atlas Admin API DB+User+Secret → Route53 → ready.  Idempotency: orgId + region + name must be unique. Duplicate returns 409. Cluster creation is gated by subscription status (TRIAL / ACTIVE only).
-   * @param orgId Organization UUID (required)
-   * @param createClusterRequest  (required)
-   * @param additionalHeaders additionalHeaders for this call
-   * @return ApiResponseClusterResponse
-   * @throws ApiException if fails to make API call
-   */
-  public ApiResponseClusterResponse createCluster(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull CreateClusterRequest createClusterRequest, Map<String, String> additionalHeaders) throws ApiException {
-    Object localVarPostBody = createClusterRequest;
-    
-    // verify the required parameter 'orgId' is set
-    if (orgId == null) {
-      throw new ApiException(400, "Missing the required parameter 'orgId' when calling createCluster");
-    }
-    
-    // verify the required parameter 'createClusterRequest' is set
-    if (createClusterRequest == null) {
-      throw new ApiException(400, "Missing the required parameter 'createClusterRequest' when calling createCluster");
-    }
-    
-    // create path and map variables
-    String localVarPath = "/v1/orgs/{orgId}/clusters"
-      .replaceAll("\\{" + "orgId" + "\\}", apiClient.escapeString(apiClient.parameterToString(orgId)));
-
-    StringJoiner localVarQueryStringJoiner = new StringJoiner("&");
-    String localVarQueryParameterBaseName;
-    List<Pair> localVarQueryParams = new ArrayList<Pair>();
-    List<Pair> localVarCollectionQueryParams = new ArrayList<Pair>();
-    Map<String, String> localVarHeaderParams = new HashMap<String, String>();
-    Map<String, String> localVarCookieParams = new HashMap<String, String>();
-    Map<String, Object> localVarFormParams = new HashMap<String, Object>();
-
-    
-    localVarHeaderParams.putAll(additionalHeaders);
-
-    
-    
-    final String[] localVarAccepts = {
-      "*/*"
-    };
-    final String localVarAccept = apiClient.selectHeaderAccept(localVarAccepts);
-
-    final String[] localVarContentTypes = {
-      "application/json"
-    };
-    final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
-
-    String[] localVarAuthNames = new String[] { "session-cookie" };
-
-    TypeReference<ApiResponseClusterResponse> localVarReturnType = new TypeReference<ApiResponseClusterResponse>() {};
-    return apiClient.invokeAPI(
-        localVarPath,
-        "POST",
-        localVarQueryParams,
-        localVarCollectionQueryParams,
-        localVarQueryStringJoiner.toString(),
-        localVarPostBody,
-        localVarHeaderParams,
-        localVarCookieParams,
-        localVarFormParams,
-        localVarAccept,
-        localVarContentType,
-        localVarAuthNames,
-        localVarReturnType
-    );
-  }
-
-  /**
    * Get Cluster by ID
    * Returns detailed Cluster info including state, provisioning error code (if failed), runtime metadata (public DNS, Elastic IP, runtime ID), and heartbeat timestamps. Requires Cloud session + Organization membership + Cluster ownership.
    * @param orgId Organization UUID (required)
    * @param clusterId Cluster UUID (required)
-   * @return ApiResponseClusterResponse
+   * @return ClusterResponse
    * @throws ApiException if fails to make API call
    */
-  public ApiResponseClusterResponse getCluster(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull String clusterId) throws ApiException {
+  public ClusterResponse getCluster(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull String clusterId) throws ApiException {
     return this.getCluster(orgId, clusterId, Collections.emptyMap());
   }
 
@@ -227,10 +62,10 @@ public class ClustersApi extends BaseApi {
    * @param orgId Organization UUID (required)
    * @param clusterId Cluster UUID (required)
    * @param additionalHeaders additionalHeaders for this call
-   * @return ApiResponseClusterResponse
+   * @return ClusterResponse
    * @throws ApiException if fails to make API call
    */
-  public ApiResponseClusterResponse getCluster(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull String clusterId, Map<String, String> additionalHeaders) throws ApiException {
+  public ClusterResponse getCluster(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull String clusterId, Map<String, String> additionalHeaders) throws ApiException {
     Object localVarPostBody = null;
     
     // verify the required parameter 'orgId' is set
@@ -273,7 +108,7 @@ public class ClustersApi extends BaseApi {
 
     String[] localVarAuthNames = new String[] { "session-cookie" };
 
-    TypeReference<ApiResponseClusterResponse> localVarReturnType = new TypeReference<ApiResponseClusterResponse>() {};
+    TypeReference<ClusterResponse> localVarReturnType = new TypeReference<ClusterResponse>() {};
     return apiClient.invokeAPI(
         localVarPath,
         "GET",
@@ -295,10 +130,10 @@ public class ClustersApi extends BaseApi {
    * List clusters in organization
    * Returns all Clusters owned by this Organization that the current user has access to. Requires a valid Cloud Console session.
    * @param orgId Organization UUID (required)
-   * @return ApiResponseClusterResponse
+   * @return ClusterResponse
    * @throws ApiException if fails to make API call
    */
-  public ApiResponseClusterResponse listClusters(@jakarta.annotation.Nonnull String orgId) throws ApiException {
+  public ClusterResponse listClusters(@jakarta.annotation.Nonnull String orgId) throws ApiException {
     return this.listClusters(orgId, Collections.emptyMap());
   }
 
@@ -308,10 +143,10 @@ public class ClustersApi extends BaseApi {
    * Returns all Clusters owned by this Organization that the current user has access to. Requires a valid Cloud Console session.
    * @param orgId Organization UUID (required)
    * @param additionalHeaders additionalHeaders for this call
-   * @return ApiResponseClusterResponse
+   * @return ClusterResponse
    * @throws ApiException if fails to make API call
    */
-  public ApiResponseClusterResponse listClusters(@jakarta.annotation.Nonnull String orgId, Map<String, String> additionalHeaders) throws ApiException {
+  public ClusterResponse listClusters(@jakarta.annotation.Nonnull String orgId, Map<String, String> additionalHeaders) throws ApiException {
     Object localVarPostBody = null;
     
     // verify the required parameter 'orgId' is set
@@ -348,7 +183,7 @@ public class ClustersApi extends BaseApi {
 
     String[] localVarAuthNames = new String[] { "session-cookie" };
 
-    TypeReference<ApiResponseClusterResponse> localVarReturnType = new TypeReference<ApiResponseClusterResponse>() {};
+    TypeReference<ClusterResponse> localVarReturnType = new TypeReference<ClusterResponse>() {};
     return apiClient.invokeAPI(
         localVarPath,
         "GET",
@@ -368,27 +203,27 @@ public class ClustersApi extends BaseApi {
 
   /**
    * Retry provisioning_failed Cluster
-   * Retries a Cluster that previously failed provisioning (state &#x3D; PROVISIONING_FAILED).  StateMachine cleanup flow: clears residual resources from the failed attempt (CloudFormation stacks, k3s Secrets, Atlas resources) → re-triggers the full provisioning pipeline from PROVISIONING_PENDING.  Returns 409 if the Cluster is not in PROVISIONING_FAILED state.
+   * Retries a Cluster that previously failed provisioning (state &#x3D; PROVISIONING_FAILED).  StateMachine cleanup flow: clears residual resources from the failed attempt → re-triggers the full provisioning pipeline from PROVISIONING_PENDING.  Returns 409 if the Cluster is not in PROVISIONING_FAILED state.
    * @param orgId Organization UUID (required)
    * @param clusterId Cluster UUID (required)
-   * @return ApiResponseClusterResponse
+   * @return ClusterResponse
    * @throws ApiException if fails to make API call
    */
-  public ApiResponseClusterResponse retryCluster(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull String clusterId) throws ApiException {
+  public ClusterResponse retryCluster(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull String clusterId) throws ApiException {
     return this.retryCluster(orgId, clusterId, Collections.emptyMap());
   }
 
 
   /**
    * Retry provisioning_failed Cluster
-   * Retries a Cluster that previously failed provisioning (state &#x3D; PROVISIONING_FAILED).  StateMachine cleanup flow: clears residual resources from the failed attempt (CloudFormation stacks, k3s Secrets, Atlas resources) → re-triggers the full provisioning pipeline from PROVISIONING_PENDING.  Returns 409 if the Cluster is not in PROVISIONING_FAILED state.
+   * Retries a Cluster that previously failed provisioning (state &#x3D; PROVISIONING_FAILED).  StateMachine cleanup flow: clears residual resources from the failed attempt → re-triggers the full provisioning pipeline from PROVISIONING_PENDING.  Returns 409 if the Cluster is not in PROVISIONING_FAILED state.
    * @param orgId Organization UUID (required)
    * @param clusterId Cluster UUID (required)
    * @param additionalHeaders additionalHeaders for this call
-   * @return ApiResponseClusterResponse
+   * @return ClusterResponse
    * @throws ApiException if fails to make API call
    */
-  public ApiResponseClusterResponse retryCluster(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull String clusterId, Map<String, String> additionalHeaders) throws ApiException {
+  public ClusterResponse retryCluster(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull String clusterId, Map<String, String> additionalHeaders) throws ApiException {
     Object localVarPostBody = null;
     
     // verify the required parameter 'orgId' is set
@@ -431,7 +266,7 @@ public class ClustersApi extends BaseApi {
 
     String[] localVarAuthNames = new String[] { "session-cookie" };
 
-    TypeReference<ApiResponseClusterResponse> localVarReturnType = new TypeReference<ApiResponseClusterResponse>() {};
+    TypeReference<ClusterResponse> localVarReturnType = new TypeReference<ClusterResponse>() {};
     return apiClient.invokeAPI(
         localVarPath,
         "POST",

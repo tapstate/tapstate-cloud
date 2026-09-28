@@ -24,7 +24,9 @@ import io.tapstate.cloud.sdk.model.ApiResponseLoginResult;
 import io.tapstate.cloud.sdk.model.ApiResponseUserResponse;
 import io.tapstate.cloud.sdk.model.ApiResponseVoid;
 import io.tapstate.cloud.sdk.model.LoginRequest;
+import io.tapstate.cloud.sdk.model.LoginResult;
 import io.tapstate.cloud.sdk.model.RegisterRequest;
+import io.tapstate.cloud.sdk.model.UserResponse;
 
 
 import java.util.ArrayList;
@@ -34,7 +36,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.StringJoiner;
 
-@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-28T08:51:50.502820+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
+@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-28T20:46:36.289357+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
 public class AuthApi extends BaseApi {
 
   public AuthApi() {
@@ -189,10 +191,10 @@ public class AuthApi extends BaseApi {
   /**
    * Get current user info
    * Return the authenticated user&#39;s profile. Session cookie required.
-   * @return ApiResponseLoginResult
+   * @return LoginResult
    * @throws ApiException if fails to make API call
    */
-  public ApiResponseLoginResult me() throws ApiException {
+  public LoginResult me() throws ApiException {
     return this.me(Collections.emptyMap());
   }
 
@@ -201,10 +203,10 @@ public class AuthApi extends BaseApi {
    * Get current user info
    * Return the authenticated user&#39;s profile. Session cookie required.
    * @param additionalHeaders additionalHeaders for this call
-   * @return ApiResponseLoginResult
+   * @return LoginResult
    * @throws ApiException if fails to make API call
    */
-  public ApiResponseLoginResult me(Map<String, String> additionalHeaders) throws ApiException {
+  public LoginResult me(Map<String, String> additionalHeaders) throws ApiException {
     Object localVarPostBody = null;
     
     // create path and map variables
@@ -235,7 +237,7 @@ public class AuthApi extends BaseApi {
 
     String[] localVarAuthNames = new String[] { "session-cookie" };
 
-    TypeReference<ApiResponseLoginResult> localVarReturnType = new TypeReference<ApiResponseLoginResult>() {};
+    TypeReference<LoginResult> localVarReturnType = new TypeReference<LoginResult>() {};
     return apiClient.invokeAPI(
         localVarPath,
         "GET",
@@ -257,10 +259,10 @@ public class AuthApi extends BaseApi {
    * Register new user
    * Create a new Cloud Console account with email + password. In Week 2 preview, email is auto-verified (magic link deferred).
    * @param registerRequest  (required)
-   * @return ApiResponseUserResponse
+   * @return UserResponse
    * @throws ApiException if fails to make API call
    */
-  public ApiResponseUserResponse register(@jakarta.annotation.Nonnull RegisterRequest registerRequest) throws ApiException {
+  public UserResponse register(@jakarta.annotation.Nonnull RegisterRequest registerRequest) throws ApiException {
     return this.register(registerRequest, Collections.emptyMap());
   }
 
@@ -270,10 +272,10 @@ public class AuthApi extends BaseApi {
    * Create a new Cloud Console account with email + password. In Week 2 preview, email is auto-verified (magic link deferred).
    * @param registerRequest  (required)
    * @param additionalHeaders additionalHeaders for this call
-   * @return ApiResponseUserResponse
+   * @return UserResponse
    * @throws ApiException if fails to make API call
    */
-  public ApiResponseUserResponse register(@jakarta.annotation.Nonnull RegisterRequest registerRequest, Map<String, String> additionalHeaders) throws ApiException {
+  public UserResponse register(@jakarta.annotation.Nonnull RegisterRequest registerRequest, Map<String, String> additionalHeaders) throws ApiException {
     Object localVarPostBody = registerRequest;
     
     // verify the required parameter 'registerRequest' is set
@@ -309,7 +311,7 @@ public class AuthApi extends BaseApi {
 
     String[] localVarAuthNames = new String[] { "session-cookie" };
 
-    TypeReference<ApiResponseUserResponse> localVarReturnType = new TypeReference<ApiResponseUserResponse>() {};
+    TypeReference<UserResponse> localVarReturnType = new TypeReference<UserResponse>() {};
     return apiClient.invokeAPI(
         localVarPath,
         "POST",

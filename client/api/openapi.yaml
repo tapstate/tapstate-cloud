@@ -36,6 +36,9 @@ tags:
 - name: Exchange
   description: Atomic exchange_code → resolve JWT redemption. Called by Cluster Server
     backend only — JWT never reaches the browser (ADR-0125).
+- name: Subscription
+  description: "Organization subscription — create with initial Cluster, view status\
+    \ and items"
 - name: Organizations
   description: Organization management — isolation boundary for Clusters
 - name: C2 Status Report
@@ -48,14 +51,12 @@ tags:
     verification.
 - name: Auth
   description: "Cloud Console authentication — register, login, session management"
+- name: Clusters
+  description: Cluster read + retry — lifecycle managed via Subscription
 - name: Regions
   description: Available AWS regions for Cluster provisioning
-- name: Subscription
-  description: "Organization subscription — view status, items and billing period"
 - name: Health
   description: Health check endpoints
-- name: Clusters
-  description: "Cluster lifecycle — create, list, retry provisioning"
 paths:
   /v1/orgs:
     get:
@@ -71,7 +72,7 @@ paths:
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/ApiResponseOrganizationResponse"
+                $ref: "#/components/schemas/OrganizationResponse"
         "401":
           description: Not authenticated
           content:
@@ -102,25 +103,135 @@ paths:
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/ApiResponseOrganizationResponse"
+                $ref: "#/components/schemas/OrganizationResponse"
         "400":
           description: "Invalid input (missing name/slug, slug format)"
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/OrganizationResponse"
+                $ref: "#/components/schemas/ApiResponseOrganizationResponse"
         "401":
           description: Not authenticated
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/OrganizationResponse"
+                $ref: "#/components/schemas/ApiResponseOrganizationResponse"
         "409":
           description: Slug already taken
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/OrganizationResponse"
+                $ref: "#/components/schemas/ApiResponseOrganizationResponse"
+  /v1/orgs/{orgId}/subscription:
+    get:
+      tags:
+      - Subscription
+      summary: View organization subscription
+      description: |-
+        Returns the Organization's current subscription status, billing period, and item breakdown.
+
+        Subscription states: TRIAL (free trial) / ACTIVE (paid) / PAST_DUE (grace period) / CANCELLED (terminated).
+
+        Poll this endpoint to track async Cluster + MDB provisioning progress.
+      operationId: getSubscription
+      parameters:
+      - name: orgId
+        in: path
+        description: Organization UUID
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          description: Subscription details
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/SubscriptionResponse"
+        "401":
+          description: Not authenticated
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+        "403":
+          description: Not a member of this Organization
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+        "404":
+          description: Subscription not found
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+    post:
+      tags:
+      - Subscription
+      summary: Create subscription with initial Cluster + MDB allocation
+      description: |-
+        Creates a new subscription (TRIAL, 30-day period) with the two default billable items, then synchronously provisions an initial Cluster record and Atlas MDB allocation.
+
+        Async provisioning (fired by state machines):
+          - Cluster state machine: START_PROVISION → CloudFormation simulation → READY/PROVISIONING_FAILED
+          - MDB state machine: START_PROVISION → Atlas createDatabase + createDatabaseUser → READY/PROVISIONING_FAILED
+
+        Both flows run in parallel. Poll GET /subscription to track overall progress.
+
+        Idempotency: if the org already has a subscription shell, reuses it and adds one Cluster.
+      operationId: createSubscription
+      parameters:
+      - name: orgId
+        in: path
+        description: Organization UUID
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSubscriptionRequest"
+        required: true
+      responses:
+        "201":
+          description: "Subscription created, Cluster + MDB allocation provisioning\
+            \ pending"
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/SubscriptionResponse"
+        "400":
+          description: Invalid input (missing region/name/spec)
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+        "401":
+          description: Not authenticated
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+        "403":
+          description: Not a member of this Organization
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+        "409":
+          description: Duplicate cluster name in org + region
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+        "503":
+          description: No Atlas capacity for the requested region
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
   /v1/orgs/{orgId}/subscription/status:
     post:
       tags:
@@ -129,7 +240,7 @@ paths:
       description: |-
         Internal admin endpoint for subscription state transition.
 
-        Used in Week 2 to simulate PAST_DUE / CANCELLED states for testing Cluster provisioning gating. Production version (Week 12) will be driven by Marketplace billing callbacks instead.
+        Used in Week 2 to simulate PAST_DUE / CANCELLED states for testing. Production version (Week 12) will be driven by Marketplace billing callbacks.
 
         Accepted status values: TRIAL / ACTIVE / PAST_DUE / CANCELLED.
       operationId: transitionStatus
@@ -154,7 +265,7 @@ paths:
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+                $ref: "#/components/schemas/SubscriptionResponse"
         "400":
           description: Invalid status value or missing field
           content:
@@ -171,11 +282,11 @@ paths:
     post:
       tags:
       - Subscription
-      summary: Cancel subscription — auto-terminate all org clusters
+      summary: Cancel subscription — auto-terminate all org clusters + reclaim MDB
       description: |-
-        Cancels this Organization's subscription (state → CANCELLED) and triggers cascade termination of every non-terminated Cluster owned by this org.
+        Cancels this Organization's subscription (state → CANCELLED) and triggers cascade termination of every non-terminated Cluster + MDB allocation owned by this org.
 
-        Cascade runs asynchronously via Cluster state-machine INITIATE_TERMINATION events. This endpoint returns immediately; Cluster TERMINATED transitions land in the background.
+        Cascade runs asynchronously via Cluster state-machine INITIATE_TERMINATION events and MDB state-machine INITIATE_RECLAIM events. This endpoint returns immediately.
 
         Safe to call on an already-cancelled subscription (idempotent).
       operationId: cancelSubscription
@@ -192,7 +303,7 @@ paths:
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+                $ref: "#/components/schemas/SubscriptionResponse"
         "401":
           description: Not authenticated
           content:
@@ -211,96 +322,6 @@ paths:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
-  /v1/orgs/{orgId}/clusters:
-    get:
-      tags:
-      - Clusters
-      summary: List clusters in organization
-      description: Returns all Clusters owned by this Organization that the current
-        user has access to. Requires a valid Cloud Console session.
-      operationId: listClusters
-      parameters:
-      - name: orgId
-        in: path
-        description: Organization UUID
-        required: true
-        schema:
-          type: string
-      responses:
-        "200":
-          description: List of Clusters
-          content:
-            '*/*':
-              schema:
-                $ref: "#/components/schemas/ApiResponseClusterResponse"
-        "401":
-          description: Not authenticated
-          content:
-            '*/*':
-              schema:
-                $ref: "#/components/schemas/ApiResponseListClusterResponse"
-        "403":
-          description: Not a member of this Organization
-          content:
-            '*/*':
-              schema:
-                $ref: "#/components/schemas/ApiResponseListClusterResponse"
-    post:
-      tags:
-      - Clusters
-      summary: Create Cluster (async auto-provisioning)
-      description: |-
-        Creates a new Cluster and triggers Global Control Plane auto-provisioning. Returns immediately with state PROVISIONING_PENDING — poll GET for state updates.
-
-        Provisioning pipeline: CloudFormation → EC2 + security group → k3s Secret (atlas-uri + sdk-static-token) → Atlas Admin API DB+User+Secret → Route53 → ready.
-
-        Idempotency: orgId + region + name must be unique. Duplicate returns 409.
-        Cluster creation is gated by subscription status (TRIAL / ACTIVE only).
-      operationId: createCluster
-      parameters:
-      - name: orgId
-        in: path
-        description: Organization UUID
-        required: true
-        schema:
-          type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CreateClusterRequest"
-        required: true
-      responses:
-        "201":
-          description: "Cluster created, provisioning pending"
-          content:
-            '*/*':
-              schema:
-                $ref: "#/components/schemas/ApiResponseClusterResponse"
-        "400":
-          description: Invalid input
-          content:
-            '*/*':
-              schema:
-                $ref: "#/components/schemas/ApiResponseClusterResponse"
-        "401":
-          description: Not authenticated
-          content:
-            '*/*':
-              schema:
-                $ref: "#/components/schemas/ApiResponseClusterResponse"
-        "403":
-          description: Subscription not active (PAST_DUE / CANCELLED)
-          content:
-            '*/*':
-              schema:
-                $ref: "#/components/schemas/ApiResponseClusterResponse"
-        "409":
-          description: Duplicate cluster name in org + region
-          content:
-            '*/*':
-              schema:
-                $ref: "#/components/schemas/ApiResponseClusterResponse"
   /v1/orgs/{orgId}/clusters/{clusterId}/retry:
     post:
       tags:
@@ -309,7 +330,7 @@ paths:
       description: |-
         Retries a Cluster that previously failed provisioning (state = PROVISIONING_FAILED).
 
-        StateMachine cleanup flow: clears residual resources from the failed attempt (CloudFormation stacks, k3s Secrets, Atlas resources) → re-triggers the full provisioning pipeline from PROVISIONING_PENDING.
+        StateMachine cleanup flow: clears residual resources from the failed attempt → re-triggers the full provisioning pipeline from PROVISIONING_PENDING.
 
         Returns 409 if the Cluster is not in PROVISIONING_FAILED state.
       operationId: retryCluster
@@ -332,7 +353,7 @@ paths:
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/ApiResponseClusterResponse"
+                $ref: "#/components/schemas/ClusterResponse"
         "401":
           description: Not authenticated
           content:
@@ -353,66 +374,6 @@ paths:
                 $ref: "#/components/schemas/ApiResponseClusterResponse"
         "409":
           description: Cluster not in PROVISIONING_FAILED state
-          content:
-            '*/*':
-              schema:
-                $ref: "#/components/schemas/ApiResponseClusterResponse"
-  /v1/orgs/{orgId}/clusters/{clusterId}/cancel:
-    post:
-      tags:
-      - Clusters
-      summary: Cancel subscription — terminate this Cluster
-      description: |-
-        Initiates Cluster termination by firing the state-machine INITIATE_TERMINATION event.
-
-        State transition chain (ADR-0124 D3):
-          READY / DEGRADED / PROVISIONING_FAILED → DRAINING → TERMINATED
-
-        Resource cleanup (Async): CloudFormation deleteStack → kubectl delete Secret → Atlas deleteDatabase → Route53 delete alias.
-
-        Allowed states: READY, DEGRADED, PROVISIONING_FAILED.
-        Rejected: PROVISIONING_PENDING / PROVISIONING (wait for completion), TERMINATED (already done, idempotent success).
-      operationId: cancelCluster
-      parameters:
-      - name: orgId
-        in: path
-        description: Organization UUID
-        required: true
-        schema:
-          type: string
-      - name: clusterId
-        in: path
-        description: Cluster UUID
-        required: true
-        schema:
-          type: string
-      responses:
-        "200":
-          description: "Termination initiated, state → DRAINING or already TERMINATED"
-          content:
-            '*/*':
-              schema:
-                $ref: "#/components/schemas/ApiResponseClusterResponse"
-        "401":
-          description: Not authenticated
-          content:
-            '*/*':
-              schema:
-                $ref: "#/components/schemas/ApiResponseClusterResponse"
-        "403":
-          description: Not cluster owner
-          content:
-            '*/*':
-              schema:
-                $ref: "#/components/schemas/ApiResponseClusterResponse"
-        "404":
-          description: Cluster not found
-          content:
-            '*/*':
-              schema:
-                $ref: "#/components/schemas/ApiResponseClusterResponse"
-        "409":
-          description: Cluster in PROVISIONING_PENDING / PROVISIONING — wait first
           content:
             '*/*':
               schema:
@@ -457,7 +418,7 @@ paths:
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/ApiResponseStatusReportResponse"
+                $ref: "#/components/schemas/StatusReportResponse"
         "401":
           description: SDK token missing or invalid (auth.sdk-token-invalid)
           content:
@@ -496,7 +457,7 @@ paths:
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/ApiResponseUserResponse"
+                $ref: "#/components/schemas/UserResponse"
         "400":
           description: Invalid input or email already registered
           content:
@@ -593,7 +554,7 @@ paths:
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/ApiResponseExchangeResponse"
+                $ref: "#/components/schemas/ExchangeResponse"
         "401":
           description: |-
             Exchange failed:
@@ -620,7 +581,7 @@ paths:
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/ApiResponseRegionResponse"
+                $ref: "#/components/schemas/RegionResponse"
   /v1/regions/{code}:
     get:
       tags:
@@ -643,7 +604,7 @@ paths:
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/ApiResponseRegionResponse"
+                $ref: "#/components/schemas/RegionResponse"
         "404":
           description: Region not found
           content:
@@ -671,37 +632,33 @@ paths:
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/ApiResponseOrganizationResponse"
+                $ref: "#/components/schemas/OrganizationResponse"
         "401":
           description: Not authenticated
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/OrganizationResponse"
+                $ref: "#/components/schemas/ApiResponseOrganizationResponse"
         "403":
           description: Not a member of this Organization
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/OrganizationResponse"
+                $ref: "#/components/schemas/ApiResponseOrganizationResponse"
         "404":
           description: Organization not found
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/OrganizationResponse"
-  /v1/orgs/{orgId}/subscription:
+                $ref: "#/components/schemas/ApiResponseOrganizationResponse"
+  /v1/orgs/{orgId}/clusters:
     get:
       tags:
-      - Subscription
-      summary: View organization subscription
-      description: |-
-        Returns the Organization's current subscription status, billing period, and item breakdown.
-
-        Subscription states: TRIAL (free trial) / ACTIVE (paid) / PAST_DUE (grace period) / CANCELLED (terminated).
-
-        Cluster provisioning is ONLY allowed when status = TRIAL or ACTIVE. PAST_DUE and CANCELLED block new Cluster creation.
-      operationId: getSubscription
+      - Clusters
+      summary: List clusters in organization
+      description: Returns all Clusters owned by this Organization that the current
+        user has access to. Requires a valid Cloud Console session.
+      operationId: listClusters
       parameters:
       - name: orgId
         in: path
@@ -711,29 +668,23 @@ paths:
           type: string
       responses:
         "200":
-          description: Subscription details
+          description: List of Clusters
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+                $ref: "#/components/schemas/ClusterResponse"
         "401":
           description: Not authenticated
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+                $ref: "#/components/schemas/ApiResponseListClusterResponse"
         "403":
           description: Not a member of this Organization
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
-        "404":
-          description: Subscription not found
-          content:
-            '*/*':
-              schema:
-                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+                $ref: "#/components/schemas/ApiResponseListClusterResponse"
   /v1/orgs/{orgId}/clusters/{clusterId}:
     get:
       tags:
@@ -763,7 +714,7 @@ paths:
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/ApiResponseClusterResponse"
+                $ref: "#/components/schemas/ClusterResponse"
         "401":
           description: Not authenticated
           content:
@@ -842,7 +793,7 @@ paths:
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/ApiResponseResolveResponse"
+                $ref: "#/components/schemas/ResolveResponse"
         "401":
           description: No valid Cloud session
           content:
@@ -880,7 +831,7 @@ paths:
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/ApiResponseLoginResult"
+                $ref: "#/components/schemas/LoginResult"
         "401":
           description: Not authenticated
           content:
@@ -955,6 +906,23 @@ components:
         data:
           $ref: "#/components/schemas/OrganizationResponse"
           description: "Response payload — object or array, null on void responses"
+    CreateSubscriptionRequest:
+      type: object
+      properties:
+        region:
+          type: string
+          minLength: 1
+        clusterName:
+          type: string
+          maxLength: 100
+          minLength: 1
+        specKey:
+          type: string
+          maxLength: 50
+          minLength: 0
+      required:
+      - clusterName
+      - region
     ItemResponse:
       type: object
       properties:
@@ -1038,23 +1006,6 @@ components:
         data:
           $ref: "#/components/schemas/SubscriptionResponse"
           description: "Response payload — object or array, null on void responses"
-    CreateClusterRequest:
-      type: object
-      properties:
-        region:
-          type: string
-          minLength: 1
-        name:
-          type: string
-          maxLength: 100
-          minLength: 1
-        specKey:
-          type: string
-          maxLength: 50
-          minLength: 0
-      required:
-      - name
-      - region
     ClusterResponse:
       type: object
       properties:

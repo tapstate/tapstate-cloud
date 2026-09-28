@@ -10,9 +10,6 @@ import io.tapstate.cloud.common.api.ApiResponse;
 import io.tapstate.cloud.common.api.AppErrorCode;
 import io.tapstate.cloud.common.api.BaseController;
 import io.tapstate.cloud.common.CurrentUser;
-import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -21,15 +18,20 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 /**
- * Cluster endpoints — create, list, retry.
+ * Cluster read-only + retry endpoints.
  * <p>
+ * Cluster creation and cancellation are NOT exposed here — they are managed
+ * through the Subscription lifecycle (POST /subscription creates Cluster +
+ * MDB allocation; POST /subscription/cancel cascades termination of all
+ * org Clusters and MDB allocations).
+ * <p>
+ * This controller exposes list, get-by-id, and retry-provisioning_failed.
  * Access requires Cloud Console session (ADR-0122 D2).
- * Auto-provisioning is async — POST returns immediately with PROVISIONING_PENDING state.
  */
 @RestController
 @RequestMapping("/v1/orgs/{orgId}/clusters")
 @RequiredArgsConstructor
-@Tag(name = "Clusters", description = "Cluster lifecycle — create, list, retry provisioning")
+@Tag(name = "Clusters", description = "Cluster read + retry — lifecycle managed via Subscription")
 public class ClusterController extends BaseController {
 
     private final ClusterService clusterService;
@@ -52,34 +54,6 @@ public class ClusterController extends BaseController {
         if (userEmail == null) return fail(AppErrorCode.UNAUTHORIZED, HttpStatus.UNAUTHORIZED);
         List<Cluster> clusters = clusterService.listOrgClusters(orgId, userEmail);
         return ok(clusters.stream().map(ClusterResponse::from).toList());
-    }
-
-    @PostMapping
-    @Operation(
-        summary = "Create Cluster (async auto-provisioning)",
-        description = "Creates a new Cluster and triggers Global Control Plane auto-provisioning. " +
-                      "Returns immediately with state PROVISIONING_PENDING — poll GET for state updates.\n\n" +
-                      "Provisioning pipeline: CloudFormation → EC2 + security group → k3s Secret " +
-                      "(atlas-uri + sdk-static-token) → Atlas Admin API DB+User+Secret → Route53 → ready.\n\n" +
-                      "Idempotency: orgId + region + name must be unique. Duplicate returns 409.\n" +
-                      "Cluster creation is gated by subscription status (TRIAL / ACTIVE only)."
-    )
-    @ApiResponses(value = {
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "Cluster created, provisioning pending",
-            content = @Content(schema = @Schema(implementation = ClusterResponse.class))),
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Invalid input"),
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "Not authenticated"),
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "Subscription not active (PAST_DUE / CANCELLED)"),
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "Duplicate cluster name in org + region")
-    })
-    public ResponseEntity<ApiResponse<ClusterResponse>> createCluster(
-            @Parameter(description = "Organization UUID") @PathVariable String orgId,
-            @Valid @RequestBody CreateClusterRequest request) {
-        String userEmail = CurrentUser.getEmail();
-        if (userEmail == null) return fail(AppErrorCode.UNAUTHORIZED, HttpStatus.UNAUTHORIZED);
-        Cluster cluster = clusterService.createCluster(
-            orgId, request.region(), request.name(), request.specKey(), userEmail);
-        return okCreated(ClusterResponse.from(cluster));
     }
 
     @GetMapping("/{clusterId}")
@@ -110,8 +84,7 @@ public class ClusterController extends BaseController {
         summary = "Retry provisioning_failed Cluster",
         description = "Retries a Cluster that previously failed provisioning (state = PROVISIONING_FAILED).\n\n" +
                       "StateMachine cleanup flow: clears residual resources from the failed attempt " +
-                      "(CloudFormation stacks, k3s Secrets, Atlas resources) → re-triggers the full " +
-                      "provisioning pipeline from PROVISIONING_PENDING.\n\n" +
+                      "→ re-triggers the full provisioning pipeline from PROVISIONING_PENDING.\n\n" +
                       "Returns 409 if the Cluster is not in PROVISIONING_FAILED state."
     )
     @ApiResponses(value = {
@@ -131,44 +104,7 @@ public class ClusterController extends BaseController {
         return ok(ClusterResponse.from(cluster));
     }
 
-    @PostMapping("/{clusterId}/cancel")
-    @Operation(
-        summary = "Cancel subscription — terminate this Cluster",
-        description = "Initiates Cluster termination by firing the state-machine INITIATE_TERMINATION event.\n\n" +
-                      "State transition chain (ADR-0124 D3):\n" +
-                      "  READY / DEGRADED / PROVISIONING_FAILED → DRAINING → TERMINATED\n\n" +
-                      "Resource cleanup (Async): CloudFormation deleteStack → kubectl delete Secret → " +
-                      "Atlas deleteDatabase → Route53 delete alias.\n\n" +
-                      "Allowed states: READY, DEGRADED, PROVISIONING_FAILED.\n" +
-                      "Rejected: PROVISIONING_PENDING / PROVISIONING (wait for completion), " +
-                      "TERMINATED (already done, idempotent success)."
-    )
-    @ApiResponses(value = {
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Termination initiated, state → DRAINING or already TERMINATED",
-            content = @Content(schema = @Schema(implementation = ClusterResponse.class))),
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "Not authenticated"),
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "Not cluster owner"),
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Cluster not found"),
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "Cluster in PROVISIONING_PENDING / PROVISIONING — wait first")
-    })
-    public ResponseEntity<ApiResponse<ClusterResponse>> cancelCluster(
-            @Parameter(description = "Organization UUID") @PathVariable String orgId,
-            @Parameter(description = "Cluster UUID") @PathVariable String clusterId) {
-        String userEmail = CurrentUser.getEmail();
-        if (userEmail == null) return fail(AppErrorCode.UNAUTHORIZED, HttpStatus.UNAUTHORIZED);
-        Cluster cluster = clusterService.cancelCluster(clusterId, orgId, userEmail);
-        return ok(ClusterResponse.from(cluster));
-    }
-
-    public record CreateClusterRequest(
-        @NotBlank @Parameter(description = "AWS Region code", example = "ap-southeast-1")
-        String region,
-        @NotBlank @Size(min = 1, max = 100)
-        @Parameter(description = "Cluster display name (unique within org + region)", example = "Production Pipeline")
-        String name,
-        @Size(max = 50) @Parameter(description = "Provisioning spec_key (Week 2: 'basic' only)", example = "basic")
-        String specKey
-    ) {}
+    // ========== Response DTO ==========
 
     public record ClusterResponse(
         @Schema(description = "Cluster UUID") String id,

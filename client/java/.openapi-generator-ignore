@@ -6,6 +6,7 @@
 
 # --- Our Maven module definition ---
 pom.xml
+README.md
 
 # --- VCS / project metadata ---
 .gitignore
@@ -14,3 +15,15 @@ pom.xml
 # --- Generator metadata (we don't want the generator to recreate its
 #     own tracking folder — we rely on .gitignore instead) ---
 .openapi-generator/
+
+# --- Project-owned SDK facade classes (higher-level wrappers over the
+#     generated api/model packages). These hand-written classes MUST NOT
+#     be clobbered by openapi-generator regeneration ---
+src/main/java/io/tapstate/cloud/sdk/client/
+src/test/java/io/tapstate/cloud/sdk/client/
+
+# --- Generator scaffold tests — 100% empty shells (null input + // TODO comment).
+#     They never compile reliably (type drift between generator runs) and add zero value.
+#     Our real tests live in src/test/java/io/tapstate/cloud/sdk/client/ ---
+src/test/java/io/tapstate/cloud/sdk/api/
+src/test/java/io/tapstate/cloud/sdk/model/

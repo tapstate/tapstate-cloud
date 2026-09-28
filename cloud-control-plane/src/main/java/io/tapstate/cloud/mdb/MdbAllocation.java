@@ -49,6 +49,10 @@ public class MdbAllocation {
     @Schema(description = "Cluster UUID")
     private String clusterId;
 
+    /** Parent subscription UUID — links allocation to subscription lifecycle. */
+    @Schema(description = "Subscription UUID")
+    private String subscriptionId;
+
     // ========== Atlas link ==========
 
     @Schema(description = "ID of the parent AtlasInstanceConfig this allocation lives on")

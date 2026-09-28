@@ -1,0 +1,42 @@
+# ============================================================
+# Dev environment — Harbor-pushed image, remote k3s cluster
+# Usage:
+#   helm install tapstate-cloud-control ./helm/tapstate-cloud-control \
+#     -f helm/tapstate-cloud-control/values.yaml \
+#     -f helm/tapstate-cloud-control/values-dev.yaml \
+#     -n tapstate --create-namespace
+# ============================================================
+
+replicaCount: 1
+
+image:
+  # Harbor image (pushed via deploy.sh)
+  repository: harbor.internal.tapdata.io/tapstate-cloud/tapstate-cloud-control
+  pullPolicy: Always  # Harbor dev tag changes frequently
+  tag: "dev-latest"
+
+# Harbor has no auth in dev environment
+imagePullSecrets: []
+
+# Pin pod to control-plane node where registries.yaml has insecure Harbor
+nodeSelector:
+  kubernetes.io/hostname: tapserver193
+
+config:
+  springProfilesActive: dev
+  corsAllowedOrigins: "http://localhost:3000,http://localhost:8080"
+
+service:
+  type: NodePort
+  nodePort: 30180
+
+ingress:
+  enabled: false  # NodePort in dev
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "256Mi"
+  limits:
+    cpu: "500m"
+    memory: "512Mi"

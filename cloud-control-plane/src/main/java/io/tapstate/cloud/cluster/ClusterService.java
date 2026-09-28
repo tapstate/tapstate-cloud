@@ -4,10 +4,8 @@ import io.tapstate.cloud.cluster.fsm.ClusterEventType;
 import io.tapstate.cloud.cluster.fsm.ClusterStateMachineService;
 import io.tapstate.cloud.common.api.AppErrorCode;
 import io.tapstate.cloud.common.api.BusinessException;
-import io.tapstate.cloud.mdb.*;
 import io.tapstate.cloud.org.MemberRepository;
 import io.tapstate.cloud.region.RegionService;
-import io.tapstate.cloud.subscription.SubscriptionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -23,21 +21,23 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Cluster service — create, list, retry, status-report, cancel, lifecycle transitions.
+ * Cluster service — create, list, retry, status-report, lifecycle transitions.
  * <p>
  * All state transitions are driven through {@link ClusterStateMachineService}
  * which in turn wraps the Spring Statemachine {@code StateMachineFactory}.
- * This replaces the previous inline hardcoded state changes; every transition
- * now goes through a validated path defined in {@code ClusterStateMachineConfig}.
+ * Every transition goes through a validated path defined in
+ * {@code ClusterStateMachineConfig}.
  * <p>
- * Subscription validity gate (PAST_DUE / CANCELLED block new provisioning) lives here —
- * state machine only governs Cluster's own lifecycle, not the guard that blocks entry.
+ * <b>Creation flow</b>: Cluster records are created by the subscription
+ * orchestration layer (see {@link io.tapstate.cloud.subscription.SubscriptionService}).
+ * This service is the internal entry point that creates the Cluster document
+ * and fires the {@code START_PROVISION} state-machine event. The caller
+ * (SubscriptionService) is responsible for subscription validity checks —
+ * this service no longer has a SubscriptionService dependency.
  * <p>
- * <b>Week 2 allocation integration</b>: {@link #createCluster} also creates an
- * {@link MdbAllocation} record via {@link AtlasMdbService} — the Cluster state
- * machine's PROVISIONING effect then calls {@code createDatabase} +
- * {@code createDatabaseUser} on the shared Atlas instance. Both flows are
- * async and run in parallel (one Cluster FSM, one Atlas MDB FSM).
+ * <b>MDB allocation</b> is handled independently by
+ * {@link io.tapstate.cloud.mdb.MdbAllocationService} — its state machine
+ * runs in parallel with this one.
  * <p>
  * Scheduled tasks: {@link #checkHeartbeats()} runs every 60s, auto-firing
  * {@code HEARTBEAT_TIMEOUT} for READY clusters whose last C2 heartbeat is stale.
@@ -50,34 +50,27 @@ public class ClusterService {
     private final ClusterRepository clusterRepository;
     private final MemberRepository memberRepository;
     private final RegionService regionService;
-    private final SubscriptionService subscriptionService;
     private final ClusterStateMachineService clusterStateMachineService;
-
-    // MDB allocation — Atlas-backed shared-instance per-customer database provisioning
-    private final AtlasMdbService atlasMdbService;
-    private final MdbAllocationRepository allocationRepo;
 
     private final SecureRandom secureRandom = new SecureRandom();
 
-    // ========== Create Cluster + MdbAllocation ==========
+    // ========== Create Cluster (internal — called by SubscriptionService) ==========
 
     /**
-     * Create a new Cluster + its MdbAllocation in one transaction.
+     * Create a new Cluster record and fire the START_PROVISION state-machine event.
      * <p>
-     * This is the internal entry point — called by the subscription
-     * orchestration flow after {@code SubscriptionService.createDefaultSubscription}
-     * (auto on org creation) or a future explicit subscription-create endpoint.
+     * This is the internal entry point — called by the subscription orchestration
+     * flow after {@code SubscriptionService} has validated the subscription is
+     * active/valid. No subscription validity gate here (that lives upstream).
      * <p>
      * Returns immediately with PROVISIONING_PENDING state — the state machine's
-     * transition effect fires async Atlas provisioning + simulated CloudFormation.
+     * transition effect fires async CloudFormation simulation. MDB allocation
+     * is handled separately by {@link io.tapstate.cloud.mdb.MdbAllocationService}.
      *
-     * @return the persisted Cluster (state PROVISIONING_PENDING, transition to PROVISIONING fired)
+     * @return the persisted Cluster (state PROVISIONING_PENDING, START_PROVISION fired)
      */
     @Transactional
     public Cluster createCluster(String orgId, String region, String name, String specKey, String creatorEmail) {
-        // Subscription validity gate — blocked for PAST_DUE / CANCELLED
-        subscriptionService.assertProvisioningAllowed(orgId);
-
         if (!memberRepository.existsByOrgIdAndUserEmail(orgId, creatorEmail)) {
             throw new BusinessException(AppErrorCode.ORG_NOT_MEMBER, 403, orgId);
         }
@@ -108,51 +101,26 @@ public class ClusterService {
         saved.getTags().put("runtime_id", saved.getRuntimeId());
         saved = clusterRepository.save(saved);
 
-        // ---- MdbAllocation — pick Atlas instance + record ----
-        MdbAllocation allocation = createAndPersistAllocation(orgId, saved, region);
-
-        // Link allocation to cluster so the state machine can find it
-        saved.setMdbAllocationId(allocation.getId());
-        saved = clusterRepository.save(saved);
-
         // Fire START_PROVISION event → state machine moves PENDING → PROVISIONING
         clusterStateMachineService.transition(saved.getId(),
-            ClusterEventType.START_PROVISION, "gc:" + creatorEmail);
+            ClusterEventType.START_PROVISION, "subscription:" + creatorEmail);
 
-        log.info("Cluster created: {} (sm transition START_PROVISION fired), allocation={}", saved.getId(), allocation.getId());
+        log.info("Cluster created: {} (sm transition START_PROVISION fired)", saved.getId());
         return saved;
     }
 
-    /** Pick Atlas instance via {@link AtlasMdbService#createMdb} and persist a PROVISIONING_PENDING allocation. */
-    private MdbAllocation createAndPersistAllocation(String orgId, Cluster cluster, String region) {
-        AtlasInstanceConfig instance;
-        try {
-            instance = atlasMdbService.createMdb(orgId, cluster.getId(), region);
-        } catch (MdbException e) {
-            log.error("No Atlas instance available for region={} — Cluster {} creation blocked", region, cluster.getId());
-            throw new BusinessException(AppErrorCode.CLUSTER_PROVISION_FAILED, 503, "No Atlas capacity");
-        }
+    // ========== Link MDB allocation (called by SubscriptionService after allocation) ==========
 
-        String databaseName = atlasMdbService.generateDatabaseName(cluster.getId());
-        String dbUsername = atlasMdbService.generateDatabaseUsername(databaseName);
-        String dbPassword = atlasMdbService.generateDatabasePassword();
-
-        MdbAllocation allocation = MdbAllocation.builder()
-            .orgId(orgId)
-            .clusterId(cluster.getId())
-            .atlasInstanceId(instance.getId())
-            .atlasProjectId(instance.getAtlasProjectId())
-            .atlasClusterName(instance.getAtlasClusterName())
-            .databaseName(databaseName)
-            .dbUsername(dbUsername)
-            .dbPassword(dbPassword)
-            .status(MdbAllocationStatus.PROVISIONING_PENDING)
-            .build();
-
-        MdbAllocation saved = allocationRepo.save(allocation);
-        log.info("MdbAllocation created: instance={}, db={}, user={}",
-            instance.getId(), databaseName, dbUsername);
-        return saved;
+    /**
+     * Link an MdbAllocation to this Cluster — called after MdbAllocationService.allocateMdb
+     * succeeds so the Cluster runtime can resolve its Atlas DB credentials via the allocation.
+     */
+    @Transactional
+    public void updateMdbAllocationId(String clusterId, String allocationId) {
+        clusterRepository.findById(clusterId).ifPresent(cluster -> {
+            cluster.setMdbAllocationId(allocationId);
+            clusterRepository.save(cluster);
+        });
     }
 
     // ========== List / Get ==========
@@ -188,7 +156,7 @@ public class ClusterService {
             .orElseThrow(() -> new BusinessException(AppErrorCode.SDK_TOKEN_INVALID, 401));
     }
 
-    // ========== Retry ==========
+    // ========== Retry (user endpoint — kept) ==========
 
     @Transactional
     public Cluster retryCluster(String clusterId, String orgId, String userEmail) {
@@ -208,38 +176,37 @@ public class ClusterService {
         return clusterRepository.findById(clusterId).orElse(cluster);
     }
 
-    // ========== Cancel subscription → Cluster terminate ==========
+    // ========== Cascade termination (called by SubscriptionCancelListener) ==========
 
     /**
-     * Terminate this Cluster (cancel subscription resource).
+     * Terminate this Cluster (called by SubscriptionCancelListener cascade).
      * <p>
      * Valid states: READY / DEGRADED / PROVISIONING_FAILED — anything but the
      * transient {@code PROVISIONING_PENDING} / {@code PROVISIONING}. TERMINATED
-     * is terminal and cannot be cancelled again.
+     * is terminal and returns as-is.
      * <p>
      * Triggers {@link ClusterEventType#INITIATE_TERMINATION} → state machine
-     * handles the transition + side effects (CloudFormation delete, k3s Secret
-     * cleanup, Atlas DB teardown — Week 2 scaffold, real calls in Week 3).
-     *
-     * @return post-transition Cluster state
+     * handles the transition + async side effects.
      */
     @Transactional
-    public Cluster cancelCluster(String clusterId, String orgId, String userEmail) {
-        Cluster cluster = getCluster(clusterId, orgId, userEmail);
+    public Cluster terminateCluster(String clusterId, String orgId) {
+        Cluster cluster = clusterRepository.findByIdAndOrgId(clusterId, orgId)
+            .orElseThrow(() -> new BusinessException(AppErrorCode.CLUSTER_NOT_FOUND, 404, clusterId));
 
         ClusterState state = cluster.getState();
-        // Transient states cannot be cancelled — wait for completion first
+        // Transient states — skip; subscription cancel listener will handle others
         if (state == ClusterState.PROVISIONING_PENDING || state == ClusterState.PROVISIONING) {
-            throw new BusinessException(AppErrorCode.CLUSTER_CANCEL_NOT_ALLOWED, 409, state);
+            log.info("[ClusterService] terminateCluster skipped {} (state={} — still provisioning)",
+                clusterId, state);
+            return cluster;
         }
-        // Already terminal — idempotent success
+        // Already terminal — idempotent
         if (state == ClusterState.TERMINATED) {
             return cluster;
         }
 
-        // Fire INITIATE_TERMINATION → state machine moves to TERMINATED
         clusterStateMachineService.transition(clusterId, ClusterEventType.INITIATE_TERMINATION,
-            "gc:cancel-subscription/" + userEmail);
+            "subscription-cascade");
 
         return clusterRepository.findById(clusterId).orElse(cluster);
     }
@@ -252,9 +219,6 @@ public class ClusterService {
      * Enforces nonce replay protection (same nonce twice → 409 auth.nonce-replay),
      * updates heartbeat timestamp, and auto-recovers DEGRADED clusters via the
      * state-machine HEARTBEAT_RECOVERY event.
-     * <p>
-     * Note: state mutation goes THROUGH the state machine, not direct writes —
-     * the DB read in {@link #getCluster} would see stale state otherwise.
      */
     @Transactional
     public void recordStatusReport(String clusterId, String nonce) {
@@ -274,7 +238,6 @@ public class ClusterService {
         clusterRepository.save(cluster);
 
         // If previously DEGRADED, fire HEARTBEAT_RECOVERY → state machine moves DEGRADED → READY.
-        // READY clusters just get a fresh heartbeat — no state transition needed.
         if (prevState == ClusterState.DEGRADED) {
             clusterStateMachineService.transition(clusterId, ClusterEventType.HEARTBEAT_RECOVERY, "runtime:c2-heartbeat");
         }
@@ -285,8 +248,7 @@ public class ClusterService {
     /**
      * Every 60s — scan all READY clusters whose last C2 heartbeat is older than 5min
      * and fire {@link ClusterEventType#HEARTBEAT_TIMEOUT} so the state machine moves
-     * them to DEGRADED. Manual {@link #recordStatusReport} from runtime fires the
-     * recovery event when it comes back online.
+     * them to DEGRADED.
      */
     @Scheduled(fixedDelay = 60_000)
     @Transactional

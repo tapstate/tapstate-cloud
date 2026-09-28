@@ -21,6 +21,7 @@ import io.tapstate.cloud.sdk.Configuration;
 import io.tapstate.cloud.sdk.Pair;
 
 import io.tapstate.cloud.sdk.model.ApiResponseRegionResponse;
+import io.tapstate.cloud.sdk.model.RegionResponse;
 
 
 import java.util.ArrayList;
@@ -30,7 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.StringJoiner;
 
-@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-28T08:51:50.502820+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
+@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-28T20:46:36.289357+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
 public class RegionsApi extends BaseApi {
 
   public RegionsApi() {
@@ -45,10 +46,10 @@ public class RegionsApi extends BaseApi {
    * Get region by code
    * Returns details for a specific AWS region by its standard code (e.g. &#39;ap-southeast-1&#39;).
    * @param code AWS region code (required)
-   * @return ApiResponseRegionResponse
+   * @return RegionResponse
    * @throws ApiException if fails to make API call
    */
-  public ApiResponseRegionResponse getRegion(@jakarta.annotation.Nonnull String code) throws ApiException {
+  public RegionResponse getRegion(@jakarta.annotation.Nonnull String code) throws ApiException {
     return this.getRegion(code, Collections.emptyMap());
   }
 
@@ -58,10 +59,10 @@ public class RegionsApi extends BaseApi {
    * Returns details for a specific AWS region by its standard code (e.g. &#39;ap-southeast-1&#39;).
    * @param code AWS region code (required)
    * @param additionalHeaders additionalHeaders for this call
-   * @return ApiResponseRegionResponse
+   * @return RegionResponse
    * @throws ApiException if fails to make API call
    */
-  public ApiResponseRegionResponse getRegion(@jakarta.annotation.Nonnull String code, Map<String, String> additionalHeaders) throws ApiException {
+  public RegionResponse getRegion(@jakarta.annotation.Nonnull String code, Map<String, String> additionalHeaders) throws ApiException {
     Object localVarPostBody = null;
     
     // verify the required parameter 'code' is set
@@ -98,7 +99,7 @@ public class RegionsApi extends BaseApi {
 
     String[] localVarAuthNames = new String[] { "session-cookie" };
 
-    TypeReference<ApiResponseRegionResponse> localVarReturnType = new TypeReference<ApiResponseRegionResponse>() {};
+    TypeReference<RegionResponse> localVarReturnType = new TypeReference<RegionResponse>() {};
     return apiClient.invokeAPI(
         localVarPath,
         "GET",
@@ -119,10 +120,10 @@ public class RegionsApi extends BaseApi {
   /**
    * List open regions
    * Returns all AWS regions currently open for Cluster provisioning. Week 2: only one region (e.g. ap-southeast-1) is open. Region selection is done at Cluster creation time and is IMMUTABLE — changing Region requires cancel + resubscribe (Week 4+).
-   * @return ApiResponseRegionResponse
+   * @return RegionResponse
    * @throws ApiException if fails to make API call
    */
-  public ApiResponseRegionResponse listOpenRegions() throws ApiException {
+  public RegionResponse listOpenRegions() throws ApiException {
     return this.listOpenRegions(Collections.emptyMap());
   }
 
@@ -131,10 +132,10 @@ public class RegionsApi extends BaseApi {
    * List open regions
    * Returns all AWS regions currently open for Cluster provisioning. Week 2: only one region (e.g. ap-southeast-1) is open. Region selection is done at Cluster creation time and is IMMUTABLE — changing Region requires cancel + resubscribe (Week 4+).
    * @param additionalHeaders additionalHeaders for this call
-   * @return ApiResponseRegionResponse
+   * @return RegionResponse
    * @throws ApiException if fails to make API call
    */
-  public ApiResponseRegionResponse listOpenRegions(Map<String, String> additionalHeaders) throws ApiException {
+  public RegionResponse listOpenRegions(Map<String, String> additionalHeaders) throws ApiException {
     Object localVarPostBody = null;
     
     // create path and map variables
@@ -165,7 +166,7 @@ public class RegionsApi extends BaseApi {
 
     String[] localVarAuthNames = new String[] { "session-cookie" };
 
-    TypeReference<ApiResponseRegionResponse> localVarReturnType = new TypeReference<ApiResponseRegionResponse>() {};
+    TypeReference<RegionResponse> localVarReturnType = new TypeReference<RegionResponse>() {};
     return apiClient.invokeAPI(
         localVarPath,
         "GET",
