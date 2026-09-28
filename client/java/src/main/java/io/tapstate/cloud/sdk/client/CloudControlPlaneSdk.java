@@ -192,7 +192,8 @@ public final class CloudControlPlaneSdk {
         // ExchangeResponse directly, non-2xx throws ApiException.
         ExchangeResponse data;
         try {
-            data = exchangeApi.exchange(request, clusterIdentitySecret, null);
+            // Generated ExchangeApi returns ApiResponseExchangeResponse envelope — unwrap .getData()
+            data = exchangeApi.exchange(request, clusterIdentitySecret, null).getData();
         } catch (ApiException apiEx) {
             handleApiException(apiEx);
             throw new AssertionError("handleApiException must always throw");

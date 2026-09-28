@@ -22,7 +22,6 @@ import io.tapstate.cloud.sdk.Pair;
 
 import io.tapstate.cloud.sdk.model.ApiResponseExchangeResponse;
 import io.tapstate.cloud.sdk.model.ExchangeRequest;
-import io.tapstate.cloud.sdk.model.ExchangeResponse;
 
 
 import java.util.ArrayList;
@@ -32,7 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.StringJoiner;
 
-@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-28T22:36:03.258533+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
+@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-28T22:40:38.643326+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
 public class ExchangeApi extends BaseApi {
 
   public ExchangeApi() {
@@ -49,10 +48,10 @@ public class ExchangeApi extends BaseApi {
    * @param exchangeRequest  (required)
    * @param xClusterIdentitySecret  (optional)
    * @param authorization  (optional)
-   * @return ExchangeResponse
+   * @return ApiResponseExchangeResponse
    * @throws ApiException if fails to make API call
    */
-  public ExchangeResponse exchange(@jakarta.annotation.Nonnull ExchangeRequest exchangeRequest, @jakarta.annotation.Nullable String xClusterIdentitySecret, @jakarta.annotation.Nullable String authorization) throws ApiException {
+  public ApiResponseExchangeResponse exchange(@jakarta.annotation.Nonnull ExchangeRequest exchangeRequest, @jakarta.annotation.Nullable String xClusterIdentitySecret, @jakarta.annotation.Nullable String authorization) throws ApiException {
     return this.exchange(exchangeRequest, xClusterIdentitySecret, authorization, Collections.emptyMap());
   }
 
@@ -64,10 +63,10 @@ public class ExchangeApi extends BaseApi {
    * @param xClusterIdentitySecret  (optional)
    * @param authorization  (optional)
    * @param additionalHeaders additionalHeaders for this call
-   * @return ExchangeResponse
+   * @return ApiResponseExchangeResponse
    * @throws ApiException if fails to make API call
    */
-  public ExchangeResponse exchange(@jakarta.annotation.Nonnull ExchangeRequest exchangeRequest, @jakarta.annotation.Nullable String xClusterIdentitySecret, @jakarta.annotation.Nullable String authorization, Map<String, String> additionalHeaders) throws ApiException {
+  public ApiResponseExchangeResponse exchange(@jakarta.annotation.Nonnull ExchangeRequest exchangeRequest, @jakarta.annotation.Nullable String xClusterIdentitySecret, @jakarta.annotation.Nullable String authorization, Map<String, String> additionalHeaders) throws ApiException {
     Object localVarPostBody = exchangeRequest;
     
     // verify the required parameter 'exchangeRequest' is set
@@ -107,7 +106,7 @@ if (authorization != null)
 
     String[] localVarAuthNames = new String[] { "session-cookie" };
 
-    TypeReference<ExchangeResponse> localVarReturnType = new TypeReference<ExchangeResponse>() {};
+    TypeReference<ApiResponseExchangeResponse> localVarReturnType = new TypeReference<ApiResponseExchangeResponse>() {};
     return apiClient.invokeAPI(
         localVarPath,
         "POST",

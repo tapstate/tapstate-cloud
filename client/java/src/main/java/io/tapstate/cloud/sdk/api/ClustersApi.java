@@ -22,7 +22,6 @@ import io.tapstate.cloud.sdk.Pair;
 
 import io.tapstate.cloud.sdk.model.ApiResponseClusterResponse;
 import io.tapstate.cloud.sdk.model.ApiResponseListClusterResponse;
-import io.tapstate.cloud.sdk.model.ClusterResponse;
 
 
 import java.util.ArrayList;
@@ -32,7 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.StringJoiner;
 
-@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-28T22:36:03.258533+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
+@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-28T22:40:38.643326+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
 public class ClustersApi extends BaseApi {
 
   public ClustersApi() {
@@ -48,10 +47,10 @@ public class ClustersApi extends BaseApi {
    * Returns detailed Cluster info including state, provisioning error code (if failed), runtime metadata (public DNS, Elastic IP, runtime ID), and heartbeat timestamps. Requires Cloud session + Organization membership + Cluster ownership.
    * @param orgId Organization UUID (required)
    * @param clusterId Cluster UUID (required)
-   * @return ClusterResponse
+   * @return ApiResponseClusterResponse
    * @throws ApiException if fails to make API call
    */
-  public ClusterResponse getCluster(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull String clusterId) throws ApiException {
+  public ApiResponseClusterResponse getCluster(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull String clusterId) throws ApiException {
     return this.getCluster(orgId, clusterId, Collections.emptyMap());
   }
 
@@ -62,10 +61,10 @@ public class ClustersApi extends BaseApi {
    * @param orgId Organization UUID (required)
    * @param clusterId Cluster UUID (required)
    * @param additionalHeaders additionalHeaders for this call
-   * @return ClusterResponse
+   * @return ApiResponseClusterResponse
    * @throws ApiException if fails to make API call
    */
-  public ClusterResponse getCluster(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull String clusterId, Map<String, String> additionalHeaders) throws ApiException {
+  public ApiResponseClusterResponse getCluster(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull String clusterId, Map<String, String> additionalHeaders) throws ApiException {
     Object localVarPostBody = null;
     
     // verify the required parameter 'orgId' is set
@@ -108,7 +107,7 @@ public class ClustersApi extends BaseApi {
 
     String[] localVarAuthNames = new String[] { "session-cookie" };
 
-    TypeReference<ClusterResponse> localVarReturnType = new TypeReference<ClusterResponse>() {};
+    TypeReference<ApiResponseClusterResponse> localVarReturnType = new TypeReference<ApiResponseClusterResponse>() {};
     return apiClient.invokeAPI(
         localVarPath,
         "GET",
@@ -206,10 +205,10 @@ public class ClustersApi extends BaseApi {
    * Retries a Cluster that previously failed provisioning (state &#x3D; PROVISIONING_FAILED).  StateMachine cleanup flow: clears residual resources from the failed attempt → re-triggers the full provisioning pipeline from PROVISIONING_PENDING.  Returns 409 if the Cluster is not in PROVISIONING_FAILED state.
    * @param orgId Organization UUID (required)
    * @param clusterId Cluster UUID (required)
-   * @return ClusterResponse
+   * @return ApiResponseClusterResponse
    * @throws ApiException if fails to make API call
    */
-  public ClusterResponse retryCluster(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull String clusterId) throws ApiException {
+  public ApiResponseClusterResponse retryCluster(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull String clusterId) throws ApiException {
     return this.retryCluster(orgId, clusterId, Collections.emptyMap());
   }
 
@@ -220,10 +219,10 @@ public class ClustersApi extends BaseApi {
    * @param orgId Organization UUID (required)
    * @param clusterId Cluster UUID (required)
    * @param additionalHeaders additionalHeaders for this call
-   * @return ClusterResponse
+   * @return ApiResponseClusterResponse
    * @throws ApiException if fails to make API call
    */
-  public ClusterResponse retryCluster(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull String clusterId, Map<String, String> additionalHeaders) throws ApiException {
+  public ApiResponseClusterResponse retryCluster(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull String clusterId, Map<String, String> additionalHeaders) throws ApiException {
     Object localVarPostBody = null;
     
     // verify the required parameter 'orgId' is set
@@ -266,7 +265,7 @@ public class ClustersApi extends BaseApi {
 
     String[] localVarAuthNames = new String[] { "session-cookie" };
 
-    TypeReference<ClusterResponse> localVarReturnType = new TypeReference<ClusterResponse>() {};
+    TypeReference<ApiResponseClusterResponse> localVarReturnType = new TypeReference<ApiResponseClusterResponse>() {};
     return apiClient.invokeAPI(
         localVarPath,
         "POST",
