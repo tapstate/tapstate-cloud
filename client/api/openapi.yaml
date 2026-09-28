@@ -72,7 +72,7 @@ paths:
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/ApiResponseListOrganizationResponse"
+                $ref: "#/components/schemas/OrganizationResponse"
         "401":
           description: Not authenticated
           content:
@@ -469,8 +469,10 @@ paths:
       tags:
       - Auth
       summary: Logout and invalidate session
-      description: Invalidate the current user session. Spring Session cookie is cleared
-        automatically.
+      description: Invalidate the current Cloud session. Also fires signed revocation
+        callbacks to ALL Clusters this user has active resolve JWTs for (Cloud→Cluster
+        callback with RS256 signature — Cluster verifies via SDK verifyRequest). Each
+        Cluster then revokes its local session for that jti.
       operationId: logout
       responses:
         "200":
@@ -1271,10 +1273,13 @@ components:
           description: JWT expiration timestamp (ISO-8601 UTC)
         jti:
           type: string
-          description: JWT jti (unique token ID — for audit)
+          description: JWT jti (unique token ID — for audit + Cloud-side revocation)
         userEmail:
           type: string
           description: User email bound to this session
+        userId:
+          type: string
+          description: "Stable user UUID (Issue #5 item 1)"
         orgId:
           type: string
           description: Organization UUID bound to this session

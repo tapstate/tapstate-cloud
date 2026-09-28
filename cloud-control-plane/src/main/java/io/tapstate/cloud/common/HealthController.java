@@ -35,8 +35,7 @@ public class HealthController {
                       "Kubernetes pod-level probe (not used for dependency checks)."
     )
     @ApiResponses(value = {
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Service is live",
-            content = @Content(schema = @Schema(implementation = Map.class)))
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Service is live")
     })
     public Map<String, Object> liveness() {
         Map<String, Object> result = new LinkedHashMap<>();
@@ -54,8 +53,7 @@ public class HealthController {
                       "Kubernetes probe; Actuator also exposes full readiness at /actuator/health."
     )
     @ApiResponses(value = {
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Service is ready",
-            content = @Content(schema = @Schema(implementation = Map.class)))
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Service is ready")
     })
     public Map<String, Object> readiness() {
         Map<String, Object> result = new LinkedHashMap<>();

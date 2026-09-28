@@ -73,8 +73,7 @@ public class ExchangeController extends BaseController {
                       "On failure: returns 401 with domain error code."
     )
     @ApiResponses(value = {
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "exchange_code redeemed, JWT issued",
-            content = @Content(schema = @Schema(implementation = ExchangeResponse.class))),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "exchange_code redeemed, JWT issued"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "Exchange failed:\n" +
             "  - exchange.cluster-identity-mismatch: service secret missing/doesn't match\n" +
             "  - exchange.code-invalid: code not found / already consumed / expired\n" +

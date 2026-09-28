@@ -76,8 +76,7 @@ public class AuthController extends BaseController {
                       "In Week 2 preview, email is auto-verified (magic link deferred)."
     )
     @ApiResponses(value = {
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "User created",
-            content = @Content(schema = @Schema(implementation = UserResponse.class))),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "User created"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Invalid input or email already registered")
     })
     public ResponseEntity<ApiResponse<UserResponse>> register(
@@ -244,8 +243,7 @@ public class AuthController extends BaseController {
         description = "Return the authenticated user's profile. Session cookie required."
     )
     @ApiResponses(value = {
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "User profile",
-            content = @Content(schema = @Schema(implementation = LoginResult.class))),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "User profile"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "Not authenticated")
     })
     public ResponseEntity<ApiResponse<LoginResult>> me(HttpServletRequest request) {

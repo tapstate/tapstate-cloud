@@ -34,10 +34,11 @@ import java.util.StringJoiner;
   ExchangeResponse.JSON_PROPERTY_EXPIRES_AT,
   ExchangeResponse.JSON_PROPERTY_JTI,
   ExchangeResponse.JSON_PROPERTY_USER_EMAIL,
+  ExchangeResponse.JSON_PROPERTY_USER_ID,
   ExchangeResponse.JSON_PROPERTY_ORG_ID,
   ExchangeResponse.JSON_PROPERTY_CLUSTER_ID
 })
-@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-28T22:19:51.925080+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
+@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-28T22:36:03.258533+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
 public class ExchangeResponse {
   public static final String JSON_PROPERTY_JWT = "jwt";
   @jakarta.annotation.Nullable
@@ -54,6 +55,10 @@ public class ExchangeResponse {
   public static final String JSON_PROPERTY_USER_EMAIL = "userEmail";
   @jakarta.annotation.Nullable
   private String userEmail;
+
+  public static final String JSON_PROPERTY_USER_ID = "userId";
+  @jakarta.annotation.Nullable
+  private String userId;
 
   public static final String JSON_PROPERTY_ORG_ID = "orgId";
   @jakarta.annotation.Nullable
@@ -123,7 +128,7 @@ public class ExchangeResponse {
   }
 
   /**
-   * JWT jti (unique token ID — for audit)
+   * JWT jti (unique token ID — for audit + Cloud-side revocation)
    * @return jti
    */
   @jakarta.annotation.Nullable
@@ -164,6 +169,31 @@ public class ExchangeResponse {
   @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
   public void setUserEmail(@jakarta.annotation.Nullable String userEmail) {
     this.userEmail = userEmail;
+  }
+
+  public ExchangeResponse userId(@jakarta.annotation.Nullable String userId) {
+    
+    this.userId = userId;
+    return this;
+  }
+
+  /**
+   * Stable user UUID (Issue #5 item 1)
+   * @return userId
+   */
+  @jakarta.annotation.Nullable
+  @JsonProperty(value = JSON_PROPERTY_USER_ID, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+
+  public String getUserId() {
+    return userId;
+  }
+
+
+  @JsonProperty(value = JSON_PROPERTY_USER_ID, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+  public void setUserId(@jakarta.annotation.Nullable String userId) {
+    this.userId = userId;
   }
 
   public ExchangeResponse orgId(@jakarta.annotation.Nullable String orgId) {
@@ -230,13 +260,14 @@ public class ExchangeResponse {
         Objects.equals(this.expiresAt, exchangeResponse.expiresAt) &&
         Objects.equals(this.jti, exchangeResponse.jti) &&
         Objects.equals(this.userEmail, exchangeResponse.userEmail) &&
+        Objects.equals(this.userId, exchangeResponse.userId) &&
         Objects.equals(this.orgId, exchangeResponse.orgId) &&
         Objects.equals(this.clusterId, exchangeResponse.clusterId);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(jwt, expiresAt, jti, userEmail, orgId, clusterId);
+    return Objects.hash(jwt, expiresAt, jti, userEmail, userId, orgId, clusterId);
   }
 
   @Override
@@ -247,6 +278,7 @@ public class ExchangeResponse {
     sb.append("    expiresAt: ").append(toIndentedString(expiresAt)).append("\n");
     sb.append("    jti: ").append(toIndentedString(jti)).append("\n");
     sb.append("    userEmail: ").append(toIndentedString(userEmail)).append("\n");
+    sb.append("    userId: ").append(toIndentedString(userId)).append("\n");
     sb.append("    orgId: ").append(toIndentedString(orgId)).append("\n");
     sb.append("    clusterId: ").append(toIndentedString(clusterId)).append("\n");
     sb.append("}");
@@ -327,6 +359,16 @@ public class ExchangeResponse {
     if (getUserEmail() != null) {
       try {
         joiner.add(String.format(java.util.Locale.ROOT, "%suserEmail%s=%s", prefix, suffix, URLEncoder.encode(String.valueOf(getUserEmail()), "UTF-8").replaceAll("\\+", "%20")));
+      } catch (UnsupportedEncodingException e) {
+        // Should never happen, UTF-8 is always supported
+        throw new RuntimeException(e);
+      }
+    }
+
+    // add `userId` to the URL query string
+    if (getUserId() != null) {
+      try {
+        joiner.add(String.format(java.util.Locale.ROOT, "%suserId%s=%s", prefix, suffix, URLEncoder.encode(String.valueOf(getUserId()), "UTF-8").replaceAll("\\+", "%20")));
       } catch (UnsupportedEncodingException e) {
         // Should never happen, UTF-8 is always supported
         throw new RuntimeException(e);

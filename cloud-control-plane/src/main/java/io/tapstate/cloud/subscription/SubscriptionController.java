@@ -55,8 +55,7 @@ public class SubscriptionController extends BaseController {
                       "Idempotency: if the org already has a subscription shell, reuses it and adds one Cluster."
     )
     @ApiResponses(value = {
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "Subscription created, Cluster + MDB allocation provisioning pending",
-            content = @Content(schema = @Schema(implementation = SubscriptionResponse.class))),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "Subscription created, Cluster + MDB allocation provisioning pending"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Invalid input (missing region/name/spec)"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "Not authenticated"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "Not a member of this Organization"),
@@ -86,8 +85,7 @@ public class SubscriptionController extends BaseController {
                       "Poll this endpoint to track async Cluster + MDB provisioning progress."
     )
     @ApiResponses(value = {
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Subscription details",
-            content = @Content(schema = @Schema(implementation = SubscriptionResponse.class))),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Subscription details"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "Not authenticated"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "Not a member of this Organization"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Subscription not found")
@@ -115,8 +113,7 @@ public class SubscriptionController extends BaseController {
                       "Accepted status values: TRIAL / ACTIVE / PAST_DUE / CANCELLED."
     )
     @ApiResponses(value = {
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Status updated",
-            content = @Content(schema = @Schema(implementation = SubscriptionResponse.class))),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Status updated"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Invalid status value or missing field"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Subscription not found")
     })
@@ -149,8 +146,7 @@ public class SubscriptionController extends BaseController {
                       "Safe to call on an already-cancelled subscription (idempotent)."
     )
     @ApiResponses(value = {
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Subscription cancelled, cascade termination scheduled",
-            content = @Content(schema = @Schema(implementation = SubscriptionResponse.class))),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Subscription cancelled, cascade termination scheduled"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "Not authenticated"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "Not Org owner"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Subscription not found")

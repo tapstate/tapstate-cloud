@@ -71,8 +71,7 @@ public class StatusReportController extends BaseController {
                       "DEGRADED → READY on heartbeat recovery (5min window)."
     )
     @ApiResponses(value = {
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Status report accepted",
-            content = @Content(schema = @Schema(implementation = StatusReportResponse.class))),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Status report accepted"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "SDK token missing or invalid (auth.sdk-token-invalid)"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "Token does not match path clusterId (auth.cluster-mismatch)"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "Nonce replay (auth.nonce-replay)")

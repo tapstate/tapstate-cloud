@@ -85,8 +85,7 @@ public class ResolveController extends BaseController {
                       "(ExchangeController) where the resolve JWT is atomically signed."
     )
     @ApiResponses(value = {
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "exchange_code issued",
-            content = @Content(schema = @Schema(implementation = ResolveResponse.class))),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "exchange_code issued"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "No valid Cloud session"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "User not Org member or Cluster not accessible"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Cluster not found"),
@@ -128,8 +127,7 @@ public class ResolveController extends BaseController {
                       "Returns raw JWKS JSON (RFC 7517 format) — NOT wrapped in ApiResponse."
     )
     @ApiResponses(value = {
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "JWKS JSON document",
-            content = @Content(mediaType = "application/json", schema = @Schema(implementation = Map.class)))
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "JWKS JSON document")
     })
     public ResponseEntity<Map<String, Object>> jwks() {
         RSAPublicKey publicKey = (RSAPublicKey) jwtSigningKeyPair.getPublic();

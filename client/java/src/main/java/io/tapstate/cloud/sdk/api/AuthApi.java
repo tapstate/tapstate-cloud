@@ -36,7 +36,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.StringJoiner;
 
-@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-28T22:19:51.925080+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
+@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-28T22:36:03.258533+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
 public class AuthApi extends BaseApi {
 
   public AuthApi() {
@@ -123,7 +123,7 @@ public class AuthApi extends BaseApi {
 
   /**
    * Logout and invalidate session
-   * Invalidate the current user session. Spring Session cookie is cleared automatically.
+   * Invalidate the current Cloud session. Also fires signed revocation callbacks to ALL Clusters this user has active resolve JWTs for (Cloud→Cluster callback with RS256 signature — Cluster verifies via SDK verifyRequest). Each Cluster then revokes its local session for that jti.
    * @return ApiResponseVoid
    * @throws ApiException if fails to make API call
    */
@@ -134,7 +134,7 @@ public class AuthApi extends BaseApi {
 
   /**
    * Logout and invalidate session
-   * Invalidate the current user session. Spring Session cookie is cleared automatically.
+   * Invalidate the current Cloud session. Also fires signed revocation callbacks to ALL Clusters this user has active resolve JWTs for (Cloud→Cluster callback with RS256 signature — Cluster verifies via SDK verifyRequest). Each Cluster then revokes its local session for that jti.
    * @param additionalHeaders additionalHeaders for this call
    * @return ApiResponseVoid
    * @throws ApiException if fails to make API call
