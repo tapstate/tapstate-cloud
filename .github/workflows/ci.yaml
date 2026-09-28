@@ -49,8 +49,13 @@ jobs:
         image: mongo:7
         ports:
           - 27017:27017
+        # The health command must be ONE quoted token: a folded scalar joins
+        # these lines with spaces, so an unquoted `mongosh --eval ...` makes
+        # --health-cmd swallow only `mongosh` and hands `--eval` to
+        # `docker create`, which rejects it (exit 125) and the container never
+        # starts.
         options: >-
-          --health-cmd mongosh --eval "db.runCommand({ping:1})"
+          --health-cmd "mongosh --eval 'db.runCommand({ping:1})'"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
