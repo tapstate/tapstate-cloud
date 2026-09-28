@@ -38,7 +38,7 @@ class AuthSessionIT extends BaseIT {
             new RegisterRequest().email(EMAIL).password(PASSWORD).displayName("IT User")).getData();
         captureSessionCookie();
 
-        assertEquals("ACTIVE", resp.getStatus(), "User status should be ACTIVE");
+        assertEquals("active", resp.getStatus(), "User status should be active");
         assertNotNull(resp.getId(), "User id should be present");
         assertEquals(EMAIL, resp.getEmail(), "User email should match");
     }

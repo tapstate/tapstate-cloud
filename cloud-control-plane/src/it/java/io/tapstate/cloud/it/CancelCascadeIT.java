@@ -31,9 +31,10 @@ class CancelCascadeIT extends BaseIT {
     @BeforeEach
     void setUpOrg() throws Exception {
         signupAndLogin("cancel-" + System.nanoTime() + "@tapstate.io", "StrongPass123!");
-        HttpResponse<String> resp = get("/v1/orgs", Map.of("Cookie", "TAPSTATE_CLOUD_SESSION=" + sessionCookieValue));
-        JsonNode orgs = mapper.readTree(resp.body()).path("data");
-        orgId = orgs.isArray() ? orgs.get(0).path("id").asText() : orgs.path("id").asText();
+        orgId = orgsApi.create(Map.of(
+            "name", "Cancel-Test",
+            "slug", "cancel-" + System.nanoTime()
+        )).getData().getId();
     }
 
     private String createWithCluster(String clusterName) throws Exception {
