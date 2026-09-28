@@ -1,0 +1,12 @@
+# tapstate-cloud CODEOWNERS (ADR-0120)
+# All files owned by the Cloud Platform team
+
+* @cloud-platform-team
+
+# Specific module owners (if team grows)
+/src/main/java/io/tapstate/cloud/identity/ @cloud-platform-team
+/src/main/java/io/tapstate/cloud/org/ @cloud-platform-team
+/src/main/java/io/tapstate/cloud/region/ @cloud-platform-team
+/src/main/java/io/tapstate/cloud/cluster/ @cloud-platform-team
+/src/main/java/io/tapstate/cloud/resolve/ @cloud-platform-team
+/src/main/java/io/tapstate/cloud/sdk/ @cloud-platform-team

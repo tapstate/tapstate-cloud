@@ -1,0 +1,44 @@
+{
+  "_comment": "C2 contract fixture — SDK status receiver (runtime → Global Control Plane)",
+  "version": "v1",
+  "provider": "Global Control Plane (tapstate-cloud)",
+  "consumer": "Runtime SDK sender",
+  "endpoint": "POST /api/sdk/status",
+  "auth": "per-Cluster static token (Authorization: Bearer {token})",
+  "load_constraints": {
+    "allowed": ["runtime_status", "pipeline_states", "observation_timestamp", "error_codes"],
+    "NEVER_INCLUDE": ["user_source_config", "secrets", "atlas_connection_uri", "passwords"]
+  },
+  "sdk_static_token": {
+    "generation": "auto-generated on Cluster creation",
+    "storage": "k3s Secret tapstate-cluster/{clusterId}-sdk-static-token",
+    "hash_storage": "MongoDB tapstate_control.cluster_sdk_tokens.token_hash",
+    "lifecycle": "long-lived (Cluster lifetime, revoked on destroy)",
+    "nonce_replay_protection": "per-request UUID v4 nonce + cluster_sdk_tokens.last_nonce"
+  },
+  "request_example": {
+    "cluster_id": "cluster-9f3a",
+    "runtime_status": "running",
+    "observation_timestamp": "2026-09-27T10:30:00Z",
+    "pipeline_states": [
+      {
+        "pipeline_id": "pipeline-abc",
+        "pipeline_name": "MySQL → Atlas",
+        "status": "running",
+        "processed_count": 42000000,
+        "last_error": null
+      }
+    ],
+    "error_codes": []
+  },
+  "response_success": {
+    "received_at": "2026-09-27T10:30:05Z",
+    "cluster_id": "cluster-9f3a",
+    "ack": true
+  },
+  "cluster_degraded_transition": {
+    "heartbeat_threshold": "> 5 minutes without C2 status",
+    "state_transition": "READY → DEGRADED",
+    "recovery": "subsequent C2 status → DEGRADED → READY"
+  }
+}

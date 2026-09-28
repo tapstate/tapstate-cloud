@@ -1,0 +1,31 @@
+# Build output
+target/
+*.class
+*.jar
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.project
+.classpath
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Maven
+.mvn/wrapper/maven-wrapper.jar
+
+# Generated SDKs (optional: commit if you want SDKs in repo)
+generated-sources/
+
+# Logs
+*.log
+
+# Env files
+.env
+.env.local

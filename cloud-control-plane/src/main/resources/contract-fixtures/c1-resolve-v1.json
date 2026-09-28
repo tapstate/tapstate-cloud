@@ -1,0 +1,50 @@
+{
+  "_comment": "C1 contract fixture — resolve endpoint + exchange_code issuance",
+  "version": "v1",
+  "provider": "Global Control Plane (tapstate-cloud)",
+  "consumer": "Cluster Console runtime",
+  "resolve": {
+    "endpoint": "POST /api/clusters/{clusterId}/resolve",
+    "auth": "Cloud Console session (type ①)",
+    "request": {
+      "cluster_id": "cluster-9f3a",
+      "user_email": "alice@tapstate.io"
+    },
+    "response_success": {
+      "jwt": "<RS256 signed JWT>",
+      "expires_at": "2026-09-27T12:15:00Z",
+      "issuer": "https://cloud.tapstate.io",
+      "audience": "cluster-9f3a.api.tapstate.io",
+      "scope": ["workload:read", "workload:write"]
+    },
+    "response_401_session_expired": {
+      "error_code": "auth.session-expired",
+      "message": "Session has expired"
+    },
+    "response_403_cluster_scope_mismatch": {
+      "error_code": "auth.cluster-scope-mismatch",
+      "message": "User is not authorized for this cluster"
+    },
+    "response_409_cluster_not_ready": {
+      "error_code": "cloud.cluster-not-ready",
+      "message": "Cluster is not in READY state"
+    }
+  },
+  "jwt_claims": {
+    "iss": "https://cloud.tapstate.io",
+    "sub": "user_email",
+    "aud": "{clusterId}.api.tapstate.io",
+    "org_id": "org-uuid",
+    "cluster_id": "cluster-uuid",
+    "runtime_id": "rt-uuid",
+    "exp": "unix timestamp + 15min",
+    "iat": "unix timestamp now",
+    "scope": ["workload:read", "workload:write"]
+  },
+  "jwks_endpoint": {
+    "url": "/api/jwks.json",
+    "format": "RFC 7517 JSON Web Key Set",
+    "rotation": "24h interval, 1h overlap",
+    "runtime_cache_refresh": "every 5 minutes"
+  }
+}

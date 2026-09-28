@@ -1,0 +1,1470 @@
+openapi: 3.1.0
+info:
+  title: Tapstate Cloud — Global Control Plane API
+  description: |
+    Global Control Plane backend API for Tapstate Cloud.
+
+    ## Authentication
+
+    Three authentication contexts (ADR-0122 D2):
+    - **Session Cookie** — Cloud Console users (type ①)
+    - **Static Token** — SDK status sender (type ②, `/api/sdk/*`)
+    - **Resolve JWT** — issued by this service for Cluster Console access
+
+    ## Regions
+
+    Week 2: only `ap-southeast-1` (Singapore) available.
+    Production regions to be added post-W4.
+
+    ## Clusters
+
+    Clusters are auto-provisioned via CloudFormation + EC2 + Docker.
+    Lifecycle state machine has 6 states in Week 2.
+  contact:
+    name: Tapstate Team
+    url: https://tapstate.io
+    email: cloud@tapstate.io
+  version: v1
+servers:
+- url: https://cloud.tapstate.io
+  description: Production
+- url: http://localhost:8080
+  description: Local development
+security:
+- session-cookie: []
+tags:
+- name: Exchange
+  description: Atomic exchange_code → resolve JWT redemption. Called by Cluster Server
+    backend only — JWT never reaches the browser (ADR-0125).
+- name: Organizations
+  description: Organization management — isolation boundary for Clusters
+- name: C2 Status Report
+  description: Runtime → Global Control Plane heartbeat + health metrics (SDK Bearer
+    auth)
+- name: Resolve / Exchange
+  description: Cloud Console → Cluster Console handoff. /resolve issues a one-time
+    exchange_code; /auth/exchange (handled by ExchangeController) atomically redeems
+    it for a resolve JWT. JWKS endpoint publishes public key for runtime offline JWT
+    verification.
+- name: Auth
+  description: "Cloud Console authentication — register, login, session management"
+- name: Regions
+  description: Available AWS regions for Cluster provisioning
+- name: Subscription
+  description: "Organization subscription — view status, items and billing period"
+- name: Health
+  description: Health check endpoints
+- name: Clusters
+  description: "Cluster lifecycle — create, list, retry provisioning"
+paths:
+  /v1/orgs:
+    get:
+      tags:
+      - Organizations
+      summary: List current user's organizations
+      description: Returns all Organizations the authenticated user is a member of.
+        Organizations are the isolation boundary for Clusters and subscriptions.
+      operationId: listMyOrganizations
+      responses:
+        "200":
+          description: List of Organizations (may be empty)
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseOrganizationResponse"
+        "401":
+          description: Not authenticated
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseListOrganizationResponse"
+    post:
+      tags:
+      - Organizations
+      summary: Create new organization (user becomes owner automatically)
+      description: "Creates a new Organization and adds the caller as its first member\
+        \ with owner role. A default TRIAL subscription is automatically created for\
+        \ the new Org. Organization slug must be unique system-wide (lowercase, hyphenated)."
+      operationId: create
+      requestBody:
+        description: "Organization create payload: {\"name\": \"Acme Corp\", \"slug\"\
+          : \"acme-corp\"}"
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties:
+                type: string
+        required: true
+      responses:
+        "200":
+          description: Organization created
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseOrganizationResponse"
+        "400":
+          description: "Invalid input (missing name/slug, slug format)"
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/OrganizationResponse"
+        "401":
+          description: Not authenticated
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/OrganizationResponse"
+        "409":
+          description: Slug already taken
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/OrganizationResponse"
+  /v1/orgs/{orgId}/subscription/status:
+    post:
+      tags:
+      - Subscription
+      summary: Update subscription status (admin/internal)
+      description: |-
+        Internal admin endpoint for subscription state transition.
+
+        Used in Week 2 to simulate PAST_DUE / CANCELLED states for testing Cluster provisioning gating. Production version (Week 12) will be driven by Marketplace billing callbacks instead.
+
+        Accepted status values: TRIAL / ACTIVE / PAST_DUE / CANCELLED.
+      operationId: transitionStatus
+      parameters:
+      - name: orgId
+        in: path
+        description: Organization UUID
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties:
+                type: string
+        required: true
+      responses:
+        "200":
+          description: Status updated
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+        "400":
+          description: Invalid status value or missing field
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+        "404":
+          description: Subscription not found
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+  /v1/orgs/{orgId}/subscription/cancel:
+    post:
+      tags:
+      - Subscription
+      summary: Cancel subscription — auto-terminate all org clusters
+      description: |-
+        Cancels this Organization's subscription (state → CANCELLED) and triggers cascade termination of every non-terminated Cluster owned by this org.
+
+        Cascade runs asynchronously via Cluster state-machine INITIATE_TERMINATION events. This endpoint returns immediately; Cluster TERMINATED transitions land in the background.
+
+        Safe to call on an already-cancelled subscription (idempotent).
+      operationId: cancelSubscription
+      parameters:
+      - name: orgId
+        in: path
+        description: Organization UUID
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          description: "Subscription cancelled, cascade termination scheduled"
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+        "401":
+          description: Not authenticated
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+        "403":
+          description: Not Org owner
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+        "404":
+          description: Subscription not found
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+  /v1/orgs/{orgId}/clusters:
+    get:
+      tags:
+      - Clusters
+      summary: List clusters in organization
+      description: Returns all Clusters owned by this Organization that the current
+        user has access to. Requires a valid Cloud Console session.
+      operationId: listClusters
+      parameters:
+      - name: orgId
+        in: path
+        description: Organization UUID
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          description: List of Clusters
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseClusterResponse"
+        "401":
+          description: Not authenticated
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseListClusterResponse"
+        "403":
+          description: Not a member of this Organization
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseListClusterResponse"
+    post:
+      tags:
+      - Clusters
+      summary: Create Cluster (async auto-provisioning)
+      description: |-
+        Creates a new Cluster and triggers Global Control Plane auto-provisioning. Returns immediately with state PROVISIONING_PENDING — poll GET for state updates.
+
+        Provisioning pipeline: CloudFormation → EC2 + security group → k3s Secret (atlas-uri + sdk-static-token) → Atlas Admin API DB+User+Secret → Route53 → ready.
+
+        Idempotency: orgId + region + name must be unique. Duplicate returns 409.
+        Cluster creation is gated by subscription status (TRIAL / ACTIVE only).
+      operationId: createCluster
+      parameters:
+      - name: orgId
+        in: path
+        description: Organization UUID
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateClusterRequest"
+        required: true
+      responses:
+        "201":
+          description: "Cluster created, provisioning pending"
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseClusterResponse"
+        "400":
+          description: Invalid input
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseClusterResponse"
+        "401":
+          description: Not authenticated
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseClusterResponse"
+        "403":
+          description: Subscription not active (PAST_DUE / CANCELLED)
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseClusterResponse"
+        "409":
+          description: Duplicate cluster name in org + region
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseClusterResponse"
+  /v1/orgs/{orgId}/clusters/{clusterId}/retry:
+    post:
+      tags:
+      - Clusters
+      summary: Retry provisioning_failed Cluster
+      description: |-
+        Retries a Cluster that previously failed provisioning (state = PROVISIONING_FAILED).
+
+        StateMachine cleanup flow: clears residual resources from the failed attempt (CloudFormation stacks, k3s Secrets, Atlas resources) → re-triggers the full provisioning pipeline from PROVISIONING_PENDING.
+
+        Returns 409 if the Cluster is not in PROVISIONING_FAILED state.
+      operationId: retryCluster
+      parameters:
+      - name: orgId
+        in: path
+        description: Organization UUID
+        required: true
+        schema:
+          type: string
+      - name: clusterId
+        in: path
+        description: Cluster UUID
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          description: "Retry initiated, state reset to PROVISIONING_PENDING"
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseClusterResponse"
+        "401":
+          description: Not authenticated
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseClusterResponse"
+        "403":
+          description: Not cluster owner
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseClusterResponse"
+        "404":
+          description: Cluster not found
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseClusterResponse"
+        "409":
+          description: Cluster not in PROVISIONING_FAILED state
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseClusterResponse"
+  /v1/orgs/{orgId}/clusters/{clusterId}/cancel:
+    post:
+      tags:
+      - Clusters
+      summary: Cancel subscription — terminate this Cluster
+      description: |-
+        Initiates Cluster termination by firing the state-machine INITIATE_TERMINATION event.
+
+        State transition chain (ADR-0124 D3):
+          READY / DEGRADED / PROVISIONING_FAILED → DRAINING → TERMINATED
+
+        Resource cleanup (Async): CloudFormation deleteStack → kubectl delete Secret → Atlas deleteDatabase → Route53 delete alias.
+
+        Allowed states: READY, DEGRADED, PROVISIONING_FAILED.
+        Rejected: PROVISIONING_PENDING / PROVISIONING (wait for completion), TERMINATED (already done, idempotent success).
+      operationId: cancelCluster
+      parameters:
+      - name: orgId
+        in: path
+        description: Organization UUID
+        required: true
+        schema:
+          type: string
+      - name: clusterId
+        in: path
+        description: Cluster UUID
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          description: "Termination initiated, state → DRAINING or already TERMINATED"
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseClusterResponse"
+        "401":
+          description: Not authenticated
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseClusterResponse"
+        "403":
+          description: Not cluster owner
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseClusterResponse"
+        "404":
+          description: Cluster not found
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseClusterResponse"
+        "409":
+          description: Cluster in PROVISIONING_PENDING / PROVISIONING — wait first
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseClusterResponse"
+  /v1/clusters/{clusterId}/status-report:
+    post:
+      tags:
+      - C2 Status Report
+      summary: Runtime C2 status report (heartbeat + metrics)
+      description: |-
+        Runtime SDK posts heartbeat + infrastructure-level health metrics.
+
+        Authentication: Bearer token in Authorization header — the Cluster's per-Cluster sdk-static-token (issued at provisioning time).
+
+        Nonce replay protection: Every request must carry a unique nonce string. Duplicate nonce → 409 auth.nonce-replay.
+
+        Data minimization: Only infrastructure metrics accepted (runtime version, uptime, active pipeline count, last error time). No user data, Source/Pipeline configs, or Atlas credentials flow through this endpoint.
+
+        Effects: Updates Cluster.lastHeartbeatAt; auto-transitions state DEGRADED → READY on heartbeat recovery (5min window).
+      operationId: report
+      parameters:
+      - name: clusterId
+        in: path
+        description: Cluster UUID — must match the Bearer token's owning Cluster
+        required: true
+        schema:
+          type: string
+      - name: Authorization
+        in: header
+        required: false
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StatusReportRequest"
+        required: true
+      responses:
+        "200":
+          description: Status report accepted
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseStatusReportResponse"
+        "401":
+          description: SDK token missing or invalid (auth.sdk-token-invalid)
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseStatusReportResponse"
+        "403":
+          description: Token does not match path clusterId (auth.cluster-mismatch)
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseStatusReportResponse"
+        "409":
+          description: Nonce replay (auth.nonce-replay)
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseStatusReportResponse"
+  /v1/auth/register:
+    post:
+      tags:
+      - Auth
+      summary: Register new user
+      description: "Create a new Cloud Console account with email + password. In Week\
+        \ 2 preview, email is auto-verified (magic link deferred)."
+      operationId: register
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+        required: true
+      responses:
+        "201":
+          description: User created
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseUserResponse"
+        "400":
+          description: Invalid input or email already registered
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseUserResponse"
+  /v1/auth/logout:
+    post:
+      tags:
+      - Auth
+      summary: Logout and invalidate session
+      description: Invalidate the current user session. Spring Session cookie is cleared
+        automatically.
+      operationId: logout
+      responses:
+        "200":
+          description: Session invalidated
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseVoid"
+  /v1/auth/login:
+    post:
+      tags:
+      - Auth
+      summary: Login and create session
+      description: "Authenticate with email + password. On success, session cookie\
+        \ is set by Spring Session automatically. Session expires after 7 days of\
+        \ inactivity."
+      operationId: login
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+        required: true
+      responses:
+        "200":
+          description: "Login successful, session cookie set"
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseLoginResult"
+        "401":
+          description: Invalid credentials
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseLoginResult"
+  /v1/auth/exchange:
+    post:
+      tags:
+      - Exchange
+      summary: Exchange exchange_code for resolve JWT (back-channel)
+      description: |-
+        Step 2 of the Cloud Console → Cluster Console session handoff (ADR-0125).
+
+        Caller: Cluster Server backend SDK (NOT browser).
+
+        Auth: Cluster must present its per-Cluster service identity Secret via
+          - Header X-Cluster-Identity-Secret (preferred), OR
+          - Header Authorization: Bearer <secret>
+
+        Atomic conditional write in one DB round-trip:
+          UPDATE exchange_codes SET consumed_at = NOW()
+          WHERE code_hash = sha256(exchange_code)
+          AND consumed_at IS NULL
+          AND expires_at > NOW()
+          AND cluster_id = ?
+
+        On success: signs resolve JWT (RS256, 15min) with claims: sub=user_email, org_id, cluster_id, scope=workload.
+        On failure: returns 401 with domain error code.
+      operationId: exchange
+      parameters:
+      - name: X-Cluster-Identity-Secret
+        in: header
+        required: false
+        schema:
+          type: string
+      - name: Authorization
+        in: header
+        required: false
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExchangeRequest"
+        required: true
+      responses:
+        "200":
+          description: "exchange_code redeemed, JWT issued"
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseExchangeResponse"
+        "401":
+          description: |-
+            Exchange failed:
+              - exchange.cluster-identity-mismatch: service secret missing/doesn't match
+              - exchange.code-invalid: code not found / already consumed / expired
+              - exchange.cluster-bound-mismatch: code issued for different cluster
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseExchangeResponse"
+  /v1/regions:
+    get:
+      tags:
+      - Regions
+      summary: List open regions
+      description: "Returns all AWS regions currently open for Cluster provisioning.\
+        \ Week 2: only one region (e.g. ap-southeast-1) is open. Region selection\
+        \ is done at Cluster creation time and is IMMUTABLE — changing Region requires\
+        \ cancel + resubscribe (Week 4+)."
+      operationId: listOpenRegions
+      responses:
+        "200":
+          description: List of open regions
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseRegionResponse"
+  /v1/regions/{code}:
+    get:
+      tags:
+      - Regions
+      summary: Get region by code
+      description: Returns details for a specific AWS region by its standard code
+        (e.g. 'ap-southeast-1').
+      operationId: getRegion
+      parameters:
+      - name: code
+        in: path
+        description: AWS region code
+        required: true
+        schema:
+          type: string
+        example: ap-southeast-1
+      responses:
+        "200":
+          description: Region details
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseRegionResponse"
+        "404":
+          description: Region not found
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseRegionResponse"
+  /v1/orgs/{orgId}:
+    get:
+      tags:
+      - Organizations
+      summary: Get organization by ID
+      description: Returns Organization details including owner and status. Caller
+        must be a member of this Organization.
+      operationId: getOrg
+      parameters:
+      - name: orgId
+        in: path
+        description: Organization UUID
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          description: Organization details
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseOrganizationResponse"
+        "401":
+          description: Not authenticated
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/OrganizationResponse"
+        "403":
+          description: Not a member of this Organization
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/OrganizationResponse"
+        "404":
+          description: Organization not found
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/OrganizationResponse"
+  /v1/orgs/{orgId}/subscription:
+    get:
+      tags:
+      - Subscription
+      summary: View organization subscription
+      description: |-
+        Returns the Organization's current subscription status, billing period, and item breakdown.
+
+        Subscription states: TRIAL (free trial) / ACTIVE (paid) / PAST_DUE (grace period) / CANCELLED (terminated).
+
+        Cluster provisioning is ONLY allowed when status = TRIAL or ACTIVE. PAST_DUE and CANCELLED block new Cluster creation.
+      operationId: getSubscription
+      parameters:
+      - name: orgId
+        in: path
+        description: Organization UUID
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          description: Subscription details
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+        "401":
+          description: Not authenticated
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+        "403":
+          description: Not a member of this Organization
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+        "404":
+          description: Subscription not found
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+  /v1/orgs/{orgId}/clusters/{clusterId}:
+    get:
+      tags:
+      - Clusters
+      summary: Get Cluster by ID
+      description: "Returns detailed Cluster info including state, provisioning error\
+        \ code (if failed), runtime metadata (public DNS, Elastic IP, runtime ID),\
+        \ and heartbeat timestamps. Requires Cloud session + Organization membership\
+        \ + Cluster ownership."
+      operationId: getCluster
+      parameters:
+      - name: orgId
+        in: path
+        description: Organization UUID
+        required: true
+        schema:
+          type: string
+      - name: clusterId
+        in: path
+        description: Cluster UUID
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          description: Cluster details
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseClusterResponse"
+        "401":
+          description: Not authenticated
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseClusterResponse"
+        "403":
+          description: Not a member of this Organization or not cluster owner
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseClusterResponse"
+        "404":
+          description: Cluster not found
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseClusterResponse"
+  /v1/jwks.json:
+    get:
+      tags:
+      - Resolve / Exchange
+      summary: JWKS public key set (RFC 7517)
+      description: |-
+        Publishes RSA public keys for verifying resolve JWT signatures.
+
+        Runtime SDK caches this JWKS and performs offline verification (ADR-0122 D5 / ADR-0125 D6) — GC never called on per-request workload auth.
+
+        Key rotation: 24h interval with 1h overlap period.
+
+        Returns raw JWKS JSON (RFC 7517 format) — NOT wrapped in ApiResponse.
+      operationId: jwks
+      responses:
+        "200":
+          description: JWKS JSON document
+          content:
+            application/json:
+              schema:
+                type: string
+  /v1/clusters/{clusterId}/resolve:
+    get:
+      tags:
+      - Resolve / Exchange
+      summary: Issue exchange_code for Cluster Console handoff
+      description: |-
+        Part 1 of the Cloud Console → Cluster Console session handoff (ADR-0125).
+
+        Caller must have a valid Cloud Console session (cookie).
+
+        Four conditions enforced:
+          1. Cloud session is valid
+          2. User is a member of the Org
+          3. Cluster exists and belongs to Org
+          4. Cluster is NOT in PROVISIONING_FAILED or TERMINATED state
+
+        Returns a one-time exchange_code (60s TTL, base64url 256-bit random) plus the Cluster origin base_uri.
+
+        The browser then does NOT get a JWT here — it GETs `{base_uri}/auth/exchange?code={exchange_code}` on the Cluster Server. The Cluster Server's GC SDK back-channel-calls POST /v1/auth/exchange (ExchangeController) where the resolve JWT is atomically signed.
+      operationId: resolveCluster
+      parameters:
+      - name: clusterId
+        in: path
+        description: Cluster UUID to resolve
+        required: true
+        schema:
+          type: string
+      - name: orgId
+        in: query
+        description: Organization UUID (recommended — validates Org ownership)
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          description: exchange_code issued
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseResolveResponse"
+        "401":
+          description: No valid Cloud session
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseResolveResponse"
+        "403":
+          description: User not Org member or Cluster not accessible
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseResolveResponse"
+        "404":
+          description: Cluster not found
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseResolveResponse"
+        "409":
+          description: Cluster in PROVISIONING_FAILED / TERMINATED — cannot resolve
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseResolveResponse"
+  /v1/auth/me:
+    get:
+      tags:
+      - Auth
+      summary: Get current user info
+      description: Return the authenticated user's profile. Session cookie required.
+      operationId: me
+      responses:
+        "200":
+          description: User profile
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseLoginResult"
+        "401":
+          description: Not authenticated
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseLoginResult"
+  /health:
+    get:
+      tags:
+      - Health
+      summary: Liveness probe (always 200 when process is running)
+      description: Simple liveness check — returns 200 as long as the process is up.
+        Kubernetes pod-level probe (not used for dependency checks).
+      operationId: liveness
+      responses:
+        "200":
+          description: Service is live
+          content:
+            '*/*':
+              schema:
+                type: string
+  /health/readiness:
+    get:
+      tags:
+      - Health
+      summary: Readiness probe — basic dependency check
+      description: Readiness check — verifies database connectivity and returns service
+        metadata. Kubernetes probe; Actuator also exposes full readiness at /actuator/health.
+      operationId: readiness
+      responses:
+        "200":
+          description: Service is ready
+          content:
+            '*/*':
+              schema:
+                type: string
+components:
+  schemas:
+    OrganizationResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Organization UUID
+        name:
+          type: string
+          description: Organization display name
+        slug:
+          type: string
+          description: "URL-friendly slug (lowercase, hyphenated, unique)"
+        ownerEmail:
+          type: string
+          description: Owner user email
+        status:
+          type: string
+          description: "Organization status: ACTIVE / SUSPENDED"
+    ApiResponseOrganizationResponse:
+      type: object
+      description: Global API response envelope
+      properties:
+        opId:
+          type: string
+          description: Request correlation ID — unique per request
+          example: 3f2a1b4c-5d6e-7f8a-9b0c-1d2e3f4a5b6c
+        code:
+          type: string
+          description: "Business result code — 'ok' on success, error code on failure"
+          example: ok
+        msg:
+          type: string
+          description: Detailed message — success info or failure reason
+        data:
+          $ref: "#/components/schemas/OrganizationResponse"
+          description: "Response payload — object or array, null on void responses"
+    ItemResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Subscription item UUID
+        itemType:
+          type: string
+          description: "Item type enum: TAPSTATE_CLUSTER / ATLAS_DATABASE"
+        itemTypeDisplayName:
+          type: string
+          description: Human-readable item name
+        billingUnit:
+          type: string
+          description: "Billing unit (e.g. 'per-cluster', 'per-GB')"
+        includedQuantity:
+          type: integer
+          format: int32
+          description: Included quantity (0 = unlimited with metadata.unlimited=true)
+        unitPriceCents:
+          type: integer
+          format: int64
+          description: Unit price in cents (100 = $1.00)
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+          description: "Free-form metadata (e.g. unlimited flag, spec key)"
+    SubscriptionResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Subscription UUID
+        orgId:
+          type: string
+          description: Organization UUID
+        status:
+          type: string
+          description: "Subscription state: TRIAL / ACTIVE / PAST_DUE / CANCELLED"
+        currentPeriodStart:
+          type: string
+          format: date-time
+          description: Current billing period start (ISO-8601 UTC)
+        currentPeriodEnd:
+          type: string
+          format: date-time
+          description: Current billing period end (ISO-8601 UTC)
+        provisioningAllowed:
+          type: boolean
+          description: Whether provisioning new Clusters is allowed (TRIAL / ACTIVE
+            = true)
+        createdAt:
+          type: string
+          format: date-time
+          description: Subscription creation time (ISO-8601 UTC)
+        updatedAt:
+          type: string
+          format: date-time
+          description: Last update time (ISO-8601 UTC)
+        items:
+          type: array
+          description: Subscription item breakdown
+          items:
+            $ref: "#/components/schemas/ItemResponse"
+    ApiResponseSubscriptionResponse:
+      type: object
+      description: Global API response envelope
+      properties:
+        opId:
+          type: string
+          description: Request correlation ID — unique per request
+          example: 3f2a1b4c-5d6e-7f8a-9b0c-1d2e3f4a5b6c
+        code:
+          type: string
+          description: "Business result code — 'ok' on success, error code on failure"
+          example: ok
+        msg:
+          type: string
+          description: Detailed message — success info or failure reason
+        data:
+          $ref: "#/components/schemas/SubscriptionResponse"
+          description: "Response payload — object or array, null on void responses"
+    CreateClusterRequest:
+      type: object
+      properties:
+        region:
+          type: string
+          minLength: 1
+        name:
+          type: string
+          maxLength: 100
+          minLength: 1
+        specKey:
+          type: string
+          maxLength: 50
+          minLength: 0
+      required:
+      - name
+      - region
+    ClusterResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Cluster UUID
+        orgId:
+          type: string
+          description: Organization UUID
+        region:
+          type: string
+          description: AWS Region code
+          example: ap-southeast-1
+        name:
+          type: string
+          description: Cluster display name
+        specKey:
+          type: string
+          description: Provisioning spec_key (e.g. 'basic')
+        state:
+          type: string
+          description: "Cluster state: PROVISIONING_PENDING / PROVISIONING / READY\
+            \ / PROVISIONING_FAILED / DEGRADED / DRAINING / TERMINATED"
+          enum:
+          - PROVISIONING_PENDING
+          - PROVISIONING
+          - READY
+          - PROVISIONING_FAILED
+          - DEGRADED
+          - DRAINED
+          - TERMINATED
+        provisionErrorCode:
+          type: string
+          description: Provisioning failure error code (null if not failed)
+          enum:
+          - CLOUDFORMATION_FAILED
+          - CLOUDFORMATION_VALIDATE_FAILED
+          - K3S_SECRET_CREATE_FAILED
+          - ATLAS_DB_CREATE_FAILED
+          - EC2_BOOTSTRAP_TIMEOUT
+          - PROVISIONING_TIMEOUT
+        runtimeId:
+          type: string
+          description: Pipeline Runtime ID (EC2 instance identifier)
+        publicDns:
+          type: string
+          description: Public DNS name (Route53 alias) for Cluster Console
+        elasticIp:
+          type: string
+          description: Elastic IP — used for Atlas allowlist
+        lastHeartbeatAt:
+          type: string
+          description: Last C2 heartbeat timestamp (ISO-8601 UTC)
+        createdAt:
+          type: string
+          description: Cluster creation timestamp (ISO-8601 UTC)
+        readyAt:
+          type: string
+          description: Ready timestamp (ISO-8601 UTC) — null until state = READY
+    ApiResponseClusterResponse:
+      type: object
+      description: Global API response envelope
+      properties:
+        opId:
+          type: string
+          description: Request correlation ID — unique per request
+          example: 3f2a1b4c-5d6e-7f8a-9b0c-1d2e3f4a5b6c
+        code:
+          type: string
+          description: "Business result code — 'ok' on success, error code on failure"
+          example: ok
+        msg:
+          type: string
+          description: Detailed message — success info or failure reason
+        data:
+          $ref: "#/components/schemas/ClusterResponse"
+          description: "Response payload — object or array, null on void responses"
+    StatusReportRequest:
+      type: object
+      properties:
+        nonce:
+          type: string
+        runtimeVersion:
+          type: string
+        uptimeMs:
+          type: integer
+          format: int64
+        activePipelines:
+          type: integer
+          format: int32
+        lastErrorAt:
+          type: string
+    StatusReportResponse:
+      type: object
+      description: Status report acknowledgment
+      properties:
+        status:
+          type: string
+          description: Always 'accepted' on success
+    ApiResponseStatusReportResponse:
+      type: object
+      description: Global API response envelope
+      properties:
+        opId:
+          type: string
+          description: Request correlation ID — unique per request
+          example: 3f2a1b4c-5d6e-7f8a-9b0c-1d2e3f4a5b6c
+        code:
+          type: string
+          description: "Business result code — 'ok' on success, error code on failure"
+          example: ok
+        msg:
+          type: string
+          description: Detailed message — success info or failure reason
+        data:
+          $ref: "#/components/schemas/StatusReportResponse"
+          description: "Response payload — object or array, null on void responses"
+    RegisterRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          description: User email address
+          example: alice@tapstate.io
+          minLength: 1
+        password:
+          type: string
+          description: Password (min 8 chars)
+          example: SecurePass123!
+          maxLength: 128
+          minLength: 8
+        displayName:
+          type: string
+          description: Display name (optional)
+          example: Alice Chen
+          maxLength: 100
+          minLength: 0
+      required:
+      - email
+      - password
+    UserResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          description: User UUID
+        email:
+          type: string
+          description: User email address
+        displayName:
+          type: string
+          description: User display name
+        status:
+          type: string
+          description: "Account status: ACTIVE / PENDING_EMAIL / SUSPENDED"
+        createdAt:
+          type: string
+          format: date-time
+          description: Account creation time (ISO-8601)
+        lastLoginAt:
+          type: string
+          format: date-time
+          description: Last login time (ISO-8601)
+    ApiResponseUserResponse:
+      type: object
+      description: Global API response envelope
+      properties:
+        opId:
+          type: string
+          description: Request correlation ID — unique per request
+          example: 3f2a1b4c-5d6e-7f8a-9b0c-1d2e3f4a5b6c
+        code:
+          type: string
+          description: "Business result code — 'ok' on success, error code on failure"
+          example: ok
+        msg:
+          type: string
+          description: Detailed message — success info or failure reason
+        data:
+          $ref: "#/components/schemas/UserResponse"
+          description: "Response payload — object or array, null on void responses"
+    ApiResponseVoid:
+      type: object
+      description: Global API response envelope
+      properties:
+        opId:
+          type: string
+          description: Request correlation ID — unique per request
+          example: 3f2a1b4c-5d6e-7f8a-9b0c-1d2e3f4a5b6c
+        code:
+          type: string
+          description: "Business result code — 'ok' on success, error code on failure"
+          example: ok
+        msg:
+          type: string
+          description: Detailed message — success info or failure reason
+        data:
+          description: "Response payload — object or array, null on void responses"
+    LoginRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          description: User email address
+          example: alice@tapstate.io
+          minLength: 1
+        password:
+          type: string
+          description: User password
+          example: SecurePass123!
+          minLength: 1
+      required:
+      - email
+      - password
+    ApiResponseLoginResult:
+      type: object
+      description: Global API response envelope
+      properties:
+        opId:
+          type: string
+          description: Request correlation ID — unique per request
+          example: 3f2a1b4c-5d6e-7f8a-9b0c-1d2e3f4a5b6c
+        code:
+          type: string
+          description: "Business result code — 'ok' on success, error code on failure"
+          example: ok
+        msg:
+          type: string
+          description: Detailed message — success info or failure reason
+        data:
+          $ref: "#/components/schemas/LoginResult"
+          description: "Response payload — object or array, null on void responses"
+    LoginResult:
+      type: object
+      properties:
+        email:
+          type: string
+          description: Authenticated user email
+        displayName:
+          type: string
+          description: User display name
+    ExchangeRequest:
+      type: object
+      properties:
+        exchangeCode:
+          type: string
+          minLength: 1
+        clusterId:
+          type: string
+          minLength: 1
+      required:
+      - clusterId
+      - exchangeCode
+    ExchangeResponse:
+      type: object
+      properties:
+        jwt:
+          type: string
+          description: "Resolve JWT (RS256, 15min) — carry to Cluster Console workload\
+            \ requests"
+        expiresAt:
+          type: string
+          description: JWT expiration timestamp (ISO-8601 UTC)
+        jti:
+          type: string
+          description: JWT jti (unique token ID — for audit)
+        userEmail:
+          type: string
+          description: User email bound to this session
+        orgId:
+          type: string
+          description: Organization UUID bound to this session
+        clusterId:
+          type: string
+          description: Cluster UUID bound to this session
+    ApiResponseExchangeResponse:
+      type: object
+      description: Global API response envelope
+      properties:
+        opId:
+          type: string
+          description: Request correlation ID — unique per request
+          example: 3f2a1b4c-5d6e-7f8a-9b0c-1d2e3f4a5b6c
+        code:
+          type: string
+          description: "Business result code — 'ok' on success, error code on failure"
+          example: ok
+        msg:
+          type: string
+          description: Detailed message — success info or failure reason
+        data:
+          $ref: "#/components/schemas/ExchangeResponse"
+          description: "Response payload — object or array, null on void responses"
+    RegionResponse:
+      type: object
+      properties:
+        code:
+          type: string
+          description: AWS region code (e.g. ap-southeast-1)
+        name:
+          type: string
+          description: Human-readable region name (e.g. Asia Pacific - Singapore)
+        open:
+          type: boolean
+          description: Whether this region is open for new Cluster provisioning
+        defaultSpecKey:
+          type: string
+          description: Default provisioning spec_key for this region (e.g. 'basic')
+    ApiResponseRegionResponse:
+      type: object
+      description: Global API response envelope
+      properties:
+        opId:
+          type: string
+          description: Request correlation ID — unique per request
+          example: 3f2a1b4c-5d6e-7f8a-9b0c-1d2e3f4a5b6c
+        code:
+          type: string
+          description: "Business result code — 'ok' on success, error code on failure"
+          example: ok
+        msg:
+          type: string
+          description: Detailed message — success info or failure reason
+        data:
+          $ref: "#/components/schemas/RegionResponse"
+          description: "Response payload — object or array, null on void responses"
+    ApiResponseListOrganizationResponse:
+      type: object
+      description: Global API response envelope
+      properties:
+        opId:
+          type: string
+          description: Request correlation ID — unique per request
+          example: 3f2a1b4c-5d6e-7f8a-9b0c-1d2e3f4a5b6c
+        code:
+          type: string
+          description: "Business result code — 'ok' on success, error code on failure"
+          example: ok
+        msg:
+          type: string
+          description: Detailed message — success info or failure reason
+        data:
+          type: array
+          description: "Response payload — object or array, null on void responses"
+          items:
+            $ref: "#/components/schemas/OrganizationResponse"
+    ApiResponseListClusterResponse:
+      type: object
+      description: Global API response envelope
+      properties:
+        opId:
+          type: string
+          description: Request correlation ID — unique per request
+          example: 3f2a1b4c-5d6e-7f8a-9b0c-1d2e3f4a5b6c
+        code:
+          type: string
+          description: "Business result code — 'ok' on success, error code on failure"
+          example: ok
+        msg:
+          type: string
+          description: Detailed message — success info or failure reason
+        data:
+          type: array
+          description: "Response payload — object or array, null on void responses"
+          items:
+            $ref: "#/components/schemas/ClusterResponse"
+    ResolveResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Always true on success
+        baseUri:
+          type: string
+          description: Cluster origin base URI for browser redirect
+          example: https://c1a2b3.api.tapstate.io
+        exchangeCode:
+          type: string
+          description: "One-time exchange_code (base64url, 256-bit random, 60s TTL)"
+          example: abc123...xyz
+        expiresAt:
+          type: string
+          description: Expiration timestamp (ISO-8601 UTC)
+    ApiResponseResolveResponse:
+      type: object
+      description: Global API response envelope
+      properties:
+        opId:
+          type: string
+          description: Request correlation ID — unique per request
+          example: 3f2a1b4c-5d6e-7f8a-9b0c-1d2e3f4a5b6c
+        code:
+          type: string
+          description: "Business result code — 'ok' on success, error code on failure"
+          example: ok
+        msg:
+          type: string
+          description: Detailed message — success info or failure reason
+        data:
+          $ref: "#/components/schemas/ResolveResponse"
+          description: "Response payload — object or array, null on void responses"
+  securitySchemes:
+    session-cookie:
+      type: apiKey
+      description: "Cloud Console session cookie (HttpOnly, Secure, SameSite=Lax)"
+      name: TAPSTATE_CLOUD_SESSION
+      in: cookie
+    sdk-static-token:
+      type: apiKey
+      description: "SDK static token for runtime → Global Control Plane status reporting.\
+        \ Format: Bearer {per-cluster-static-token}"
+      name: Authorization
+      in: header

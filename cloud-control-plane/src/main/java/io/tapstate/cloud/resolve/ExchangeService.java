@@ -1,0 +1,268 @@
+package io.tapstate.cloud.resolve;
+
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.security.Keys;
+import io.tapstate.cloud.cluster.Cluster;
+import io.tapstate.cloud.cluster.ClusterRepository;
+import io.tapstate.cloud.cluster.ClusterState;
+import io.tapstate.cloud.common.api.AppErrorCode;
+import io.tapstate.cloud.common.api.BusinessException;
+import io.tapstate.cloud.config.JwtKeysConfig;
+import io.tapstate.cloud.org.MemberRepository;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.mongodb.core.query.Update;
+import org.springframework.stereotype.Service;
+
+import javax.crypto.SecretKey;
+import java.security.KeyPair;
+import java.security.SecureRandom;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.Base64;
+import java.util.Date;
+import java.util.HexFormat;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
+/**
+ * Exchange-code lifecycle (ADR-0125).
+ * <ul>
+ *   <li>{@link #issueExchangeCode} — called by GC /resolve endpoint; generates a 32-byte
+ *       random code, stores SHA-256 hash + binding facts, returns the raw code + base_uri.</li>
+ *   <li>{@link #redeemExchangeCode} — called by Cluster Server backend via GC /exchange
+ *       endpoint; performs the atomic conditional write that both consumes the code
+ *       AND issues the resolve JWT in a single DB round-trip.</li>
+ * </ul>
+ * <p>
+ * Security invariants:
+ * <ul>
+ *   <li>Raw exchange code NEVER enters the database — only SHA-256 hash is stored.</li>
+ *   <li>Redemption is {@code findAndModify} — atomic: unconsumed + unexpired + cluster_id
+ *       match → set consumed_at = now → one row affected = success.</li>
+ *   <li>Cluster service identity secret is verified separately (in controller) before
+ *       this method is reached — the atomic condition only checks DB state.</li>
+ * </ul>
+ */
+@Service
+@Slf4j
+public class ExchangeService {
+
+    private final ExchangeCodeRepository codeRepo;
+    private final MongoTemplate mongoTemplate;
+    private final ClusterRepository clusterRepo;
+    private final MemberRepository memberRepo;
+    private final KeyPair jwtSigningKeyPair;
+
+    @Value("${tapstate.cloud.issuer:https://cloud.tapstate.io}")
+    private String issuer;
+
+    @Value("${tapstate.cloud.resolve-jwt-expiry-minutes:15}")
+    private int jwtExpiryMinutes;
+
+    /** Exchange code TTL — 60 seconds (ADR-0125 D2). */
+    private static final int EXCHANGE_CODE_TTL_SECONDS = 60;
+
+    /** In-memory per-Cluster service identity secrets — Week 2 scaffold; production: k3s Secret. */
+    private final Map<String, String> clusterServiceSecrets = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private final SecureRandom secureRandom = new SecureRandom();
+
+    public ExchangeService(ExchangeCodeRepository codeRepo,
+                           MongoTemplate mongoTemplate,
+                           ClusterRepository clusterRepo,
+                           MemberRepository memberRepo,
+                           KeyPair jwtSigningKeyPair) {
+        this.codeRepo = codeRepo;
+        this.mongoTemplate = mongoTemplate;
+        this.clusterRepo = clusterRepo;
+        this.memberRepo = memberRepo;
+        this.jwtSigningKeyPair = jwtSigningKeyPair;
+    }
+
+    // ========== Step 1: Issue exchange code ==========
+
+    /**
+     * Create an exchange code for a Cloud Console → Cluster Console handoff.
+     * <p>
+     * Four conditions must pass (ADR-0125 D3):
+     * <ol>
+     *   <li>User is authenticated (Cloud session valid — validated upstream in SecurityFilter).</li>
+     *   <li>User is a member of the target Organization.</li>
+     *   <li>Target Cluster exists in that Organization.</li>
+     *   <li>Cluster is NOT in provisioning_failed or terminated state.</li>
+     * </ol>
+     *
+     * @return the raw exchange code + base_uri + expiry — ready to return to the browser.
+     */
+    public IssuedExchangeCode issueExchangeCode(String userEmail, String orgId, String clusterId) {
+        // Condition 2: user ∈ org
+        if (!memberRepo.existsByOrgIdAndUserEmail(orgId, userEmail)) {
+            throw new BusinessException(AppErrorCode.ORG_NOT_MEMBER, 403, orgId);
+        }
+
+        // Condition 3: cluster exists + belongs to org
+        Cluster cluster = clusterRepo.findById(clusterId)
+            .orElseThrow(() -> new BusinessException(AppErrorCode.CLUSTER_NOT_FOUND, 404, clusterId));
+        if (!orgId.equals(cluster.getOrgId())) {
+            throw new BusinessException(AppErrorCode.CLUSTER_ORG_MISMATCH, 400, clusterId, orgId);
+        }
+
+        // Condition 4: cluster not in terminal failure state
+        ClusterState state = cluster.getState();
+        if (state == ClusterState.PROVISIONING_FAILED || state == ClusterState.TERMINATED) {
+            throw new BusinessException(AppErrorCode.CLUSTER_INVALID_STATE, 409, state);
+        }
+
+        // Generate exchange code — 32 bytes random, base64url
+        byte[] raw = new byte[32];
+        secureRandom.nextBytes(raw);
+        String rawCode = Base64.getUrlEncoder().withoutPadding().encodeToString(raw);
+        String codeHash = sha256Hex(rawCode);
+
+        Instant now = Instant.now();
+        Instant expires = now.plus(EXCHANGE_CODE_TTL_SECONDS, ChronoUnit.SECONDS);
+
+        ExchangeCode ec = ExchangeCode.builder()
+            .codeHash(codeHash)
+            .userEmail(userEmail)
+            .orgId(orgId)
+            .clusterId(clusterId)
+            .targetOrigin(cluster.getPublicDns() != null
+                ? "https://" + cluster.getPublicDns()
+                : "http://localhost:30080") // Week 2 scaffold fallback
+            .createdAt(now)
+            .expiresAt(expires)
+            .consumedAt(null)
+            .build();
+        codeRepo.save(ec);
+
+        log.info("Exchange code issued for user={}, cluster={}, expires={}", userEmail, clusterId, expires);
+        return new IssuedExchangeCode(rawCode, ec.getTargetOrigin(), expires);
+    }
+
+    // ========== Step 2: Atomic redeem → JWT issue ==========
+
+    /**
+     * Atomically consume the exchange code AND issue the resolve JWT (ADR-0125 D4).
+     * <p>
+     * Single findAndModify: WHERE code_hash = ? AND consumed_at IS NULL AND expires_at > NOW()
+     * AND cluster_id = ? → SET consumed_at = NOW(). One row affected = success; zero = failure.
+     * <p>
+     * Cluster service identity secret is verified by the caller (ExchangeController) —
+     * this method trusts that gate has already passed.
+     */
+    public RedeemedExchange redeemExchangeCode(String rawCode, String expectedClusterId) {
+        String codeHash = sha256Hex(rawCode);
+        Instant now = Instant.now();
+
+        // Atomic conditional write — one DB round-trip
+        Query query = Query.query(Criteria.where("code_hash").is(codeHash)
+            .and("consumed_at").isNull()
+            .and("expires_at").gt(now)
+            .and("cluster_id").is(expectedClusterId));
+        Update update = Update.update("consumed_at", now);
+
+        ExchangeCode consumed = mongoTemplate.findAndModify(query, update, ExchangeCode.class);
+
+        if (consumed == null) {
+            // Distinguish between "already consumed", "expired", "wrong cluster" —
+            // lookup without consumed_at filter to diagnose
+            ExchangeCode existing = codeRepo.findByCodeHashAndConsumedAtIsNull(codeHash).orElse(null);
+            if (existing == null) {
+                // Either never existed or was already consumed
+                throw new BusinessException(AppErrorCode.EXCHANGE_CODE_CONSUMED, 401);
+            } else if (existing.getExpiresAt().isBefore(now)) {
+                throw new BusinessException(AppErrorCode.EXCHANGE_CODE_EXPIRED, 401);
+            } else if (!existing.getClusterId().equals(expectedClusterId)) {
+                throw new BusinessException(AppErrorCode.EXCHANGE_CODE_CLUSTER_MISMATCH, 401);
+            } else {
+                log.error("Exchange code validation failed unexpectedly for cluster={}", expectedClusterId);
+                throw new BusinessException(AppErrorCode.SYSTEM_ERROR, 500);
+            }
+        }
+
+        // Issue resolve JWT — claims per ADR-0122 D4
+        String jwtId = UUID.randomUUID().toString();
+        Instant jwtExp = now.plus(jwtExpiryMinutes, ChronoUnit.MINUTES);
+        String aud = consumed.getClusterId() + ".api.tapstate.io";
+
+        String jwt = Jwts.builder()
+            .id(jwtId)
+            .issuer(issuer)
+            .subject(consumed.getUserEmail())
+            .audience().add(aud).and()
+            .claim("org_id", consumed.getOrgId())
+            .claim("cluster_id", consumed.getClusterId())
+            .claim("scope", List.of("workload:read", "workload:write"))
+            .issuedAt(Date.from(now))
+            .expiration(Date.from(jwtExp))
+            .header()
+                .keyId(JwtKeysConfig.KID)
+                .type("JWT")
+            .and()
+            .signWith(jwtSigningKeyPair.getPrivate())
+            .compact();
+
+        log.info("Exchange code redeemed → JWT issued jti={}, cluster={}, user={}",
+            jwtId, consumed.getClusterId(), consumed.getUserEmail());
+
+        return new RedeemedExchange(jwt, jwtExp.toString(), jwtId,
+            consumed.getUserEmail(), consumed.getOrgId(), consumed.getClusterId());
+    }
+
+    // ========== Cluster service identity secret verification ==========
+
+    /**
+     * Verify the Cluster service identity Secret per-Cluster (ADR-0125 D4 — per-Cluster isolation).
+     * <p>
+     * Two sources checked in order:
+     * <ol>
+     *   <li>In-memory config Map (populated from {@code tapstate.cloud.cluster-service-secrets}
+     *       — useful for dev/IT with pre-known cluster ids)</li>
+     *   <li>Cluster.bootstrapToken from DB — every provisioned Cluster carries its own
+     *       service identity token set at creation time (week-2 scaffold, no k3s Secret yet)</li>
+     * </ol>
+     */
+    public boolean verifyClusterServiceSecret(String clusterId, String presentedSecret) {
+        // 1. Check in-memory config map first (if populated — dev/IT convenience)
+        String fromConfig = clusterServiceSecrets.get(clusterId);
+        if (fromConfig != null && fromConfig.equals(presentedSecret)) {
+            return true;
+        }
+        // 2. Fall back to Cluster.bootstrapToken from DB — the per-Cluster identity secret
+        return clusterRepo.findById(clusterId)
+            .map(c -> presentedSecret != null && presentedSecret.equals(c.getBootstrapToken()))
+            .orElse(false);
+    }
+
+    /** Register a per-Cluster service identity secret — called during bootstrap (Week 3+). */
+    public void registerClusterServiceSecret(String clusterId, String secret) {
+        clusterServiceSecrets.put(clusterId, secret);
+    }
+
+    // ========== Helpers ==========
+
+    private String sha256Hex(String input) {
+        try {
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+            byte[] hash = md.digest(input.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(hash);
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new RuntimeException("SHA-256 not available", e);
+        }
+    }
+
+    // ========== DTOs ==========
+
+    /** Result of issuing an exchange code — returned to browser via GC /resolve. */
+    public record IssuedExchangeCode(String rawCode, String baseUri, Instant expiresAt) {}
+
+    /** Result of successful code redemption — returned to Cluster Server via GC /exchange. */
+    public record RedeemedExchange(String jwt, String expiresAt, String jti,
+                                    String userEmail, String orgId, String clusterId) {}
+}

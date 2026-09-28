@@ -1,0 +1,41 @@
+# ============================================================
+# Integration test profile — src/it/java failsafe tests
+# Connects to local MongoDB (NOT Testcontainers) — dev-machine IT baseline.
+# Use: mvn verify -Dit.server.port=8081
+# ============================================================
+
+spring:
+  application:
+    name: tapstate-cloud-control-it
+  data:
+    mongodb:
+      uri: mongodb://localhost:27017/tapstate_cloud_it
+      database: tapstate_cloud_it
+  security:
+    user:
+      name: it-dev
+      password: it-dev
+
+server:
+  port: ${it.server.port:8081}
+  servlet:
+    session:
+      timeout: 7d
+      cookie:
+        name: TAPSTATE_CLOUD_SESSION
+        http-only: true
+        secure: false
+        same-site: lax
+
+tapstate:
+  cloud:
+    issuer: https://cloud.tapstate.io
+    resolve-jwt-expiry-minutes: 15
+    session-expiry-days: 7
+    default-region: ap-southeast-1
+
+# Faster IT startup — less logging noise
+logging:
+  level:
+    io.tapstate.cloud: INFO
+    org.springframework.security: WARN

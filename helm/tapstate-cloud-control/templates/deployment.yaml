@@ -1,0 +1,130 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}
+  labels:
+    app: {{ .Release.Name }}
+    version: {{ .Values.image.tag | default .Chart.AppVersion }}
+    {{- include "tapstate-cloud-control.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}
+  strategy:
+    {{- toYaml .Values.strategy | nindent 4 }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}
+        version: {{ .Values.image.tag | default .Chart.AppVersion }}
+        {{- include "tapstate-cloud-control.selectorLabels" . | nindent 8 }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.serviceAccount }}
+      serviceAccountName: {{ .name | default (printf "%s-sa" .Release.Name) }}
+      {{- end }}
+      {{- with .Values.securityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.config.serverPort }}
+              protocol: TCP
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          env:
+            # ========== Spring Boot config from ConfigMap ==========
+            - name: SERVER_PORT
+              value: {{ .Values.config.serverPort | quote }}
+            - name: SPRING_PROFILES_ACTIVE
+              value: {{ .Values.config.springProfilesActive | quote }}
+            - name: CORS_ALLOWED_ORIGINS
+              value: {{ .Values.config.corsAllowedOrigins | quote }}
+
+            # ========== Tapstate Cloud config from ConfigMap ==========
+            - name: CLOUD_JWT_ISSUER
+              value: {{ .Values.config.jwtIssuer | quote }}
+            - name: CLOUD_RESOLVE_JWT_EXPIRY_MINUTES
+              value: {{ .Values.config.resolveJwtExpiryMinutes | quote }}
+            - name: CLOUD_SESSION_EXPIRY_DAYS
+              value: {{ .Values.config.sessionExpiryDays | quote }}
+            - name: CLOUD_DEFAULT_REGION
+              value: {{ .Values.config.defaultRegion | quote }}
+            - name: AWS_REGION
+              value: {{ .Values.config.awsRegion | quote }}
+
+            # ========== Secrets from k3s Secret — MONGODB ==========
+            - name: MONGODB_URI
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.mongoUri.name }}
+                  key: {{ .Values.secrets.mongoUri.key }}
+
+            # ========== Secrets from k3s Secret — JWKS Signing Key ==========
+            - name: CLOUD_JWKS_SIGNING_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.jwksSigningKey.name }}
+                  key: {{ .Values.secrets.jwksSigningKey.key }}
+
+            # ========== Secrets from k3s Secret — AWS Credentials ==========
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.awsCredentials.name }}
+                  key: {{ .Values.secrets.awsCredentials.accessKeyIdKey }}
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.awsCredentials.name }}
+                  key: {{ .Values.secrets.awsCredentials.secretAccessKeyKey }}
+
+            # ========== Secrets from k3s Secret — Atlas Admin API Key ==========
+            - name: ATLAS_ADMIN_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.atlasAdminKey.name }}
+                  key: {{ .Values.secrets.atlasAdminKey.apiKeyKey }}
+            - name: ATLAS_ADMIN_API_KEY_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.atlasAdminKey.name }}
+                  key: {{ .Values.secrets.atlasAdminKey.apiKeySecretKey }}
+
+            # ========== JVM config ==========
+            - name: JAVA_OPTS
+              value: "-Xms256m -Xmx512m -XX:+UseContainerSupport"
+
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+
+      # ADR-0124 D2: k3s namespace is separate; secrets pre-created by ops
+      # This chart does NOT create the secrets — they must exist before install.
+      automountServiceAccountToken: true

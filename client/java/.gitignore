@@ -1,0 +1,39 @@
+# ============================================================
+# client/java — .gitignore
+# Committed: pom.xml, .gitignore, .openapi-generator-ignore,
+#            src/main/java/io/tapstate/cloud/sdk/** (generated SDK source)
+# ============================================================
+
+# --- Maven build artifacts ---
+target/
+*.class
+*.jar
+*.war
+build/
+
+# --- openapi-generator project scaffold (regenerated every run, never committed) ---
+README.md
+build.gradle
+build.gradle.kts
+settings.gradle
+settings.gradle.kts
+gradle.properties
+gradlew
+gradlew.bat
+gradle/
+.github/
+.travis.yml
+docs/
+git_push.sh
+.openapi-generator/
+
+# --- openapi-generator test stubs / metadata ---
+openapi.json
+openapi.yaml
+
+# --- IDE / OS ---
+.idea/
+*.iml
+.vscode/
+*.swp
+.DS_Store

@@ -1,0 +1,176 @@
+package io.tapstate.cloud.subscription;
+
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import io.tapstate.cloud.common.api.ApiResponse;
+import io.tapstate.cloud.common.api.AppErrorCode;
+import io.tapstate.cloud.common.api.BaseController;
+import io.tapstate.cloud.common.api.BusinessException;
+import io.tapstate.cloud.common.CurrentUser;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Organization subscription endpoint — view current subscription status, items and billing period.
+ * <p>
+ * Payment callbacks, invoice list, and usage aggregation are Week 3+ features
+ * (not implemented here). Week 2 scaffold: GET view-only endpoint.
+ */
+@RestController
+@RequestMapping("/v1/orgs/{orgId}")
+@RequiredArgsConstructor
+@Tag(name = "Subscription", description = "Organization subscription — view status, items and billing period")
+public class SubscriptionController extends BaseController {
+
+    private final SubscriptionService subscriptionService;
+
+    @GetMapping("/subscription")
+    @Operation(
+        summary = "View organization subscription",
+        description = "Returns the Organization's current subscription status, billing period, and item breakdown.\n\n" +
+                      "Subscription states: TRIAL (free trial) / ACTIVE (paid) / PAST_DUE (grace period) / CANCELLED (terminated).\n\n" +
+                      "Cluster provisioning is ONLY allowed when status = TRIAL or ACTIVE. " +
+                      "PAST_DUE and CANCELLED block new Cluster creation."
+    )
+    @ApiResponses(value = {
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Subscription details",
+            content = @Content(schema = @Schema(implementation = SubscriptionResponse.class))),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "Not authenticated"),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "Not a member of this Organization"),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Subscription not found")
+    })
+    public ResponseEntity<ApiResponse<SubscriptionResponse>> getSubscription(
+            @Parameter(description = "Organization UUID") @PathVariable String orgId) {
+        String userEmail = CurrentUser.getEmail();
+        if (userEmail == null) {
+            return fail(AppErrorCode.UNAUTHORIZED, HttpStatus.UNAUTHORIZED);
+        }
+
+        Subscription subscription = subscriptionService.getByOrgId(orgId);
+        List<SubscriptionItem> items = subscriptionService.getItemsByOrgId(orgId);
+
+        SubscriptionResponse resp = SubscriptionResponse.from(subscription, items);
+        return ok(resp);
+    }
+
+    @PostMapping("/subscription/status")
+    @Operation(
+        summary = "Update subscription status (admin/internal)",
+        description = "Internal admin endpoint for subscription state transition.\n\n" +
+                      "Used in Week 2 to simulate PAST_DUE / CANCELLED states for testing Cluster " +
+                      "provisioning gating. Production version (Week 12) will be driven by " +
+                      "Marketplace billing callbacks instead.\n\n" +
+                      "Accepted status values: TRIAL / ACTIVE / PAST_DUE / CANCELLED."
+    )
+    @ApiResponses(value = {
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Status updated",
+            content = @Content(schema = @Schema(implementation = SubscriptionResponse.class))),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Invalid status value or missing field"),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Subscription not found")
+    })
+    public ResponseEntity<ApiResponse<SubscriptionResponse>> transitionStatus(
+            @Parameter(description = "Organization UUID") @PathVariable String orgId,
+            @RequestBody Map<String, String> body) {
+        String statusStr = body.get("status");
+        if (statusStr == null) {
+            return fail(AppErrorCode.BAD_REQUEST, HttpStatus.BAD_REQUEST, "status is required");
+        }
+        SubscriptionStatus target;
+        try {
+            target = SubscriptionStatus.valueOf(statusStr.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new BusinessException(AppErrorCode.BAD_REQUEST, 400, "Invalid subscription status: " + statusStr);
+        }
+
+        Subscription updated = subscriptionService.transitionStatus(orgId, target);
+        List<SubscriptionItem> items = subscriptionService.getItemsByOrgId(orgId);
+        return ok(SubscriptionResponse.from(updated, items));
+    }
+
+    @PostMapping("/subscription/cancel")
+    @Operation(
+        summary = "Cancel subscription — auto-terminate all org clusters",
+        description = "Cancels this Organization's subscription (state → CANCELLED) and triggers " +
+                      "cascade termination of every non-terminated Cluster owned by this org.\n\n" +
+                      "Cascade runs asynchronously via Cluster state-machine INITIATE_TERMINATION events. " +
+                      "This endpoint returns immediately; Cluster TERMINATED transitions land in the background.\n\n" +
+                      "Safe to call on an already-cancelled subscription (idempotent)."
+    )
+    @ApiResponses(value = {
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Subscription cancelled, cascade termination scheduled",
+            content = @Content(schema = @Schema(implementation = SubscriptionResponse.class))),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "Not authenticated"),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "Not Org owner"),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Subscription not found")
+    })
+    public ResponseEntity<ApiResponse<SubscriptionResponse>> cancelSubscription(
+            @Parameter(description = "Organization UUID") @PathVariable String orgId) {
+        String userEmail = CurrentUser.getEmail();
+        if (userEmail == null) {
+            return fail(AppErrorCode.UNAUTHORIZED, HttpStatus.UNAUTHORIZED);
+        }
+
+        Subscription cancelled = subscriptionService.cancelSubscription(orgId, "gc:" + userEmail);
+        List<SubscriptionItem> items = subscriptionService.getItemsByOrgId(orgId);
+        return ok(SubscriptionResponse.from(cancelled, items));
+    }
+
+    // ========== Response DTOs ==========
+
+    public record SubscriptionResponse(
+        @Schema(description = "Subscription UUID") String id,
+        @Schema(description = "Organization UUID") String orgId,
+        @Schema(description = "Subscription state: TRIAL / ACTIVE / PAST_DUE / CANCELLED") String status,
+        @Schema(description = "Current billing period start (ISO-8601 UTC)") Instant currentPeriodStart,
+        @Schema(description = "Current billing period end (ISO-8601 UTC)") Instant currentPeriodEnd,
+        @Schema(description = "Whether provisioning new Clusters is allowed (TRIAL / ACTIVE = true)") boolean provisioningAllowed,
+        @Schema(description = "Subscription creation time (ISO-8601 UTC)") Instant createdAt,
+        @Schema(description = "Last update time (ISO-8601 UTC)") Instant updatedAt,
+        @Schema(description = "Subscription item breakdown") List<ItemResponse> items
+    ) {
+        public static SubscriptionResponse from(Subscription s, List<SubscriptionItem> items) {
+            return new SubscriptionResponse(
+                s.getId(),
+                s.getOrgId(),
+                s.getStatus().name(),
+                s.getCurrentPeriodStart(),
+                s.getCurrentPeriodEnd(),
+                s.getStatus().allowsProvisioning(),
+                s.getCreatedAt(),
+                s.getUpdatedAt(),
+                items.stream().map(ItemResponse::from).toList());
+        }
+    }
+
+    public record ItemResponse(
+        @Schema(description = "Subscription item UUID") String id,
+        @Schema(description = "Item type enum: TAPSTATE_CLUSTER / ATLAS_DATABASE") String itemType,
+        @Schema(description = "Human-readable item name") String itemTypeDisplayName,
+        @Schema(description = "Billing unit (e.g. 'per-cluster', 'per-GB')") String billingUnit,
+        @Schema(description = "Included quantity (0 = unlimited with metadata.unlimited=true)") int includedQuantity,
+        @Schema(description = "Unit price in cents (100 = $1.00)") long unitPriceCents,
+        @Schema(description = "Free-form metadata (e.g. unlimited flag, spec key)") Map<String, String> metadata
+    ) {
+        public static ItemResponse from(SubscriptionItem item) {
+            SubscriptionItemType t = item.getItemType();
+            return new ItemResponse(
+                item.getId(),
+                t.name(),
+                t.getDisplayName(),
+                t.getBillingUnit(),
+                item.getIncludedQuantity(),
+                item.getUnitPriceCents(),
+                item.getMetadata());
+        }
+    }
+}
