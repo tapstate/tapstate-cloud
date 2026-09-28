@@ -41,9 +41,9 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       {{- with .Values.serviceAccount }}
-      serviceAccountName: {{ .name | default (printf "%s-sa" .Release.Name) }}
+      serviceAccountName: {{ .name | default (printf "%s-sa" $.Release.Name) }}
       {{- end }}
-      {{- with .Values.securityContext }}
+      {{- with .Values.podSecurityContext }}
       securityContext:
         {{- toYaml . | nindent 8 }}
       {{- end }}
@@ -124,6 +124,10 @@ spec:
 
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
 
       # ADR-0124 D2: k3s namespace is separate; secrets pre-created by ops
       # This chart does NOT create the secrets — they must exist before install.

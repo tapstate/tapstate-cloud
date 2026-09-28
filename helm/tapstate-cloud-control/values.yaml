@@ -56,12 +56,15 @@ serviceAccount:
   name: ""
 
 podAnnotations: {}
-podSecurityContext: {}
 
-securityContext:
+# Pod-level security (applies to all containers in the pod)
+podSecurityContext:
   runAsNonRoot: true
   runAsUser: 1000
   runAsGroup: 1000
+
+# Container-level security (applies to the main app container)
+securityContext:
   allowPrivilegeEscalation: false
   readOnlyRootFilesystem: false
 
