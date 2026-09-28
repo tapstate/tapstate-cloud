@@ -32,7 +32,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.StringJoiner;
 
-@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-28T08:51:50.502820+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
+@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-28T20:46:36.289357+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
 public class OrganizationsApi extends BaseApi {
 
   public OrganizationsApi() {
@@ -47,10 +47,10 @@ public class OrganizationsApi extends BaseApi {
    * Create new organization (user becomes owner automatically)
    * Creates a new Organization and adds the caller as its first member with owner role. A default TRIAL subscription is automatically created for the new Org. Organization slug must be unique system-wide (lowercase, hyphenated).
    * @param requestBody Organization create payload: {\&quot;name\&quot;: \&quot;Acme Corp\&quot;, \&quot;slug\&quot;: \&quot;acme-corp\&quot;} (required)
-   * @return ApiResponseOrganizationResponse
+   * @return OrganizationResponse
    * @throws ApiException if fails to make API call
    */
-  public ApiResponseOrganizationResponse create(@jakarta.annotation.Nonnull Map<String, String> requestBody) throws ApiException {
+  public OrganizationResponse create(@jakarta.annotation.Nonnull Map<String, String> requestBody) throws ApiException {
     return this.create(requestBody, Collections.emptyMap());
   }
 
@@ -60,10 +60,10 @@ public class OrganizationsApi extends BaseApi {
    * Creates a new Organization and adds the caller as its first member with owner role. A default TRIAL subscription is automatically created for the new Org. Organization slug must be unique system-wide (lowercase, hyphenated).
    * @param requestBody Organization create payload: {\&quot;name\&quot;: \&quot;Acme Corp\&quot;, \&quot;slug\&quot;: \&quot;acme-corp\&quot;} (required)
    * @param additionalHeaders additionalHeaders for this call
-   * @return ApiResponseOrganizationResponse
+   * @return OrganizationResponse
    * @throws ApiException if fails to make API call
    */
-  public ApiResponseOrganizationResponse create(@jakarta.annotation.Nonnull Map<String, String> requestBody, Map<String, String> additionalHeaders) throws ApiException {
+  public OrganizationResponse create(@jakarta.annotation.Nonnull Map<String, String> requestBody, Map<String, String> additionalHeaders) throws ApiException {
     Object localVarPostBody = requestBody;
     
     // verify the required parameter 'requestBody' is set
@@ -99,7 +99,7 @@ public class OrganizationsApi extends BaseApi {
 
     String[] localVarAuthNames = new String[] { "session-cookie" };
 
-    TypeReference<ApiResponseOrganizationResponse> localVarReturnType = new TypeReference<ApiResponseOrganizationResponse>() {};
+    TypeReference<OrganizationResponse> localVarReturnType = new TypeReference<OrganizationResponse>() {};
     return apiClient.invokeAPI(
         localVarPath,
         "POST",
@@ -121,10 +121,10 @@ public class OrganizationsApi extends BaseApi {
    * Get organization by ID
    * Returns Organization details including owner and status. Caller must be a member of this Organization.
    * @param orgId Organization UUID (required)
-   * @return ApiResponseOrganizationResponse
+   * @return OrganizationResponse
    * @throws ApiException if fails to make API call
    */
-  public ApiResponseOrganizationResponse getOrg(@jakarta.annotation.Nonnull String orgId) throws ApiException {
+  public OrganizationResponse getOrg(@jakarta.annotation.Nonnull String orgId) throws ApiException {
     return this.getOrg(orgId, Collections.emptyMap());
   }
 
@@ -134,10 +134,10 @@ public class OrganizationsApi extends BaseApi {
    * Returns Organization details including owner and status. Caller must be a member of this Organization.
    * @param orgId Organization UUID (required)
    * @param additionalHeaders additionalHeaders for this call
-   * @return ApiResponseOrganizationResponse
+   * @return OrganizationResponse
    * @throws ApiException if fails to make API call
    */
-  public ApiResponseOrganizationResponse getOrg(@jakarta.annotation.Nonnull String orgId, Map<String, String> additionalHeaders) throws ApiException {
+  public OrganizationResponse getOrg(@jakarta.annotation.Nonnull String orgId, Map<String, String> additionalHeaders) throws ApiException {
     Object localVarPostBody = null;
     
     // verify the required parameter 'orgId' is set
@@ -174,7 +174,7 @@ public class OrganizationsApi extends BaseApi {
 
     String[] localVarAuthNames = new String[] { "session-cookie" };
 
-    TypeReference<ApiResponseOrganizationResponse> localVarReturnType = new TypeReference<ApiResponseOrganizationResponse>() {};
+    TypeReference<OrganizationResponse> localVarReturnType = new TypeReference<OrganizationResponse>() {};
     return apiClient.invokeAPI(
         localVarPath,
         "GET",
@@ -195,10 +195,10 @@ public class OrganizationsApi extends BaseApi {
   /**
    * List current user&#39;s organizations
    * Returns all Organizations the authenticated user is a member of. Organizations are the isolation boundary for Clusters and subscriptions.
-   * @return ApiResponseOrganizationResponse
+   * @return OrganizationResponse
    * @throws ApiException if fails to make API call
    */
-  public ApiResponseOrganizationResponse listMyOrganizations() throws ApiException {
+  public OrganizationResponse listMyOrganizations() throws ApiException {
     return this.listMyOrganizations(Collections.emptyMap());
   }
 
@@ -207,10 +207,10 @@ public class OrganizationsApi extends BaseApi {
    * List current user&#39;s organizations
    * Returns all Organizations the authenticated user is a member of. Organizations are the isolation boundary for Clusters and subscriptions.
    * @param additionalHeaders additionalHeaders for this call
-   * @return ApiResponseOrganizationResponse
+   * @return OrganizationResponse
    * @throws ApiException if fails to make API call
    */
-  public ApiResponseOrganizationResponse listMyOrganizations(Map<String, String> additionalHeaders) throws ApiException {
+  public OrganizationResponse listMyOrganizations(Map<String, String> additionalHeaders) throws ApiException {
     Object localVarPostBody = null;
     
     // create path and map variables
@@ -241,7 +241,7 @@ public class OrganizationsApi extends BaseApi {
 
     String[] localVarAuthNames = new String[] { "session-cookie" };
 
-    TypeReference<ApiResponseOrganizationResponse> localVarReturnType = new TypeReference<ApiResponseOrganizationResponse>() {};
+    TypeReference<OrganizationResponse> localVarReturnType = new TypeReference<OrganizationResponse>() {};
     return apiClient.invokeAPI(
         localVarPath,
         "GET",

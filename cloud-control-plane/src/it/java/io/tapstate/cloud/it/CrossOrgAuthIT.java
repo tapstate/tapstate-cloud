@@ -1,15 +1,21 @@
 package io.tapstate.cloud.it;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.tapstate.cloud.sdk.ApiClient;
 import io.tapstate.cloud.sdk.ApiException;
 import io.tapstate.cloud.sdk.api.AuthApi;
-import io.tapstate.cloud.sdk.api.ClustersApi;
 import io.tapstate.cloud.sdk.api.OrganizationsApi;
 import io.tapstate.cloud.sdk.api.ResolveExchangeApi;
+import io.tapstate.cloud.sdk.api.SubscriptionApi;
 import io.tapstate.cloud.sdk.model.*;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.util.List;
 import java.util.Map;
 
@@ -32,14 +38,31 @@ class CrossOrgAuthIT extends BaseIT {
         api.setBasePath(BASE_URL);
         AuthApi auth = new AuthApi(api);
         OrganizationsApi orgs = new OrganizationsApi(api);
-        ClustersApi clusters = new ClustersApi(api);
+        SubscriptionApi subs = new SubscriptionApi(api);
 
         auth.register(new RegisterRequest().email(email).password("StrongPass123!").displayName(email.split("@")[0]));
         auth.login(new LoginRequest().email(email).password("StrongPass123!"));
 
-        String orgId = orgs.create(Map.of("name", orgName, "slug", orgName.toLowerCase())).getData().getId();
-        String clusterId = clusters.createCluster(orgId,
-            new CreateClusterRequest().region("ap-southeast-1").name(clusterName)).getData().getId();
+        String orgId = orgs.create(Map.of("name", orgName, "slug", orgName.toLowerCase())).getId();
+        subs.createSubscription(orgId, new CreateSubscriptionRequest()
+            .region("ap-southeast-1").clusterName(clusterName).specKey("basic"));
+        // Poll for cluster via raw HTTP
+        String clusterId = null;
+        HttpClient hc = HttpClient.newHttpClient();
+        for (int i = 0; i < 10; i++) {
+            HttpResponse<String> r = hc.send(HttpRequest.newBuilder()
+                .uri(URI.create(BASE_URL + "/v1/orgs/" + orgId + "/clusters"))
+                .GET().build(), HttpResponse.BodyHandlers.ofString());
+            JsonNode arr = new ObjectMapper().readTree(r.body()).path("data");
+            if (arr.isArray()) {
+                for (JsonNode c : arr) {
+                    if (clusterName.equals(c.path("name").asText())) clusterId = c.path("id").asText();
+                }
+            }
+            if (clusterId != null) break;
+            Thread.sleep(500);
+        }
+        assertNotNull(clusterId, "Cluster should be created");
         waitForClusterState(orgId, clusterId, "READY", 30, 1000);
 
         return new String[]{orgId, clusterId};

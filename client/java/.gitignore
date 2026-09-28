@@ -12,7 +12,6 @@ target/
 build/
 
 # --- openapi-generator project scaffold (regenerated every run, never committed) ---
-README.md
 build.gradle
 build.gradle.kts
 settings.gradle

@@ -1,10 +1,11 @@
 package io.tapstate.cloud.it;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.tapstate.cloud.sdk.api.ClustersApi;
 import io.tapstate.cloud.sdk.api.OrganizationsApi;
-import io.tapstate.cloud.sdk.model.ClusterResponse;
-import io.tapstate.cloud.sdk.model.CreateClusterRequest;
+import io.tapstate.cloud.sdk.api.SubscriptionApi;
+import io.tapstate.cloud.sdk.model.CreateSubscriptionRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -42,16 +43,37 @@ class C2StatusReportIT extends BaseIT {
         c2Client = HttpClient.newBuilder().build();
     }
 
-    /** Create a READY cluster, fetch its sdkStaticToken via mongosh. */
+    /** Create a READY cluster via subscription flow, fetch its sdkStaticToken via mongosh. */
     private String[] createProvisionedClusterAndToken(String name) throws Exception {
         signupAndLogin("c2-" + name.toLowerCase() + "@tapstate.io", "StrongPass123!");
 
         String orgId = orgsApi.create(Map.of(
             "name", "C2-" + name,
-            "slug", "c2-" + name.toLowerCase())).getData().getId();
+            "slug", "c2-" + name.toLowerCase())).getId();
 
-        String clusterId = clustersApi.createCluster(orgId,
-            new CreateClusterRequest().region("ap-southeast-1").name(name)).getData().getId();
+        // Create cluster via subscription flow
+        SubscriptionApi subApi = new SubscriptionApi(client);
+        subApi.createSubscription(orgId,
+            new CreateSubscriptionRequest().region("ap-southeast-1").clusterName(name).specKey("basic"));
+
+        // Poll clusters list via raw HTTP until we find our cluster
+        String clusterId = null;
+        for (int i = 0; i < 10; i++) {
+            HttpResponse<String> resp = get("/v1/orgs/" + orgId + "/clusters",
+                Map.of("Cookie", "TAPSTATE_CLOUD_SESSION=" + sessionCookieValue));
+            JsonNode arr = mapper.readTree(resp.body()).path("data");
+            if (arr.isArray()) {
+                for (JsonNode c : arr) {
+                    if (name.equals(c.path("name").asText())) {
+                        clusterId = c.path("id").asText();
+                        break;
+                    }
+                }
+            }
+            if (clusterId != null) break;
+            Thread.sleep(500);
+        }
+        assertNotNull(clusterId, "Cluster should be created");
 
         waitForReady(orgId, clusterId);
 

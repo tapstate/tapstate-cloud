@@ -22,6 +22,7 @@ import io.tapstate.cloud.sdk.Pair;
 
 import io.tapstate.cloud.sdk.model.ApiResponseStatusReportResponse;
 import io.tapstate.cloud.sdk.model.StatusReportRequest;
+import io.tapstate.cloud.sdk.model.StatusReportResponse;
 
 
 import java.util.ArrayList;
@@ -31,7 +32,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.StringJoiner;
 
-@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-28T08:51:50.502820+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
+@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-28T20:46:36.289357+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
 public class C2StatusReportApi extends BaseApi {
 
   public C2StatusReportApi() {
@@ -48,10 +49,10 @@ public class C2StatusReportApi extends BaseApi {
    * @param clusterId Cluster UUID — must match the Bearer token&#39;s owning Cluster (required)
    * @param statusReportRequest  (required)
    * @param authorization  (optional)
-   * @return ApiResponseStatusReportResponse
+   * @return StatusReportResponse
    * @throws ApiException if fails to make API call
    */
-  public ApiResponseStatusReportResponse report(@jakarta.annotation.Nonnull String clusterId, @jakarta.annotation.Nonnull StatusReportRequest statusReportRequest, @jakarta.annotation.Nullable String authorization) throws ApiException {
+  public StatusReportResponse report(@jakarta.annotation.Nonnull String clusterId, @jakarta.annotation.Nonnull StatusReportRequest statusReportRequest, @jakarta.annotation.Nullable String authorization) throws ApiException {
     return this.report(clusterId, statusReportRequest, authorization, Collections.emptyMap());
   }
 
@@ -63,10 +64,10 @@ public class C2StatusReportApi extends BaseApi {
    * @param statusReportRequest  (required)
    * @param authorization  (optional)
    * @param additionalHeaders additionalHeaders for this call
-   * @return ApiResponseStatusReportResponse
+   * @return StatusReportResponse
    * @throws ApiException if fails to make API call
    */
-  public ApiResponseStatusReportResponse report(@jakarta.annotation.Nonnull String clusterId, @jakarta.annotation.Nonnull StatusReportRequest statusReportRequest, @jakarta.annotation.Nullable String authorization, Map<String, String> additionalHeaders) throws ApiException {
+  public StatusReportResponse report(@jakarta.annotation.Nonnull String clusterId, @jakarta.annotation.Nonnull StatusReportRequest statusReportRequest, @jakarta.annotation.Nullable String authorization, Map<String, String> additionalHeaders) throws ApiException {
     Object localVarPostBody = statusReportRequest;
     
     // verify the required parameter 'clusterId' is set
@@ -110,7 +111,7 @@ public class C2StatusReportApi extends BaseApi {
 
     String[] localVarAuthNames = new String[] { "session-cookie" };
 
-    TypeReference<ApiResponseStatusReportResponse> localVarReturnType = new TypeReference<ApiResponseStatusReportResponse>() {};
+    TypeReference<StatusReportResponse> localVarReturnType = new TypeReference<StatusReportResponse>() {};
     return apiClient.invokeAPI(
         localVarPath,
         "POST",
