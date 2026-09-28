@@ -46,6 +46,21 @@ case "$ENV_NAME" in
     K3S_CLUSTER_IP="192.168.1.193"            # Private IP of k3s API server (behind tunnel)
     KUBECONFIG_PATH="${HOME}/.kube/k3s-tunnel.yaml"  # Generated at runtime — SSH tunnel needed
     HELM_VALUES_FILE="values-dev.yaml"
+    USE_ECR=false
+    ;;
+  awsdev)
+    NEXUS_HOST="263186327888.dkr.ecr.ap-east-1.amazonaws.com"
+    NEXUS_REPO="tapstate-cloud/tapstate-cloud-control"
+    BUILD_HOST="lg@113.98.206.142"       # Gateway with Docker — same as dev
+    SSH_HOST="ec2"                       # aliased to 18.166.228.163 in ~/.ssh/config
+    SSH_USER="ubuntu"
+    K3S_CONTROL_PLANE_HOST="ec2"         # Same — single-node k3s on EC2
+    K3S_CONTROL_PLANE_NODE="ip-172-31-4-81"
+    K3S_NAMESPACE="tapstate"
+    K3S_CLUSTER_IP="172.31.4.81"         # Private IP of EC2 k3s (direct, no tunnel needed)
+    KUBECONFIG_PATH="${HOME}/.kube/k3s-awsdev.yaml"  # Direct EC2 kubeconfig copy
+    HELM_VALUES_FILE="values-awsdev.yaml"
+    USE_ECR=true
     ;;
   test)
     echo "ERROR: test env not configured yet — fill in deploy.sh" >&2; exit 1 ;;
@@ -63,6 +78,7 @@ if [ -z "$HELM_VALUES_FILE" ]; then echo "ERROR: $ENV_NAME HELM_VALUES missing" 
 SSH_KEY="${SSH_KEY:-$HOME/.ssh/id_rsa}"
 SSH_KEY_ROOT="${SSH_KEY_ROOT:-$SSH_KEY}"        # Same key for root SSH to k3s control-plane
 GATEWAY="${SSH_USER}@${SSH_HOST}"
+BUILD_HOST="${BUILD_HOST:-$GATEWAY}"            # Where Docker builds happen — defaults to GATEWAY
 CP_ROOT="root@${K3S_CONTROL_PLANE_HOST}"
 TIMESTAMP="$(date +%Y%m%d-%H%M)"
 GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
@@ -125,53 +141,53 @@ if [ ! -f "$HELM_VALUES_PATH" ]; then
 fi
 
 # ----------------------------------------------------------------------
-# SSH tunnel management for k3s API server
+# k3s kubeconfig setup — tunnel for dev, direct copy for awsdev
 # ----------------------------------------------------------------------
 setup_k3s_tunnel() {
-  log "Setting up SSH tunnel for k3s API server..."
-  kill_port_used "$TUNNEL_PORT" || true
-  ssh -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-      -fNL "${TUNNEL_PORT}:${K3S_CLUSTER_IP}:6443" "$GATEWAY" 2>&1
-
-  # Wait for tunnel to actually be ready (poll until port accepts)
-  for i in $(seq 1 10); do
-    if nc -z 127.0.0.1 "$TUNNEL_PORT" 2>/dev/null; then break; fi
-    sleep 1
-  done
-
-  # Fetch admin kubeconfig from k3s control-plane (has client certs for auth)
-  local admin_kubeconfig
-  admin_kubeconfig=$(ssh -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-                        -i "$SSH_KEY_ROOT" "$CP_ROOT" "cat /etc/rancher/k3s/k3s.yaml" 2>/dev/null)
-
-  if [ -z "$admin_kubeconfig" ]; then
-    log_err "Cannot fetch k3s admin kubeconfig from $CP_ROOT. Check root SSH key."
-    exit 1
-  fi
-
-  # Replace server URL to go through our tunnel, strip CA (we skip TLS verify)
-  echo "$admin_kubeconfig" \
-    | sed "s|server: https://127.0.0.1:6443|server: https://127.0.0.1:${TUNNEL_PORT}|" \
-    | sed '/certificate-authority-data:/d' \
-    > "$KUBECONFIG_PATH"
-
-  # Append insecure-skip-tls-verify to cluster config
-  python3 -c "
+  if [ "$USE_ECR" = "true" ]; then
+    # awsdev: EC2 is reachable directly, copy kubeconfig
+    log "Copying EC2 kubeconfig (direct access)..."
+    ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+        -i "$SSH_KEY" "$GATEWAY" "sudo cat /etc/rancher/k3s/k3s.yaml" > "$KUBECONFIG_PATH"
+    # Replace localhost with EC2 private IP
+    sed -i.bak "s|server: https://127.0.0.1:6443|server: https://${K3S_CLUSTER_IP}:6443|" "$KUBECONFIG_PATH"
+    rm -f "${KUBECONFIG_PATH}.bak"
+    log_ok "kubeconfig → $KUBECONFIG_PATH (direct)"
+  else
+    # dev: need SSH tunnel through gateway server
+    log "Setting up SSH tunnel for k3s API server..."
+    kill_port_used "$TUNNEL_PORT" || true
+    ssh -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+        -fNL "${TUNNEL_PORT}:${K3S_CLUSTER_IP}:6443" "$GATEWAY" 2>&1
+    for i in $(seq 1 10); do
+      if nc -z 127.0.0.1 "$TUNNEL_PORT" 2>/dev/null; then break; fi
+      sleep 1
+    done
+    local admin_kubeconfig
+    admin_kubeconfig=$(ssh -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+                          -i "$SSH_KEY_ROOT" "$CP_ROOT" "cat /etc/rancher/k3s/k3s.yaml" 2>/dev/null)
+    if [ -z "$admin_kubeconfig" ]; then
+      log_err "Cannot fetch k3s admin kubeconfig from $CP_ROOT. Check root SSH key."
+      exit 1
+    fi
+    echo "$admin_kubeconfig" \
+      | sed "s|server: https://127.0.0.1:6443|server: https://127.0.0.1:${TUNNEL_PORT}|" \
+      | sed '/certificate-authority-data:/d' \
+      > "$KUBECONFIG_PATH"
+    python3 -c "
 import yaml, sys
 cfg = yaml.safe_load(open('$KUBECONFIG_PATH'))
 for c in cfg.get('clusters', []):
     c['cluster']['insecure-skip-tls-verify'] = True
 yaml.safe_dump(cfg, open('$KUBECONFIG_PATH', 'w'), sort_keys=False)
 " 2>/dev/null || {
-    # Fallback: manual sed append
     sed -i '' 's|server: https://127.0.0.1:'"${TUNNEL_PORT}"'|server: https://127.0.0.1:'"${TUNNEL_PORT}"'\n      insecure-skip-tls-verify: true|' "$KUBECONFIG_PATH"
   }
+    log_ok "k3s tunnel ready → https://127.0.0.1:${TUNNEL_PORT}"
+  fi
 
-  log_ok "k3s tunnel ready → https://127.0.0.1:${TUNNEL_PORT}"
-
-  # Verify tunnel works
   if ! kubectl --kubeconfig="$KUBECONFIG_PATH" cluster-info >/dev/null 2>&1; then
-    log_err "k3s tunnel did not establish. Check SSH to $GATEWAY and root access to $CP_ROOT."
+    log_err "k3s cluster unreachable. Check SSH to $GATEWAY."
     kubectl --kubeconfig="$KUBECONFIG_PATH" cluster-info 2>&1 | tail -3
     exit 1
   fi
@@ -249,18 +265,19 @@ build_jar() {
 }
 
 # ----------------------------------------------------------------------
-# Step 2 — Copy jar + runtime Dockerfile to remote, build + push to Harbor
+# Step 2 — Copy jar + runtime Dockerfile to remote, build + push
+#   dev     → 113 Docker → Harbor
+#   awsdev  → 113 Docker → docker save → scp local → retag → push ECR (no ECR push on remote — no AWS creds)
 # ----------------------------------------------------------------------
 push_image() {
-  log "Step 2: Prepare remote build dir on $GATEWAY"
-  ssh -o IdentitiesOnly=yes -i "$SSH_KEY" "$GATEWAY" "mkdir -p $REMOTE_BUILD_DIR"
+  log "Step 2: Prepare remote build dir on $BUILD_HOST"
+  ssh -o IdentitiesOnly=yes -i "$SSH_KEY" "$BUILD_HOST" "mkdir -p $REMOTE_BUILD_DIR"
 
   log "Step 3: Copy jar to remote ($(du -h "$JAR_PATH" | awk '{print $1}'))"
-  scp -o IdentitiesOnly=yes -i "$SSH_KEY" "$JAR_PATH" "${GATEWAY}:${REMOTE_BUILD_DIR}/tapstate-cloud-control-plane.jar"
+  scp -o IdentitiesOnly=yes -i "$SSH_KEY" "$JAR_PATH" "${BUILD_HOST}:${REMOTE_BUILD_DIR}/tapstate-cloud-control-plane.jar"
 
-  # Write the minimal runtime Dockerfile (single-stage — jar is already built)
   log "Step 4: Create runtime Dockerfile on remote"
-  ssh -o IdentitiesOnly=yes -i "$SSH_KEY" "$GATEWAY" "cat > ${REMOTE_BUILD_DIR}/Dockerfile.runtime << 'DOCKEREOF'
+  ssh -o IdentitiesOnly=yes -i "$SSH_KEY" "$BUILD_HOST" "cat > ${REMOTE_BUILD_DIR}/Dockerfile.runtime << 'DOCKEREOF'
 FROM eclipse-temurin:21-jre-alpine AS runtime
 WORKDIR /app
 COPY tapstate-cloud-control-plane.jar ./app.jar
@@ -270,25 +287,47 @@ ENTRYPOINT java -jar /app/app.jar
 DOCKEREOF"
 
   log "Step 5: Build Docker image on remote → $REMOTE_IMAGE"
-  ssh -o IdentitiesOnly=yes -i "$SSH_KEY" "$GATEWAY" "
+  ssh -o IdentitiesOnly=yes -i "$SSH_KEY" "$BUILD_HOST" "
     cd $REMOTE_BUILD_DIR
     docker build -t '$REMOTE_IMAGE' -t '$REMOTE_IMAGE_LATEST' -f Dockerfile.runtime . 2>&1 | tail -5
   "
   log_ok "Image built on remote"
 
-  log "Step 6: Push to Harbor → $REMOTE_IMAGE"
-  ssh -o IdentitiesOnly=yes -i "$SSH_KEY" "$GATEWAY" \
-    "sudo docker push '$REMOTE_IMAGE' 2>&1 | tail -3"
-  log_ok "Pushed: $REMOTE_IMAGE"
+  if [ "$USE_ECR" = "true" ]; then
+    # ECR path: no AWS creds on remote → save tar, pull locally, retag, push
+    require_cmd docker
+    log "Step 6a: docker save on remote → ECR push locally"
+    local ECR_IMAGE="${NEXUS_HOST}/${NEXUS_REPO}"
+    local TAR_FILE="/tmp/tapstate-cloud-image.tar"
+    ssh -o IdentitiesOnly=yes -i "$SSH_KEY" "$BUILD_HOST" \
+      "docker save '$REMOTE_IMAGE_LATEST' -o ${REMOTE_BUILD_DIR}/image.tar 2>&1 | tail -3"
+    scp -o IdentitiesOnly=yes -i "$SSH_KEY" \
+      "${BUILD_HOST}:${REMOTE_BUILD_DIR}/image.tar" "$TAR_FILE"
+    ssh -o IdentitiesOnly=yes -i "$SSH_KEY" "$BUILD_HOST" "rm -rf $REMOTE_BUILD_DIR"
+    docker load -i "$TAR_FILE" 2>&1 | tail -2
+    rm -f "$TAR_FILE"
 
-  log "        Push latest tag → $REMOTE_IMAGE_LATEST"
-  ssh -o IdentitiesOnly=yes -i "$SSH_KEY" "$GATEWAY" \
-    "sudo docker push '$REMOTE_IMAGE_LATEST' 2>&1 | tail -3"
-  log_ok "Pushed: $REMOTE_IMAGE_LATEST"
+    # ECR has IMMUTABLE tags — always use $IMAGE_TAG from env or auto-generated
+    local tag="${IMAGE_TAG:-awsdev-$(date +%Y%m%d-%H%M)}"
+    IMAGE_TAG="$tag"
+    log "Step 6b: docker retag → ${ECR_IMAGE}:${tag} and push"
+    docker tag "$REMOTE_IMAGE_LATEST" "${ECR_IMAGE}:${tag}"
+    docker push "${ECR_IMAGE}:${tag}" 2>&1 | tail -3
+    log_ok "Pushed to ECR: ${ECR_IMAGE}:${tag}"
+  else
+    log "Step 6: Push to Harbor → $REMOTE_IMAGE"
+    ssh -o IdentitiesOnly=yes -i "$SSH_KEY" "$BUILD_HOST" \
+      "sudo docker push '$REMOTE_IMAGE' 2>&1 | tail -3"
+    log_ok "Pushed: $REMOTE_IMAGE"
 
-  # Cleanup remote build artifacts
-  ssh -o IdentitiesOnly=yes -i "$SSH_KEY" "$GATEWAY" \
-    "rm -rf $REMOTE_BUILD_DIR"
+    log "        Push latest tag → $REMOTE_IMAGE_LATEST"
+    ssh -o IdentitiesOnly=yes -i "$SSH_KEY" "$BUILD_HOST" \
+      "sudo docker push '$REMOTE_IMAGE_LATEST' 2>&1 | tail -3"
+    log_ok "Pushed: $REMOTE_IMAGE_LATEST"
+
+    ssh -o IdentitiesOnly=yes -i "$SSH_KEY" "$BUILD_HOST" \
+      "rm -rf $REMOTE_BUILD_DIR"
+  fi
 }
 
 # ----------------------------------------------------------------------
@@ -352,7 +391,7 @@ EOF
 case "$MODE" in
   all)
     setup_k3s_tunnel
-    ensure_k3s_registries
+    [ "$USE_ECR" = "false" ] && ensure_k3s_registries
     build_jar
     push_image
     deploy_k3s
@@ -363,7 +402,7 @@ case "$MODE" in
     ;;
   deploy-only)
     setup_k3s_tunnel
-    ensure_k3s_registries
+    [ "$USE_ECR" = "false" ] && ensure_k3s_registries
     deploy_k3s
     ;;
 esac

@@ -9,8 +9,9 @@ spring:
   data:
     mongodb:
       # Local dev: Docker Compose MongoDB if available; otherwise testcontainers
-      uri: mongodb://localhost:27017
-      database: tapstate_cloud
+      # In k3s deployments, MONGODB_URI env var from Helm Secret overrides this
+      uri: ${MONGODB_URI:mongodb://localhost:27017}
+      database: ${MONGODB_DATABASE:tapstate_cloud}
 
 tapstate:
   cloud:

@@ -81,6 +81,12 @@ spec:
               value: {{ .Values.config.awsRegion | quote }}
 
             # ========== Secrets from k3s Secret — MONGODB ==========
+            # SPRING_DATA_MONGODB_URI maps to spring.data.mongodb.uri via relaxed binding
+            - name: SPRING_DATA_MONGODB_URI
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.mongoUri.name }}
+                  key: {{ .Values.secrets.mongoUri.key }}
             - name: MONGODB_URI
               valueFrom:
                 secretKeyRef:
