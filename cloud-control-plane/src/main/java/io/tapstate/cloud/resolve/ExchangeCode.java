@@ -20,7 +20,7 @@ import java.time.Instant;
  * and the caller is the owning Cluster service identity.
  */
 @Document("one_time_exchange_codes")
-@CompoundIndex(name = "code_hash_unconsumed", def = "{'codeHash': 1, 'consumedAt': 1}")
+@CompoundIndex(name = "codeHash_unconsumed_v2", def = "{'codeHash': 1, 'consumedAt': 1}")
 @Data
 @Builder
 @NoArgsConstructor
