@@ -174,11 +174,11 @@ public class ExchangeService {
         Instant now = Instant.now();
 
         // Atomic conditional write — one DB round-trip
-        Query query = Query.query(Criteria.where("code_hash").is(codeHash)
-            .and("consumed_at").isNull()
-            .and("expires_at").gt(now)
-            .and("cluster_id").is(expectedClusterId));
-        Update update = Update.update("consumed_at", now);
+        Query query = Query.query(Criteria.where("codeHash").is(codeHash)
+            .and("consumedAt").isNull()
+            .and("expiresAt").gt(now)
+            .and("clusterId").is(expectedClusterId));
+        Update update = Update.update("consumedAt", now);
 
         ExchangeCode consumed = mongoTemplate.findAndModify(query, update, ExchangeCode.class);
 

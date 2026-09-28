@@ -32,6 +32,25 @@ import static org.junit.jupiter.api.Assertions.*;
 @DisplayName("CrossOrgAuthIT — cross-organization resource isolation")
 class CrossOrgAuthIT extends BaseIT {
 
+    /** Pin the TAPSTATE_CLOUD_SESSION cookie from the last response onto the ApiClient
+     *  (OpenAPI Generator ApiClient does NOT auto-manage session cookies). */
+    private static void pinSessionCookie(ApiClient api) {
+        var headers = api.getResponseHeaders();
+        if (headers == null || headers.get("Set-Cookie") == null) return;
+        for (String sc : headers.get("Set-Cookie")) {
+            int eq = sc.indexOf('=');
+            int semi = sc.indexOf(';');
+            if (eq > 0 && (semi < 0 || semi > eq)) {
+                String name = sc.substring(0, eq).trim();
+                String value = semi > eq ? sc.substring(eq + 1, semi).trim() : sc.substring(eq + 1).trim();
+                if ("TAPSTATE_CLOUD_SESSION".equals(name)) {
+                    api.addDefaultCookie(name, value);
+                    return;
+                }
+            }
+        }
+    }
+
     /** Full provision: register + login + org + READY cluster, returns [orgId, clusterId, api] */
     private String[] provisionAsUser(String email, String orgName, String clusterName) throws Exception {
         ApiClient api = new ApiClient();
@@ -42,28 +61,33 @@ class CrossOrgAuthIT extends BaseIT {
 
         auth.register(new RegisterRequest().email(email).password("StrongPass123!").displayName(email.split("@")[0]));
         auth.login(new LoginRequest().email(email).password("StrongPass123!"));
+        pinSessionCookie(api);
 
         String orgId = orgs.create(Map.of("name", orgName, "slug", orgName.toLowerCase())).getData().getId();
         subs.createSubscription(orgId, new CreateSubscriptionRequest()
             .region("ap-southeast-1").clusterName(clusterName).specKey("basic"));
-        // Poll for cluster via raw HTTP
+        // Poll for cluster with THIS user's own client — the shared BaseIT client
+        // carries a different session and would be denied (403) on this org.
+        io.tapstate.cloud.sdk.api.ClustersApi clusters = new io.tapstate.cloud.sdk.api.ClustersApi(api);
         String clusterId = null;
-        HttpClient hc = HttpClient.newHttpClient();
-        for (int i = 0; i < 10; i++) {
-            HttpResponse<String> r = hc.send(HttpRequest.newBuilder()
-                .uri(URI.create(BASE_URL + "/v1/orgs/" + orgId + "/clusters"))
-                .GET().build(), HttpResponse.BodyHandlers.ofString());
-            JsonNode arr = new ObjectMapper().readTree(r.body()).path("data");
-            if (arr.isArray()) {
-                for (JsonNode c : arr) {
-                    if (clusterName.equals(c.path("name").asText())) clusterId = c.path("id").asText();
-                }
+        for (int i = 0; i < 20 && clusterId == null; i++) {
+            var list = clusters.listClusters(orgId).getData();
+            for (var c : list) {
+                if (clusterName.equals(c.getName())) clusterId = c.getId();
             }
-            if (clusterId != null) break;
-            Thread.sleep(500);
+            if (clusterId == null) Thread.sleep(500);
         }
         assertNotNull(clusterId, "Cluster should be created");
-        waitForClusterState(orgId, clusterId, "READY", 30, 1000);
+
+        // Wait for READY using this user's client
+        boolean ready = false;
+        for (int i = 0; i < 40 && !ready; i++) {
+            try {
+                ready = "READY".equals(clusters.getCluster(orgId, clusterId).getData().getState().getValue());
+            } catch (Exception ignored) { /* keep polling */ }
+            if (!ready) Thread.sleep(1000);
+        }
+        assertTrue(ready, "Cluster " + clusterId + " never reached READY");
 
         return new String[]{orgId, clusterId};
     }
@@ -81,6 +105,7 @@ class CrossOrgAuthIT extends BaseIT {
         ResolveExchangeApi resolveB = new ResolveExchangeApi(clientB);
         authB.register(new RegisterRequest().email("userB@tapstate.io").password("StrongPass123!").displayName("userB"));
         authB.login(new LoginRequest().email("userB@tapstate.io").password("StrongPass123!"));
+        pinSessionCookie(clientB);
 
         // User B tries to resolve cluster A (belongs to org A)
         ApiException ex = assertThrows(ApiException.class,

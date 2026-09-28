@@ -5,6 +5,7 @@ import io.tapstate.cloud.cluster.ClusterRepository;
 import io.tapstate.cloud.cluster.ClusterState;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.statemachine.StateMachine;
 import org.springframework.statemachine.config.StateMachineFactory;
 import org.springframework.statemachine.support.DefaultStateMachineContext;
@@ -43,6 +44,9 @@ public class ClusterStateMachineService {
     private final ClusterRepository clusterRepository;
 
     private final SecureRandom secureRandom = new SecureRandom();
+
+    @Value("${tapstate.cloud.cluster.provision.success-rate:85}")
+    private int provisionSuccessRate;
 
     public ClusterStateMachineService(
         @Qualifier("clusterStateMachineFactory")
@@ -171,8 +175,8 @@ public class ClusterStateMachineService {
                     return; // terminated mid-provision
                 }
 
-                // 85% success rate for Week 2 scaffold
-                boolean success = secureRandom.nextInt(100) < 85;
+                // Configurable success rate (default 85%, 100% in IT profile)
+                boolean success = secureRandom.nextInt(100) < provisionSuccessRate;
                 if (success) {
                     transition(latest.getId(), ClusterEventType.PROVISION_SUCCESS, "system(auto-provision)");
                 } else {

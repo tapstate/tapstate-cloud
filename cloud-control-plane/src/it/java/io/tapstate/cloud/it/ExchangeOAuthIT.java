@@ -48,6 +48,7 @@ class ExchangeOAuthIT extends BaseIT {
         for (int i = 0; i < 10; i++) {
             java.net.http.HttpResponse<String> r = hc.send(java.net.http.HttpRequest.newBuilder()
                 .uri(java.net.URI.create(BASE_URL + "/v1/orgs/" + orgId + "/clusters"))
+                .header("Cookie", "TAPSTATE_CLOUD_SESSION=" + sessionCookieValue)
                 .GET().build(), java.net.http.HttpResponse.BodyHandlers.ofString());
             com.fasterxml.jackson.databind.JsonNode arr = mapper.readTree(r.body()).path("data");
             if (arr.isArray()) {
@@ -172,7 +173,7 @@ class ExchangeOAuthIT extends BaseIT {
 
         ExchangeResponse resp = exchangeApi.exchange(
             new ExchangeRequest().exchangeCode(code).clusterId(clusterId),
-            null, bootstrapToken).getData();  // Bearer in Authorization header
+            null, "Bearer " + bootstrapToken).getData();  // Bearer scheme in Authorization header
         assertNotNull(resp.getJwt());
     }
 }

@@ -33,6 +33,9 @@ tapstate:
     resolve-jwt-expiry-minutes: 15
     session-expiry-days: 7
     default-region: ap-southeast-1
+    cluster:
+      provision:
+        success-rate: 100
 
 # Faster IT startup — less logging noise
 logging:
