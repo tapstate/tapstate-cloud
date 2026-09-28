@@ -104,11 +104,11 @@ public class ExchangeController extends BaseController {
         ExchangeService.RedeemedExchange redeemed =
             exchangeService.redeemExchangeCode(request.exchangeCode(), request.clusterId());
 
-        log.info("Exchange succeeded for cluster={}, user={}, jti={}",
-            redeemed.clusterId(), redeemed.userEmail(), redeemed.jti());
+        log.info("Exchange succeeded for cluster={}, user={}, userId={}, jti={}",
+            redeemed.clusterId(), redeemed.userEmail(), redeemed.userId(), redeemed.jti());
         return ok(new ExchangeResponse(
             redeemed.jwt(), redeemed.expiresAt(), redeemed.jti(),
-            redeemed.userEmail(), redeemed.orgId(), redeemed.clusterId()));
+            redeemed.userEmail(), redeemed.userId(), redeemed.orgId(), redeemed.clusterId()));
     }
 
     // ========== DTOs ==========
@@ -124,8 +124,9 @@ public class ExchangeController extends BaseController {
     public record ExchangeResponse(
         @Schema(description = "Resolve JWT (RS256, 15min) — carry to Cluster Console workload requests") String jwt,
         @Schema(description = "JWT expiration timestamp (ISO-8601 UTC)") String expiresAt,
-        @Schema(description = "JWT jti (unique token ID — for audit)") String jti,
+        @Schema(description = "JWT jti (unique token ID — for audit + Cloud-side revocation)") String jti,
         @Schema(description = "User email bound to this session") String userEmail,
+        @Schema(description = "Stable user UUID (Issue #5 item 1)") String userId,
         @Schema(description = "Organization UUID bound to this session") String orgId,
         @Schema(description = "Cluster UUID bound to this session") String clusterId
     ) {}

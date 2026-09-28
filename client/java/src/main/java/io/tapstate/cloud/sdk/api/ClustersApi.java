@@ -32,7 +32,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.StringJoiner;
 
-@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-28T20:46:36.289357+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
+@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-28T22:10:40.121065+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
 public class ClustersApi extends BaseApi {
 
   public ClustersApi() {
@@ -130,10 +130,10 @@ public class ClustersApi extends BaseApi {
    * List clusters in organization
    * Returns all Clusters owned by this Organization that the current user has access to. Requires a valid Cloud Console session.
    * @param orgId Organization UUID (required)
-   * @return ClusterResponse
+   * @return ApiResponseListClusterResponse
    * @throws ApiException if fails to make API call
    */
-  public ClusterResponse listClusters(@jakarta.annotation.Nonnull String orgId) throws ApiException {
+  public ApiResponseListClusterResponse listClusters(@jakarta.annotation.Nonnull String orgId) throws ApiException {
     return this.listClusters(orgId, Collections.emptyMap());
   }
 
@@ -143,10 +143,10 @@ public class ClustersApi extends BaseApi {
    * Returns all Clusters owned by this Organization that the current user has access to. Requires a valid Cloud Console session.
    * @param orgId Organization UUID (required)
    * @param additionalHeaders additionalHeaders for this call
-   * @return ClusterResponse
+   * @return ApiResponseListClusterResponse
    * @throws ApiException if fails to make API call
    */
-  public ClusterResponse listClusters(@jakarta.annotation.Nonnull String orgId, Map<String, String> additionalHeaders) throws ApiException {
+  public ApiResponseListClusterResponse listClusters(@jakarta.annotation.Nonnull String orgId, Map<String, String> additionalHeaders) throws ApiException {
     Object localVarPostBody = null;
     
     // verify the required parameter 'orgId' is set
@@ -183,7 +183,7 @@ public class ClustersApi extends BaseApi {
 
     String[] localVarAuthNames = new String[] { "session-cookie" };
 
-    TypeReference<ClusterResponse> localVarReturnType = new TypeReference<ClusterResponse>() {};
+    TypeReference<ApiResponseListClusterResponse> localVarReturnType = new TypeReference<ApiResponseListClusterResponse>() {};
     return apiClient.invokeAPI(
         localVarPath,
         "GET",

@@ -32,7 +32,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.StringJoiner;
 
-@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-28T20:46:36.289357+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
+@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-28T22:10:40.121065+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
 public class OrganizationsApi extends BaseApi {
 
   public OrganizationsApi() {
@@ -195,10 +195,10 @@ public class OrganizationsApi extends BaseApi {
   /**
    * List current user&#39;s organizations
    * Returns all Organizations the authenticated user is a member of. Organizations are the isolation boundary for Clusters and subscriptions.
-   * @return OrganizationResponse
+   * @return ApiResponseListOrganizationResponse
    * @throws ApiException if fails to make API call
    */
-  public OrganizationResponse listMyOrganizations() throws ApiException {
+  public ApiResponseListOrganizationResponse listMyOrganizations() throws ApiException {
     return this.listMyOrganizations(Collections.emptyMap());
   }
 
@@ -207,10 +207,10 @@ public class OrganizationsApi extends BaseApi {
    * List current user&#39;s organizations
    * Returns all Organizations the authenticated user is a member of. Organizations are the isolation boundary for Clusters and subscriptions.
    * @param additionalHeaders additionalHeaders for this call
-   * @return OrganizationResponse
+   * @return ApiResponseListOrganizationResponse
    * @throws ApiException if fails to make API call
    */
-  public OrganizationResponse listMyOrganizations(Map<String, String> additionalHeaders) throws ApiException {
+  public ApiResponseListOrganizationResponse listMyOrganizations(Map<String, String> additionalHeaders) throws ApiException {
     Object localVarPostBody = null;
     
     // create path and map variables
@@ -241,7 +241,7 @@ public class OrganizationsApi extends BaseApi {
 
     String[] localVarAuthNames = new String[] { "session-cookie" };
 
-    TypeReference<OrganizationResponse> localVarReturnType = new TypeReference<OrganizationResponse>() {};
+    TypeReference<ApiResponseListOrganizationResponse> localVarReturnType = new TypeReference<ApiResponseListOrganizationResponse>() {};
     return apiClient.invokeAPI(
         localVarPath,
         "GET",

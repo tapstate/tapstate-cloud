@@ -37,6 +37,9 @@ public class ExchangeCode {
     /** User who requested the Cluster Console handoff (from valid Cloud session). */
     private String userEmail;
 
+    /** Stable user ID (UUID) — added to resolve JWT as claim "user_id" (Issue #5 item 1). */
+    private String userId;
+
     /** Organization the user belongs to. */
     private String orgId;
 

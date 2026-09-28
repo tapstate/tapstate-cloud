@@ -72,7 +72,7 @@ paths:
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/OrganizationResponse"
+                $ref: "#/components/schemas/ApiResponseListOrganizationResponse"
         "401":
           description: Not authenticated
           content:
@@ -672,7 +672,7 @@ paths:
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/ClusterResponse"
+                $ref: "#/components/schemas/ApiResponseListClusterResponse"
         "401":
           description: Not authenticated
           content:

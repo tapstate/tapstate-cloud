@@ -36,7 +36,7 @@ import java.util.StringJoiner;
   OrganizationResponse.JSON_PROPERTY_OWNER_EMAIL,
   OrganizationResponse.JSON_PROPERTY_STATUS
 })
-@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-28T20:46:36.289357+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
+@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-28T22:10:40.121065+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
 public class OrganizationResponse {
   public static final String JSON_PROPERTY_ID = "id";
   @jakarta.annotation.Nullable

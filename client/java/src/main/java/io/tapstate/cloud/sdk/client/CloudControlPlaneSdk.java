@@ -310,6 +310,7 @@ public final class CloudControlPlaneSdk {
         }
 
         // Step 4: Extract all claims into VerifiedJwt (caller does any scope checks it needs)
+        String jwtUserId = claims.get("user_id", String.class);
         String jwtClusterId = claims.get("cluster_id", String.class);
         String jwtOrgId = claims.get("org_id", String.class);
 
@@ -324,7 +325,8 @@ public final class CloudControlPlaneSdk {
             ? claims.getExpiration().toInstant() : null;
 
         return new VerifiedJwt(
-            claims.getSubject(),          // userEmail
+            jwtUserId,                     // stable user UUID (Issue #5 item 1)
+            claims.getSubject(),           // userEmail
             jwtOrgId,
             jwtClusterId,
             claims.getId(),               // jti
@@ -333,6 +335,44 @@ public final class CloudControlPlaneSdk {
             aud,
             scope != null ? scope : Collections.emptyList()
         );
+    }
+
+    // ========== verifyRequest — Cloud→Cluster callback RS256 signature verification (Issue #5 item 4) ==========
+
+    /**
+     * Verify a Cloud-signed revocation callback request (Issue #5 item 4).
+     * <p>
+     * Canonical signature input (MUST match exactly what Cloud signs):
+     * <pre>method + "|" + ts + "|" + nonce + "|" + data</pre>
+     * <p>
+     * Signature algorithm: RS256 with the Cloud's JWKS public key (same key used for JWT signing).
+     *
+     * @param method  HTTP method (e.g. "POST")
+     * @param ts      Timestamp from query param (epoch ms string)
+     * @param nonce   Random string from query param
+     * @param data    Request body (or jti for bodyless revocation callbacks)
+     * @param sign    Signature from query param (Base64Url)
+     * @return true if signature is valid, false otherwise
+     */
+    public boolean verifyRequest(String method, String ts, String nonce, String data, String sign) {
+        String canonical = method + "|" + ts + "|" + nonce + "|" + data;
+        try {
+            // Cloud signs with its JWKS public key — use first available key (Cloud deploys one signing key at a time)
+            Map<String, RSAPublicKey> cached = jwksCache.getKeysSnapshot();
+            RSAPublicKey key = cached.values().iterator().next();
+            if (key == null) {
+                log.warn("verifyRequest: JWKS cache is empty");
+                return false;
+            }
+            java.security.Signature sig = java.security.Signature.getInstance("SHA256withRSA");
+            sig.initVerify(key);
+            sig.update(canonical.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            byte[] signBytes = Base64.getUrlDecoder().decode(sign);
+            return sig.verify(signBytes);
+        } catch (Exception e) {
+            log.warn("verifyRequest failed: {}", e.getMessage());
+            return false;
+        }
     }
 
     // ========== Helpers ==========
