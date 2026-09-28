@@ -109,7 +109,7 @@ class SubscriptionFlowIT extends BaseIT {
     @DisplayName("T1 — POST /subscription creates Cluster record + MdbAllocation record")
     void createSubscription_createsClusterAndMdbRecords() throws Exception {
         // 1. Before creation: subscription shell exists, no clusters, no MDB
-        SubscriptionResponse before = subscriptionApi.getSubscription(orgId);
+        SubscriptionResponse before = subscriptionApi.getSubscription(orgId).getData();
         assertEquals("TRIAL", before.getStatus());
         assertEquals(2, before.getItems().size());
         assertEquals(0, clusterCount(), "Should have NO clusters yet");
@@ -117,7 +117,7 @@ class SubscriptionFlowIT extends BaseIT {
         // 2. POST /subscription via SDK
         SubscriptionResponse created = subscriptionApi.createSubscription(orgId,
             new CreateSubscriptionRequest()
-                .region("ap-southeast-1").clusterName("Happy-Cluster").specKey("basic"));
+                .region("ap-southeast-1").clusterName("Happy-Cluster").specKey("basic")).getData();
 
         assertNotNull(created.getId());
         assertEquals("TRIAL", created.getStatus());
@@ -127,7 +127,7 @@ class SubscriptionFlowIT extends BaseIT {
         assertEquals(1, clusterCount(), "Should have exactly 1 cluster");
         String clusterId = findClusterIdByName("Happy-Cluster");
         assertNotNull(clusterId);
-        assertNotNull(clustersApi.getCluster(orgId, clusterId).getState());
+        assertNotNull(clustersApi.getCluster(orgId, clusterId).getData().getState());
 
         // 4. MdbAllocation record with correct fields
         JsonNode alloc = getMdbAllocationForCluster(clusterId);
@@ -152,7 +152,7 @@ class SubscriptionFlowIT extends BaseIT {
 
         boolean clusterReady = false, mdbReady = false;
         for (int i = 0; i < 60; i++) {
-            if (!clusterReady && clustersApi.getCluster(orgId, clusterId).getState() == StateEnum.READY)
+            if (!clusterReady && clustersApi.getCluster(orgId, clusterId).getData().getState() == StateEnum.READY)
                 clusterReady = true;
             if (!mdbReady && "READY".equals(getMdbAllocationStatus(clusterId)))
                 mdbReady = true;
@@ -164,7 +164,7 @@ class SubscriptionFlowIT extends BaseIT {
         assertTrue(mdbReady, "MdbAllocation FSM should reach READY");
 
         // Cluster runtime fields populated
-        ClusterResponse c = clustersApi.getCluster(orgId, clusterId);
+        ClusterResponse c = clustersApi.getCluster(orgId, clusterId).getData();
         assertNotNull(c.getRuntimeId());
         assertNotNull(c.getPublicDns());
         assertNotNull(c.getElasticIp());
@@ -246,12 +246,12 @@ class SubscriptionFlowIT extends BaseIT {
         String clusterId = findClusterIdByName("Status-Test");
 
         for (int i = 0; i < 60; i++) {
-            if (clustersApi.getCluster(orgId, clusterId).getState() == StateEnum.READY
+            if (clustersApi.getCluster(orgId, clusterId).getData().getState() == StateEnum.READY
                 && "READY".equals(getMdbAllocationStatus(clusterId))) break;
             Thread.sleep(1000);
         }
 
-        SubscriptionResponse sub = subscriptionApi.getSubscription(orgId);
+        SubscriptionResponse sub = subscriptionApi.getSubscription(orgId).getData();
         assertEquals("TRIAL", sub.getStatus());
         assertTrue(sub.isProvisioningAllowed());
         assertEquals(2, sub.getItems().size());
@@ -269,7 +269,7 @@ class SubscriptionFlowIT extends BaseIT {
         String clusterId = findClusterIdByName("Cancel-Test");
 
         for (int i = 0; i < 30; i++) {
-            if (clustersApi.getCluster(orgId, clusterId).getState() == StateEnum.READY) break;
+            if (clustersApi.getCluster(orgId, clusterId).getData().getState() == StateEnum.READY) break;
             Thread.sleep(1000);
         }
 
@@ -279,7 +279,7 @@ class SubscriptionFlowIT extends BaseIT {
         for (int i = 0; i < 30; i++) {
             if (!terminated) {
                 try {
-                    if (clustersApi.getCluster(orgId, clusterId).getState() == StateEnum.TERMINATED) terminated = true;
+                    if (clustersApi.getCluster(orgId, clusterId).getData().getState() == StateEnum.TERMINATED) terminated = true;
                 } catch (Exception ignored) {}
             }
             if (!deleted && "DELETED".equals(getMdbAllocationStatus(clusterId))) deleted = true;
@@ -289,7 +289,7 @@ class SubscriptionFlowIT extends BaseIT {
 
         assertTrue(terminated, "Cluster should TERMINATE within 30s");
         assertTrue(deleted, "MdbAllocation should be DELETED within 30s");
-        assertEquals("CANCELLED", subscriptionApi.getSubscription(orgId).getStatus());
+        assertEquals("CANCELLED", subscriptionApi.getSubscription(orgId).getData().getStatus());
     }
 
     // ========== T10 — Cancel already-cancelled is idempotent ==========
@@ -298,9 +298,9 @@ class SubscriptionFlowIT extends BaseIT {
     @DisplayName("T10 — Cancel already CANCELLED → idempotent")
     void cancelAlreadyCancelled_isIdempotent() throws Exception {
         subscriptionApi.cancelSubscription(orgId);
-        assertEquals("CANCELLED", subscriptionApi.getSubscription(orgId).getStatus());
+        assertEquals("CANCELLED", subscriptionApi.getSubscription(orgId).getData().getStatus());
 
         subscriptionApi.cancelSubscription(orgId);
-        assertEquals("CANCELLED", subscriptionApi.getSubscription(orgId).getStatus());
+        assertEquals("CANCELLED", subscriptionApi.getSubscription(orgId).getData().getStatus());
     }
 }

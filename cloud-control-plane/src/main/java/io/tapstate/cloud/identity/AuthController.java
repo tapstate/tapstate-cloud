@@ -8,7 +8,11 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import io.tapstate.cloud.common.api.AppErrorCode;
 import io.tapstate.cloud.common.api.ApiResponse;
 import io.tapstate.cloud.common.api.BaseController;
+import io.tapstate.cloud.common.CurrentUser;
 import io.tapstate.cloud.common.api.BusinessException;
+import io.tapstate.cloud.resolve.CallbackSignService;
+import io.tapstate.cloud.resolve.JtiRecord;
+import io.tapstate.cloud.resolve.JtiRecordRepository;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
@@ -27,7 +31,14 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.web.bind.annotation.*;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.security.SecureRandom;
 import java.time.Instant;
+import java.util.Base64;
+import java.util.List;
 
 /**
  * Authentication endpoints — Cloud Console user registration, login, session management.
@@ -46,6 +57,12 @@ public class AuthController extends BaseController {
     private final AuthService authService;
     private final UserRepository userRepository;
     private final AuthenticationManager authenticationManager;
+    private final JtiRecordRepository jtiRecordRepo;
+    private final CallbackSignService callbackSignService;
+
+    private final HttpClient httpClient = HttpClient.newBuilder()
+        .connectTimeout(java.time.Duration.ofSeconds(3)).build();
+    private final SecureRandom secureRandom = new SecureRandom();
 
     // Session attribute key — also used by Security context recovery
     static final String SESSION_USER_EMAIL = "TAPSTATE_USER_EMAIL";
@@ -59,8 +76,7 @@ public class AuthController extends BaseController {
                       "In Week 2 preview, email is auto-verified (magic link deferred)."
     )
     @ApiResponses(value = {
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "User created",
-            content = @Content(schema = @Schema(implementation = UserResponse.class))),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "User created"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Invalid input or email already registered")
     })
     public ResponseEntity<ApiResponse<UserResponse>> register(
@@ -130,18 +146,93 @@ public class AuthController extends BaseController {
     @PostMapping("/logout")
     @Operation(
         summary = "Logout and invalidate session",
-        description = "Invalidate the current user session. Spring Session cookie is cleared automatically."
+        description = "Invalidate the current Cloud session. " +
+                      "Also fires signed revocation callbacks to ALL Clusters this user has active resolve JWTs for " +
+                      "(Cloud→Cluster callback with RS256 signature — Cluster verifies via SDK verifyRequest). " +
+                      "Each Cluster then revokes its local session for that jti."
     )
     @ApiResponses(value = {
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Session invalidated")
     })
     public ResponseEntity<ApiResponse<Void>> logout(HttpServletRequest request) {
+        // 1. Invalidate Cloud-side session
         var session = request.getSession(false);
         if (session != null) {
             session.invalidate();
         }
         SecurityContextHolder.clearContext();
+
+        // 2. Fire signed revocation callbacks to all active resolve JWTs for this user (Issue #5 items 3/4)
+        String userEmail = CurrentUser.getEmail();
+        if (userEmail != null) {
+            revokeAllActiveJwts(userEmail);
+        }
         return ok();
+    }
+
+    /**
+     * Find all active (non-revoked, non-expired) JWT records for the user,
+     * send signed revocation callback to each target Cluster, then mark all as revoked.
+     * <p>
+     * Cluster callback endpoint: {@code POST {baseUri}/auth/invalidate-session} with query params:
+     * jti={jti}&ts={ts}&nonce={nonce}&sign={sign}
+     * <p>
+     * Canonical sign input (matches SDK verifyRequest): "POST|{ts}|{nonce}|{jti}".
+     * <p>
+     * Fail-safe: individual callback failures are logged but do NOT prevent other
+     * callbacks or the local revocation — GC must not hang logout on Cluster reachability.
+     */
+    private void revokeAllActiveJwts(String userEmail) {
+        // IMPORTANT: no expiry filter here — Issue #5 requires Cloud logout after JWT expiry
+        // (t+20min while JWT expired at t+15min) still fires revocation, because the Cluster's
+        // local HttpOnly session may still be active (30min sliding idle timeout).
+        List<JtiRecord> active = jtiRecordRepo.findByUserEmailAndRevokedAtIsNull(userEmail);
+        Instant now = Instant.now();
+
+        for (JtiRecord rec : active) {
+            try {
+                sendRevocationCallback(rec);
+                rec.setRevokedAt(now); jtiRecordRepo.save(rec);
+                log.info("Revoked jti={}, cluster={}", rec.getJti(), rec.getClusterId());
+            } catch (Exception e) {
+                log.warn("Failed to revoke jti={}, cluster={} — marking revoked anyway: {}",
+                    rec.getJti(), rec.getClusterId(), e.getMessage());
+                // Still mark revoked locally — don't retry forever; Cluster will expire on its own
+                rec.setRevokedAt(now); jtiRecordRepo.save(rec);
+            }
+        }
+    }
+
+    private void sendRevocationCallback(JtiRecord rec) throws Exception {
+        String ts = String.valueOf(System.currentTimeMillis());
+        String nonce = randomNonce();
+        // Canonical: POST|ts|nonce|jti  (no body — jti IS the revocation data)
+        String canonicalBody = rec.getJti();
+        String sign = callbackSignService.sign("POST", ts, nonce, canonicalBody);
+
+        String url = rec.getClusterBaseUri() + "/auth/invalidate-session"
+            + "?jti=" + java.net.URLEncoder.encode(rec.getJti(), java.nio.charset.StandardCharsets.UTF_8)
+            + "&ts=" + ts
+            + "&nonce=" + java.net.URLEncoder.encode(nonce, java.nio.charset.StandardCharsets.UTF_8)
+            + "&sign=" + java.net.URLEncoder.encode(sign, java.nio.charset.StandardCharsets.UTF_8);
+
+        HttpRequest req = HttpRequest.newBuilder()
+            .uri(URI.create(url))
+            .POST(HttpRequest.BodyPublishers.noBody())
+            .timeout(java.time.Duration.ofSeconds(3))
+            .build();
+
+        HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
+        if (resp.statusCode() >= 400) {
+            log.warn("Cluster revocation callback returned {} for jti={}, cluster={}",
+                resp.statusCode(), rec.getJti(), rec.getClusterId());
+        }
+    }
+
+    private String randomNonce() {
+        byte[] raw = new byte[16];
+        secureRandom.nextBytes(raw);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(raw);
     }
 
     // ========== Whoami ==========
@@ -152,8 +243,7 @@ public class AuthController extends BaseController {
         description = "Return the authenticated user's profile. Session cookie required."
     )
     @ApiResponses(value = {
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "User profile",
-            content = @Content(schema = @Schema(implementation = LoginResult.class))),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "User profile"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "Not authenticated")
     })
     public ResponseEntity<ApiResponse<LoginResult>> me(HttpServletRequest request) {

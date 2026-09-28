@@ -21,7 +21,6 @@ import io.tapstate.cloud.sdk.Configuration;
 import io.tapstate.cloud.sdk.Pair;
 
 import io.tapstate.cloud.sdk.model.ApiResponseResolveResponse;
-import io.tapstate.cloud.sdk.model.ResolveResponse;
 
 
 import java.util.ArrayList;
@@ -31,7 +30,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.StringJoiner;
 
-@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-28T20:46:36.289357+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
+@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-28T22:56:41.346093+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
 public class ResolveExchangeApi extends BaseApi {
 
   public ResolveExchangeApi() {
@@ -45,10 +44,10 @@ public class ResolveExchangeApi extends BaseApi {
   /**
    * JWKS public key set (RFC 7517)
    * Publishes RSA public keys for verifying resolve JWT signatures.  Runtime SDK caches this JWKS and performs offline verification (ADR-0122 D5 / ADR-0125 D6) — GC never called on per-request workload auth.  Key rotation: 24h interval with 1h overlap period.  Returns raw JWKS JSON (RFC 7517 format) — NOT wrapped in ApiResponse.
-   * @return String
+   * @return Map&lt;String, Object&gt;
    * @throws ApiException if fails to make API call
    */
-  public String jwks() throws ApiException {
+  public Map<String, Object> jwks() throws ApiException {
     return this.jwks(Collections.emptyMap());
   }
 
@@ -57,10 +56,10 @@ public class ResolveExchangeApi extends BaseApi {
    * JWKS public key set (RFC 7517)
    * Publishes RSA public keys for verifying resolve JWT signatures.  Runtime SDK caches this JWKS and performs offline verification (ADR-0122 D5 / ADR-0125 D6) — GC never called on per-request workload auth.  Key rotation: 24h interval with 1h overlap period.  Returns raw JWKS JSON (RFC 7517 format) — NOT wrapped in ApiResponse.
    * @param additionalHeaders additionalHeaders for this call
-   * @return String
+   * @return Map&lt;String, Object&gt;
    * @throws ApiException if fails to make API call
    */
-  public String jwks(Map<String, String> additionalHeaders) throws ApiException {
+  public Map<String, Object> jwks(Map<String, String> additionalHeaders) throws ApiException {
     Object localVarPostBody = null;
     
     // create path and map variables
@@ -80,7 +79,7 @@ public class ResolveExchangeApi extends BaseApi {
     
     
     final String[] localVarAccepts = {
-      "application/json"
+      "*/*"
     };
     final String localVarAccept = apiClient.selectHeaderAccept(localVarAccepts);
 
@@ -91,7 +90,7 @@ public class ResolveExchangeApi extends BaseApi {
 
     String[] localVarAuthNames = new String[] { "session-cookie" };
 
-    TypeReference<String> localVarReturnType = new TypeReference<String>() {};
+    TypeReference<Map<String, Object>> localVarReturnType = new TypeReference<Map<String, Object>>() {};
     return apiClient.invokeAPI(
         localVarPath,
         "GET",
@@ -114,10 +113,10 @@ public class ResolveExchangeApi extends BaseApi {
    * Part 1 of the Cloud Console → Cluster Console session handoff (ADR-0125).  Caller must have a valid Cloud Console session (cookie).  Four conditions enforced:   1. Cloud session is valid   2. User is a member of the Org   3. Cluster exists and belongs to Org   4. Cluster is NOT in PROVISIONING_FAILED or TERMINATED state  Returns a one-time exchange_code (60s TTL, base64url 256-bit random) plus the Cluster origin base_uri.  The browser then does NOT get a JWT here — it GETs &#x60;{base_uri}/auth/exchange?code&#x3D;{exchange_code}&#x60; on the Cluster Server. The Cluster Server&#39;s GC SDK back-channel-calls POST /v1/auth/exchange (ExchangeController) where the resolve JWT is atomically signed.
    * @param clusterId Cluster UUID to resolve (required)
    * @param orgId Organization UUID (recommended — validates Org ownership) (required)
-   * @return ResolveResponse
+   * @return ApiResponseResolveResponse
    * @throws ApiException if fails to make API call
    */
-  public ResolveResponse resolveCluster(@jakarta.annotation.Nonnull String clusterId, @jakarta.annotation.Nonnull String orgId) throws ApiException {
+  public ApiResponseResolveResponse resolveCluster(@jakarta.annotation.Nonnull String clusterId, @jakarta.annotation.Nonnull String orgId) throws ApiException {
     return this.resolveCluster(clusterId, orgId, Collections.emptyMap());
   }
 
@@ -128,10 +127,10 @@ public class ResolveExchangeApi extends BaseApi {
    * @param clusterId Cluster UUID to resolve (required)
    * @param orgId Organization UUID (recommended — validates Org ownership) (required)
    * @param additionalHeaders additionalHeaders for this call
-   * @return ResolveResponse
+   * @return ApiResponseResolveResponse
    * @throws ApiException if fails to make API call
    */
-  public ResolveResponse resolveCluster(@jakarta.annotation.Nonnull String clusterId, @jakarta.annotation.Nonnull String orgId, Map<String, String> additionalHeaders) throws ApiException {
+  public ApiResponseResolveResponse resolveCluster(@jakarta.annotation.Nonnull String clusterId, @jakarta.annotation.Nonnull String orgId, Map<String, String> additionalHeaders) throws ApiException {
     Object localVarPostBody = null;
     
     // verify the required parameter 'clusterId' is set
@@ -174,7 +173,7 @@ public class ResolveExchangeApi extends BaseApi {
 
     String[] localVarAuthNames = new String[] { "session-cookie" };
 
-    TypeReference<ResolveResponse> localVarReturnType = new TypeReference<ResolveResponse>() {};
+    TypeReference<ApiResponseResolveResponse> localVarReturnType = new TypeReference<ApiResponseResolveResponse>() {};
     return apiClient.invokeAPI(
         localVarPath,
         "GET",

@@ -15,6 +15,7 @@ import java.util.List;
  * All fields are extracted from verified JWT claims — the caller can trust
  * them without additional backend calls (that's the whole point of offline JWKS).
  *
+ * @param userId    JWT custom claim — stable user UUID (Issue #5 item 1)
  * @param userEmail  JWT {@code sub} — the user who initiated the Cloud → Cluster handoff
  * @param orgId      JWT custom claim — Organization UUID (ADR-0122 D4)
  * @param clusterId  JWT custom claim — Cluster UUID this JWT is scoped to
@@ -25,6 +26,7 @@ import java.util.List;
  * @param scope      JWT custom claim — permission scope list (default: workload:read/write)
  */
 public record VerifiedJwt(
+    String userId,
     String userEmail,
     String orgId,
     String clusterId,

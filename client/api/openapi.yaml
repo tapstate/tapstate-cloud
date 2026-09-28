@@ -72,7 +72,7 @@ paths:
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/OrganizationResponse"
+                $ref: "#/components/schemas/ApiResponseListOrganizationResponse"
         "401":
           description: Not authenticated
           content:
@@ -103,7 +103,7 @@ paths:
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/OrganizationResponse"
+                $ref: "#/components/schemas/ApiResponseOrganizationResponse"
         "400":
           description: "Invalid input (missing name/slug, slug format)"
           content:
@@ -147,7 +147,7 @@ paths:
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/SubscriptionResponse"
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
         "401":
           description: Not authenticated
           content:
@@ -201,7 +201,7 @@ paths:
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/SubscriptionResponse"
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
         "400":
           description: Invalid input (missing region/name/spec)
           content:
@@ -265,7 +265,7 @@ paths:
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/SubscriptionResponse"
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
         "400":
           description: Invalid status value or missing field
           content:
@@ -303,7 +303,7 @@ paths:
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/SubscriptionResponse"
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
         "401":
           description: Not authenticated
           content:
@@ -353,7 +353,7 @@ paths:
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/ClusterResponse"
+                $ref: "#/components/schemas/ApiResponseClusterResponse"
         "401":
           description: Not authenticated
           content:
@@ -418,7 +418,7 @@ paths:
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/StatusReportResponse"
+                $ref: "#/components/schemas/ApiResponseStatusReportResponse"
         "401":
           description: SDK token missing or invalid (auth.sdk-token-invalid)
           content:
@@ -457,7 +457,7 @@ paths:
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/UserResponse"
+                $ref: "#/components/schemas/ApiResponseUserResponse"
         "400":
           description: Invalid input or email already registered
           content:
@@ -469,8 +469,10 @@ paths:
       tags:
       - Auth
       summary: Logout and invalidate session
-      description: Invalidate the current user session. Spring Session cookie is cleared
-        automatically.
+      description: Invalidate the current Cloud session. Also fires signed revocation
+        callbacks to ALL Clusters this user has active resolve JWTs for (Cloud→Cluster
+        callback with RS256 signature — Cluster verifies via SDK verifyRequest). Each
+        Cluster then revokes its local session for that jti.
       operationId: logout
       responses:
         "200":
@@ -554,7 +556,7 @@ paths:
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/ExchangeResponse"
+                $ref: "#/components/schemas/ApiResponseExchangeResponse"
         "401":
           description: |-
             Exchange failed:
@@ -581,7 +583,7 @@ paths:
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/RegionResponse"
+                $ref: "#/components/schemas/ApiResponseListRegionResponse"
   /v1/regions/{code}:
     get:
       tags:
@@ -604,7 +606,7 @@ paths:
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/RegionResponse"
+                $ref: "#/components/schemas/ApiResponseRegionResponse"
         "404":
           description: Region not found
           content:
@@ -632,7 +634,7 @@ paths:
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/OrganizationResponse"
+                $ref: "#/components/schemas/ApiResponseOrganizationResponse"
         "401":
           description: Not authenticated
           content:
@@ -672,7 +674,7 @@ paths:
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/ClusterResponse"
+                $ref: "#/components/schemas/ApiResponseListClusterResponse"
         "401":
           description: Not authenticated
           content:
@@ -714,7 +716,7 @@ paths:
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/ClusterResponse"
+                $ref: "#/components/schemas/ApiResponseClusterResponse"
         "401":
           description: Not authenticated
           content:
@@ -751,9 +753,10 @@ paths:
         "200":
           description: JWKS JSON document
           content:
-            application/json:
+            '*/*':
               schema:
-                type: string
+                type: object
+                additionalProperties: {}
   /v1/clusters/{clusterId}/resolve:
     get:
       tags:
@@ -793,7 +796,7 @@ paths:
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/ResolveResponse"
+                $ref: "#/components/schemas/ApiResponseResolveResponse"
         "401":
           description: No valid Cloud session
           content:
@@ -831,7 +834,7 @@ paths:
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/LoginResult"
+                $ref: "#/components/schemas/ApiResponseLoginResult"
         "401":
           description: Not authenticated
           content:
@@ -852,7 +855,8 @@ paths:
           content:
             '*/*':
               schema:
-                type: string
+                type: object
+                additionalProperties: {}
   /health/readiness:
     get:
       tags:
@@ -867,27 +871,10 @@ paths:
           content:
             '*/*':
               schema:
-                type: string
+                type: object
+                additionalProperties: {}
 components:
   schemas:
-    OrganizationResponse:
-      type: object
-      properties:
-        id:
-          type: string
-          description: Organization UUID
-        name:
-          type: string
-          description: Organization display name
-        slug:
-          type: string
-          description: "URL-friendly slug (lowercase, hyphenated, unique)"
-        ownerEmail:
-          type: string
-          description: Owner user email
-        status:
-          type: string
-          description: "Organization status: ACTIVE / SUSPENDED"
     ApiResponseOrganizationResponse:
       type: object
       description: Global API response envelope
@@ -906,6 +893,24 @@ components:
         data:
           $ref: "#/components/schemas/OrganizationResponse"
           description: "Response payload — object or array, null on void responses"
+    OrganizationResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Organization UUID
+        name:
+          type: string
+          description: Organization display name
+        slug:
+          type: string
+          description: "URL-friendly slug (lowercase, hyphenated, unique)"
+        ownerEmail:
+          type: string
+          description: Owner user email
+        status:
+          type: string
+          description: "Organization status: ACTIVE / SUSPENDED"
     CreateSubscriptionRequest:
       type: object
       properties:
@@ -923,6 +928,24 @@ components:
       required:
       - clusterName
       - region
+    ApiResponseSubscriptionResponse:
+      type: object
+      description: Global API response envelope
+      properties:
+        opId:
+          type: string
+          description: Request correlation ID — unique per request
+          example: 3f2a1b4c-5d6e-7f8a-9b0c-1d2e3f4a5b6c
+        code:
+          type: string
+          description: "Business result code — 'ok' on success, error code on failure"
+          example: ok
+        msg:
+          type: string
+          description: Detailed message — success info or failure reason
+        data:
+          $ref: "#/components/schemas/SubscriptionResponse"
+          description: "Response payload — object or array, null on void responses"
     ItemResponse:
       type: object
       properties:
@@ -988,7 +1011,7 @@ components:
           description: Subscription item breakdown
           items:
             $ref: "#/components/schemas/ItemResponse"
-    ApiResponseSubscriptionResponse:
+    ApiResponseClusterResponse:
       type: object
       description: Global API response envelope
       properties:
@@ -1004,7 +1027,7 @@ components:
           type: string
           description: Detailed message — success info or failure reason
         data:
-          $ref: "#/components/schemas/SubscriptionResponse"
+          $ref: "#/components/schemas/ClusterResponse"
           description: "Response payload — object or array, null on void responses"
     ClusterResponse:
       type: object
@@ -1065,24 +1088,6 @@ components:
         readyAt:
           type: string
           description: Ready timestamp (ISO-8601 UTC) — null until state = READY
-    ApiResponseClusterResponse:
-      type: object
-      description: Global API response envelope
-      properties:
-        opId:
-          type: string
-          description: Request correlation ID — unique per request
-          example: 3f2a1b4c-5d6e-7f8a-9b0c-1d2e3f4a5b6c
-        code:
-          type: string
-          description: "Business result code — 'ok' on success, error code on failure"
-          example: ok
-        msg:
-          type: string
-          description: Detailed message — success info or failure reason
-        data:
-          $ref: "#/components/schemas/ClusterResponse"
-          description: "Response payload — object or array, null on void responses"
     StatusReportRequest:
       type: object
       properties:
@@ -1098,13 +1103,6 @@ components:
           format: int32
         lastErrorAt:
           type: string
-    StatusReportResponse:
-      type: object
-      description: Status report acknowledgment
-      properties:
-        status:
-          type: string
-          description: Always 'accepted' on success
     ApiResponseStatusReportResponse:
       type: object
       description: Global API response envelope
@@ -1123,6 +1121,13 @@ components:
         data:
           $ref: "#/components/schemas/StatusReportResponse"
           description: "Response payload — object or array, null on void responses"
+    StatusReportResponse:
+      type: object
+      description: Status report acknowledgment
+      properties:
+        status:
+          type: string
+          description: Always 'accepted' on success
     RegisterRequest:
       type: object
       properties:
@@ -1146,6 +1151,24 @@ components:
       required:
       - email
       - password
+    ApiResponseUserResponse:
+      type: object
+      description: Global API response envelope
+      properties:
+        opId:
+          type: string
+          description: Request correlation ID — unique per request
+          example: 3f2a1b4c-5d6e-7f8a-9b0c-1d2e3f4a5b6c
+        code:
+          type: string
+          description: "Business result code — 'ok' on success, error code on failure"
+          example: ok
+        msg:
+          type: string
+          description: Detailed message — success info or failure reason
+        data:
+          $ref: "#/components/schemas/UserResponse"
+          description: "Response payload — object or array, null on void responses"
     UserResponse:
       type: object
       properties:
@@ -1169,24 +1192,6 @@ components:
           type: string
           format: date-time
           description: Last login time (ISO-8601)
-    ApiResponseUserResponse:
-      type: object
-      description: Global API response envelope
-      properties:
-        opId:
-          type: string
-          description: Request correlation ID — unique per request
-          example: 3f2a1b4c-5d6e-7f8a-9b0c-1d2e3f4a5b6c
-        code:
-          type: string
-          description: "Business result code — 'ok' on success, error code on failure"
-          example: ok
-        msg:
-          type: string
-          description: Detailed message — success info or failure reason
-        data:
-          $ref: "#/components/schemas/UserResponse"
-          description: "Response payload — object or array, null on void responses"
     ApiResponseVoid:
       type: object
       description: Global API response envelope
@@ -1259,28 +1264,6 @@ components:
       required:
       - clusterId
       - exchangeCode
-    ExchangeResponse:
-      type: object
-      properties:
-        jwt:
-          type: string
-          description: "Resolve JWT (RS256, 15min) — carry to Cluster Console workload\
-            \ requests"
-        expiresAt:
-          type: string
-          description: JWT expiration timestamp (ISO-8601 UTC)
-        jti:
-          type: string
-          description: JWT jti (unique token ID — for audit)
-        userEmail:
-          type: string
-          description: User email bound to this session
-        orgId:
-          type: string
-          description: Organization UUID bound to this session
-        clusterId:
-          type: string
-          description: Cluster UUID bound to this session
     ApiResponseExchangeResponse:
       type: object
       description: Global API response envelope
@@ -1299,6 +1282,51 @@ components:
         data:
           $ref: "#/components/schemas/ExchangeResponse"
           description: "Response payload — object or array, null on void responses"
+    ExchangeResponse:
+      type: object
+      properties:
+        jwt:
+          type: string
+          description: "Resolve JWT (RS256, 15min) — carry to Cluster Console workload\
+            \ requests"
+        expiresAt:
+          type: string
+          description: JWT expiration timestamp (ISO-8601 UTC)
+        jti:
+          type: string
+          description: JWT jti (unique token ID — for audit + Cloud-side revocation)
+        userEmail:
+          type: string
+          description: User email bound to this session
+        userId:
+          type: string
+          description: "Stable user UUID (Issue #5 item 1)"
+        orgId:
+          type: string
+          description: Organization UUID bound to this session
+        clusterId:
+          type: string
+          description: Cluster UUID bound to this session
+    ApiResponseListRegionResponse:
+      type: object
+      description: Global API response envelope
+      properties:
+        opId:
+          type: string
+          description: Request correlation ID — unique per request
+          example: 3f2a1b4c-5d6e-7f8a-9b0c-1d2e3f4a5b6c
+        code:
+          type: string
+          description: "Business result code — 'ok' on success, error code on failure"
+          example: ok
+        msg:
+          type: string
+          description: Detailed message — success info or failure reason
+        data:
+          type: array
+          description: "Response payload — object or array, null on void responses"
+          items:
+            $ref: "#/components/schemas/RegionResponse"
     RegionResponse:
       type: object
       properties:
@@ -1372,23 +1400,6 @@ components:
           description: "Response payload — object or array, null on void responses"
           items:
             $ref: "#/components/schemas/ClusterResponse"
-    ResolveResponse:
-      type: object
-      properties:
-        success:
-          type: boolean
-          description: Always true on success
-        baseUri:
-          type: string
-          description: Cluster origin base URI for browser redirect
-          example: https://c1a2b3.api.tapstate.io
-        exchangeCode:
-          type: string
-          description: "One-time exchange_code (base64url, 256-bit random, 60s TTL)"
-          example: abc123...xyz
-        expiresAt:
-          type: string
-          description: Expiration timestamp (ISO-8601 UTC)
     ApiResponseResolveResponse:
       type: object
       description: Global API response envelope
@@ -1407,6 +1418,23 @@ components:
         data:
           $ref: "#/components/schemas/ResolveResponse"
           description: "Response payload — object or array, null on void responses"
+    ResolveResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Always true on success
+        baseUri:
+          type: string
+          description: Cluster origin base URI for browser redirect
+          example: https://c1a2b3.api.tapstate.io
+        exchangeCode:
+          type: string
+          description: "One-time exchange_code (base64url, 256-bit random, 60s TTL)"
+          example: abc123...xyz
+        expiresAt:
+          type: string
+          description: Expiration timestamp (ISO-8601 UTC)
   securitySchemes:
     session-cookie:
       type: apiKey

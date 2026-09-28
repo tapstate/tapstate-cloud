@@ -39,8 +39,7 @@ public class OrganizationController extends BaseController {
                       "Organizations are the isolation boundary for Clusters and subscriptions."
     )
     @ApiResponses(value = {
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "List of Organizations (may be empty)",
-            content = @Content(schema = @Schema(implementation = OrganizationResponse.class))),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "List of Organizations (may be empty)"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "Not authenticated")
     })
     public ResponseEntity<ApiResponse<List<OrganizationResponse>>> listMyOrganizations() {
@@ -60,8 +59,7 @@ public class OrganizationController extends BaseController {
                       "Organization slug must be unique system-wide (lowercase, hyphenated)."
     )
     @ApiResponses(value = {
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Organization created",
-            content = @Content(schema = @Schema(implementation = OrganizationResponse.class))),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Organization created"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Invalid input (missing name/slug, slug format)"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "Not authenticated"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "Slug already taken")
@@ -88,8 +86,7 @@ public class OrganizationController extends BaseController {
                       "Caller must be a member of this Organization."
     )
     @ApiResponses(value = {
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Organization details",
-            content = @Content(schema = @Schema(implementation = OrganizationResponse.class))),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Organization details"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "Not authenticated"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "Not a member of this Organization"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Organization not found")

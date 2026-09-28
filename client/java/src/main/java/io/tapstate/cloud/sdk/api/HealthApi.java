@@ -29,7 +29,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.StringJoiner;
 
-@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-28T20:46:36.289357+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
+@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-28T22:56:41.346093+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
 public class HealthApi extends BaseApi {
 
   public HealthApi() {
@@ -43,10 +43,10 @@ public class HealthApi extends BaseApi {
   /**
    * Liveness probe (always 200 when process is running)
    * Simple liveness check — returns 200 as long as the process is up. Kubernetes pod-level probe (not used for dependency checks).
-   * @return String
+   * @return Map&lt;String, Object&gt;
    * @throws ApiException if fails to make API call
    */
-  public String liveness() throws ApiException {
+  public Map<String, Object> liveness() throws ApiException {
     return this.liveness(Collections.emptyMap());
   }
 
@@ -55,10 +55,10 @@ public class HealthApi extends BaseApi {
    * Liveness probe (always 200 when process is running)
    * Simple liveness check — returns 200 as long as the process is up. Kubernetes pod-level probe (not used for dependency checks).
    * @param additionalHeaders additionalHeaders for this call
-   * @return String
+   * @return Map&lt;String, Object&gt;
    * @throws ApiException if fails to make API call
    */
-  public String liveness(Map<String, String> additionalHeaders) throws ApiException {
+  public Map<String, Object> liveness(Map<String, String> additionalHeaders) throws ApiException {
     Object localVarPostBody = null;
     
     // create path and map variables
@@ -89,7 +89,7 @@ public class HealthApi extends BaseApi {
 
     String[] localVarAuthNames = new String[] { "session-cookie" };
 
-    TypeReference<String> localVarReturnType = new TypeReference<String>() {};
+    TypeReference<Map<String, Object>> localVarReturnType = new TypeReference<Map<String, Object>>() {};
     return apiClient.invokeAPI(
         localVarPath,
         "GET",
@@ -110,10 +110,10 @@ public class HealthApi extends BaseApi {
   /**
    * Readiness probe — basic dependency check
    * Readiness check — verifies database connectivity and returns service metadata. Kubernetes probe; Actuator also exposes full readiness at /actuator/health.
-   * @return String
+   * @return Map&lt;String, Object&gt;
    * @throws ApiException if fails to make API call
    */
-  public String readiness() throws ApiException {
+  public Map<String, Object> readiness() throws ApiException {
     return this.readiness(Collections.emptyMap());
   }
 
@@ -122,10 +122,10 @@ public class HealthApi extends BaseApi {
    * Readiness probe — basic dependency check
    * Readiness check — verifies database connectivity and returns service metadata. Kubernetes probe; Actuator also exposes full readiness at /actuator/health.
    * @param additionalHeaders additionalHeaders for this call
-   * @return String
+   * @return Map&lt;String, Object&gt;
    * @throws ApiException if fails to make API call
    */
-  public String readiness(Map<String, String> additionalHeaders) throws ApiException {
+  public Map<String, Object> readiness(Map<String, String> additionalHeaders) throws ApiException {
     Object localVarPostBody = null;
     
     // create path and map variables
@@ -156,7 +156,7 @@ public class HealthApi extends BaseApi {
 
     String[] localVarAuthNames = new String[] { "session-cookie" };
 
-    TypeReference<String> localVarReturnType = new TypeReference<String>() {};
+    TypeReference<Map<String, Object>> localVarReturnType = new TypeReference<Map<String, Object>>() {};
     return apiClient.invokeAPI(
         localVarPath,
         "GET",

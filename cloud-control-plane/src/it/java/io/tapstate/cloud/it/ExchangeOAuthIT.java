@@ -36,7 +36,7 @@ class ExchangeOAuthIT extends BaseIT {
 
         String orgId = orgsApi.create(Map.of(
             "name", "Exchange",
-            "slug", "exchange")).getId();
+            "slug", "exchange")).getData().getId();
 
         subscriptionApi.createSubscription(orgId,
             new CreateSubscriptionRequest().region("ap-southeast-1").clusterName("ExchangeCluster").specKey("basic"));
@@ -87,7 +87,7 @@ class ExchangeOAuthIT extends BaseIT {
         String orgId = t[0], clusterId = t[1], bootstrapToken = t[2];
 
         // Step 1: Issue exchange_code via resolve (needs Cloud session cookie)
-        ResolveResponse resolve = resolveApi.resolveCluster(clusterId, orgId);
+        ResolveResponse resolve = resolveApi.resolveCluster(clusterId, orgId).getData();
         assertNotNull(resolve);
         assertTrue(Boolean.TRUE.equals(resolve.isSuccess()), "resolve success should be true");
         String exchangeCode = resolve.getExchangeCode();
@@ -96,7 +96,7 @@ class ExchangeOAuthIT extends BaseIT {
         // Step 2: Exchange → JWT (Cluster Server back-channel)
         ExchangeResponse exchResp = exchangeApi.exchange(
             new ExchangeRequest().exchangeCode(exchangeCode).clusterId(clusterId),
-            bootstrapToken, null);
+            bootstrapToken, null).getData();
         assertNotNull(exchResp);
         String jwt = exchResp.getJwt();
         assertNotNull(jwt);
@@ -120,7 +120,7 @@ class ExchangeOAuthIT extends BaseIT {
         String[] t = setupProvisionedCluster();
         String orgId = t[0], clusterId = t[1], bootstrapToken = t[2];
 
-        String code = resolveApi.resolveCluster(clusterId, orgId).getExchangeCode();
+        String code = resolveApi.resolveCluster(clusterId, orgId).getData().getExchangeCode();
 
         // First: ok
         exchangeApi.exchange(
@@ -141,7 +141,7 @@ class ExchangeOAuthIT extends BaseIT {
         String[] t = setupProvisionedCluster();
         String orgId = t[0], clusterId = t[1];
 
-        String code = resolveApi.resolveCluster(clusterId, orgId).getExchangeCode();
+        String code = resolveApi.resolveCluster(clusterId, orgId).getData().getExchangeCode();
 
         ApiException ex = assertThrows(ApiException.class,
             () -> exchangeApi.exchange(
@@ -168,11 +168,11 @@ class ExchangeOAuthIT extends BaseIT {
         String[] t = setupProvisionedCluster();
         String orgId = t[0], clusterId = t[1], bootstrapToken = t[2];
 
-        String code = resolveApi.resolveCluster(clusterId, orgId).getExchangeCode();
+        String code = resolveApi.resolveCluster(clusterId, orgId).getData().getExchangeCode();
 
         ExchangeResponse resp = exchangeApi.exchange(
             new ExchangeRequest().exchangeCode(code).clusterId(clusterId),
-            null, bootstrapToken);  // Bearer in Authorization header
+            null, bootstrapToken).getData();  // Bearer in Authorization header
         assertNotNull(resp.getJwt());
     }
 }

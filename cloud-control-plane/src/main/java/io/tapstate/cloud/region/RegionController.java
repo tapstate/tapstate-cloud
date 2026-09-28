@@ -34,8 +34,7 @@ public class RegionController extends BaseController {
                       "changing Region requires cancel + resubscribe (Week 4+)."
     )
     @ApiResponses(value = {
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "List of open regions",
-            content = @Content(schema = @Schema(implementation = RegionResponse.class)))
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "List of open regions")
     })
     public ResponseEntity<ApiResponse<List<RegionResponse>>> listOpenRegions() {
         List<Region> regions = regionService.listOpenRegions();
@@ -48,8 +47,7 @@ public class RegionController extends BaseController {
         description = "Returns details for a specific AWS region by its standard code (e.g. 'ap-southeast-1')."
     )
     @ApiResponses(value = {
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Region details",
-            content = @Content(schema = @Schema(implementation = RegionResponse.class))),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Region details"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Region not found")
     })
     public ResponseEntity<ApiResponse<RegionResponse>> getRegion(

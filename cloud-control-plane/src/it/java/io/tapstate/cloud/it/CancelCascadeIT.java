@@ -64,11 +64,11 @@ class CancelCascadeIT extends BaseIT {
 
         boolean ok = false;
         for (int i = 0; i < 20; i++) {
-            if (clustersApi.getCluster(orgId, clusterId).getState() == StateEnum.TERMINATED) { ok = true; break; }
+            if (clustersApi.getCluster(orgId, clusterId).getData().getState() == StateEnum.TERMINATED) { ok = true; break; }
             Thread.sleep(1000);
         }
         assertTrue(ok, "Cluster should TERMINATE");
-        assertEquals("CANCELLED", subscriptionApi.getSubscription(orgId).getStatus());
+        assertEquals("CANCELLED", subscriptionApi.getSubscription(orgId).getData().getStatus());
     }
 
     @Test
@@ -82,23 +82,23 @@ class CancelCascadeIT extends BaseIT {
         subscriptionApi.cancelSubscription(orgId);
 
         for (int i = 0; i < 20; i++) {
-            if (clustersApi.getCluster(orgId, c1).getState() == StateEnum.TERMINATED
-                && clustersApi.getCluster(orgId, c2).getState() == StateEnum.TERMINATED) break;
+            if (clustersApi.getCluster(orgId, c1).getData().getState() == StateEnum.TERMINATED
+                && clustersApi.getCluster(orgId, c2).getData().getState() == StateEnum.TERMINATED) break;
             Thread.sleep(1000);
         }
-        assertEquals(StateEnum.TERMINATED, clustersApi.getCluster(orgId, c1).getState());
-        assertEquals(StateEnum.TERMINATED, clustersApi.getCluster(orgId, c2).getState());
+        assertEquals(StateEnum.TERMINATED, clustersApi.getCluster(orgId, c1).getData().getState());
+        assertEquals(StateEnum.TERMINATED, clustersApi.getCluster(orgId, c2).getData().getState());
     }
 
     @Test
     @DisplayName("T3 — Cancel already CANCELLED → idempotent")
     void cancelAlreadyCancelled_isIdempotent() throws Exception {
         subscriptionApi.cancelSubscription(orgId);
-        SubscriptionResponse first = subscriptionApi.getSubscription(orgId);
+        SubscriptionResponse first = subscriptionApi.getSubscription(orgId).getData();
         assertEquals("CANCELLED", first.getStatus());
 
         subscriptionApi.cancelSubscription(orgId);
-        SubscriptionResponse second = subscriptionApi.getSubscription(orgId);
+        SubscriptionResponse second = subscriptionApi.getSubscription(orgId).getData();
         assertEquals("CANCELLED", second.getStatus());
     }
 

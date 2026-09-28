@@ -43,8 +43,7 @@ public class ClusterController extends BaseController {
                       "Requires a valid Cloud Console session."
     )
     @ApiResponses(value = {
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "List of Clusters",
-            content = @Content(schema = @Schema(implementation = ClusterResponse.class))),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "List of Clusters"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "Not authenticated"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "Not a member of this Organization")
     })
@@ -64,8 +63,7 @@ public class ClusterController extends BaseController {
                       "Requires Cloud session + Organization membership + Cluster ownership."
     )
     @ApiResponses(value = {
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Cluster details",
-            content = @Content(schema = @Schema(implementation = ClusterResponse.class))),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Cluster details"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "Not authenticated"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "Not a member of this Organization or not cluster owner"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Cluster not found")
@@ -88,8 +86,7 @@ public class ClusterController extends BaseController {
                       "Returns 409 if the Cluster is not in PROVISIONING_FAILED state."
     )
     @ApiResponses(value = {
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Retry initiated, state reset to PROVISIONING_PENDING",
-            content = @Content(schema = @Schema(implementation = ClusterResponse.class))),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Retry initiated, state reset to PROVISIONING_PENDING"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "Not authenticated"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "Not cluster owner"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Cluster not found"),

@@ -8,6 +8,8 @@ import io.tapstate.cloud.cluster.ClusterState;
 import io.tapstate.cloud.common.api.AppErrorCode;
 import io.tapstate.cloud.common.api.BusinessException;
 import io.tapstate.cloud.config.JwtKeysConfig;
+import io.tapstate.cloud.identity.User;
+import io.tapstate.cloud.identity.UserRepository;
 import io.tapstate.cloud.org.MemberRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -56,6 +58,8 @@ public class ExchangeService {
     private final MongoTemplate mongoTemplate;
     private final ClusterRepository clusterRepo;
     private final MemberRepository memberRepo;
+    private final UserRepository userRepo;
+    private final JtiRecordRepository jtiRecordRepo;
     private final KeyPair jwtSigningKeyPair;
 
     @Value("${tapstate.cloud.issuer:https://cloud.tapstate.io}")
@@ -76,11 +80,15 @@ public class ExchangeService {
                            MongoTemplate mongoTemplate,
                            ClusterRepository clusterRepo,
                            MemberRepository memberRepo,
+                           UserRepository userRepo,
+                           JtiRecordRepository jtiRecordRepo,
                            KeyPair jwtSigningKeyPair) {
         this.codeRepo = codeRepo;
         this.mongoTemplate = mongoTemplate;
         this.clusterRepo = clusterRepo;
         this.memberRepo = memberRepo;
+        this.userRepo = userRepo;
+        this.jtiRecordRepo = jtiRecordRepo;
         this.jwtSigningKeyPair = jwtSigningKeyPair;
     }
 
@@ -100,6 +108,10 @@ public class ExchangeService {
      * @return the raw exchange code + base_uri + expiry — ready to return to the browser.
      */
     public IssuedExchangeCode issueExchangeCode(String userEmail, String orgId, String clusterId) {
+        // Load User for stable userId — needed for JWT claim "user_id" (Issue #5 item 1)
+        User user = userRepo.findByEmail(userEmail.toLowerCase())
+            .orElseThrow(() -> new BusinessException(AppErrorCode.USER_NOT_FOUND, 404, userEmail));
+
         // Condition 2: user ∈ org
         if (!memberRepo.existsByOrgIdAndUserEmail(orgId, userEmail)) {
             throw new BusinessException(AppErrorCode.ORG_NOT_MEMBER, 403, orgId);
@@ -130,6 +142,7 @@ public class ExchangeService {
         ExchangeCode ec = ExchangeCode.builder()
             .codeHash(codeHash)
             .userEmail(userEmail)
+            .userId(user.getId())
             .orgId(orgId)
             .clusterId(clusterId)
             .targetOrigin(cluster.getPublicDns() != null
@@ -186,7 +199,7 @@ public class ExchangeService {
             }
         }
 
-        // Issue resolve JWT — claims per ADR-0122 D4
+        // Issue resolve JWT — claims per ADR-0122 D4 + Issue #5 item 1 (user_id)
         String jwtId = UUID.randomUUID().toString();
         Instant jwtExp = now.plus(jwtExpiryMinutes, ChronoUnit.MINUTES);
         String aud = consumed.getClusterId() + ".api.tapstate.io";
@@ -196,6 +209,7 @@ public class ExchangeService {
             .issuer(issuer)
             .subject(consumed.getUserEmail())
             .audience().add(aud).and()
+            .claim("user_id", consumed.getUserId())
             .claim("org_id", consumed.getOrgId())
             .claim("cluster_id", consumed.getClusterId())
             .claim("scope", List.of("workload:read", "workload:write"))
@@ -208,11 +222,26 @@ public class ExchangeService {
             .signWith(jwtSigningKeyPair.getPrivate())
             .compact();
 
-        log.info("Exchange code redeemed → JWT issued jti={}, cluster={}, user={}",
-            jwtId, consumed.getClusterId(), consumed.getUserEmail());
+        log.info("Exchange code redeemed → JWT issued jti={}, cluster={}, user={}, userId={}",
+            jwtId, consumed.getClusterId(), consumed.getUserEmail(), consumed.getUserId());
+
+        // Track JWT for Cloud-side logout revocation (Issue #5 items 3/4)
+        // retentionUntil = 7 days after expiry (Cluster local session outlives JWT window)
+        jtiRecordRepo.save(JtiRecord.builder()
+            .jti(jwtId)
+            .userEmail(consumed.getUserEmail())
+            .userId(consumed.getUserId())
+            .orgId(consumed.getOrgId())
+            .clusterId(consumed.getClusterId())
+            .clusterBaseUri(consumed.getTargetOrigin())
+            .issuedAt(now)
+            .expiresAt(jwtExp)
+            .retentionUntil(jwtExp.plus(7, ChronoUnit.DAYS))
+            .revokedAt(null)
+            .build());
 
         return new RedeemedExchange(jwt, jwtExp.toString(), jwtId,
-            consumed.getUserEmail(), consumed.getOrgId(), consumed.getClusterId());
+            consumed.getUserEmail(), consumed.getUserId(), consumed.getOrgId(), consumed.getClusterId());
     }
 
     // ========== Cluster service identity secret verification ==========
@@ -264,5 +293,5 @@ public class ExchangeService {
 
     /** Result of successful code redemption — returned to Cluster Server via GC /exchange. */
     public record RedeemedExchange(String jwt, String expiresAt, String jti,
-                                    String userEmail, String orgId, String clusterId) {}
+                                    String userEmail, String userId, String orgId, String clusterId) {}
 }

@@ -36,7 +36,7 @@ import java.util.StringJoiner;
   ApiResponseRegionResponse.JSON_PROPERTY_MSG,
   ApiResponseRegionResponse.JSON_PROPERTY_DATA
 })
-@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-28T20:46:36.289357+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
+@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-28T22:56:41.346093+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
 public class ApiResponseRegionResponse {
   public static final String JSON_PROPERTY_OP_ID = "opId";
   @jakarta.annotation.Nullable

@@ -24,9 +24,7 @@ import io.tapstate.cloud.sdk.model.ApiResponseLoginResult;
 import io.tapstate.cloud.sdk.model.ApiResponseUserResponse;
 import io.tapstate.cloud.sdk.model.ApiResponseVoid;
 import io.tapstate.cloud.sdk.model.LoginRequest;
-import io.tapstate.cloud.sdk.model.LoginResult;
 import io.tapstate.cloud.sdk.model.RegisterRequest;
-import io.tapstate.cloud.sdk.model.UserResponse;
 
 
 import java.util.ArrayList;
@@ -36,7 +34,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.StringJoiner;
 
-@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-28T20:46:36.289357+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
+@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-28T22:56:41.346093+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
 public class AuthApi extends BaseApi {
 
   public AuthApi() {
@@ -123,7 +121,7 @@ public class AuthApi extends BaseApi {
 
   /**
    * Logout and invalidate session
-   * Invalidate the current user session. Spring Session cookie is cleared automatically.
+   * Invalidate the current Cloud session. Also fires signed revocation callbacks to ALL Clusters this user has active resolve JWTs for (Cloud→Cluster callback with RS256 signature — Cluster verifies via SDK verifyRequest). Each Cluster then revokes its local session for that jti.
    * @return ApiResponseVoid
    * @throws ApiException if fails to make API call
    */
@@ -134,7 +132,7 @@ public class AuthApi extends BaseApi {
 
   /**
    * Logout and invalidate session
-   * Invalidate the current user session. Spring Session cookie is cleared automatically.
+   * Invalidate the current Cloud session. Also fires signed revocation callbacks to ALL Clusters this user has active resolve JWTs for (Cloud→Cluster callback with RS256 signature — Cluster verifies via SDK verifyRequest). Each Cluster then revokes its local session for that jti.
    * @param additionalHeaders additionalHeaders for this call
    * @return ApiResponseVoid
    * @throws ApiException if fails to make API call
@@ -191,10 +189,10 @@ public class AuthApi extends BaseApi {
   /**
    * Get current user info
    * Return the authenticated user&#39;s profile. Session cookie required.
-   * @return LoginResult
+   * @return ApiResponseLoginResult
    * @throws ApiException if fails to make API call
    */
-  public LoginResult me() throws ApiException {
+  public ApiResponseLoginResult me() throws ApiException {
     return this.me(Collections.emptyMap());
   }
 
@@ -203,10 +201,10 @@ public class AuthApi extends BaseApi {
    * Get current user info
    * Return the authenticated user&#39;s profile. Session cookie required.
    * @param additionalHeaders additionalHeaders for this call
-   * @return LoginResult
+   * @return ApiResponseLoginResult
    * @throws ApiException if fails to make API call
    */
-  public LoginResult me(Map<String, String> additionalHeaders) throws ApiException {
+  public ApiResponseLoginResult me(Map<String, String> additionalHeaders) throws ApiException {
     Object localVarPostBody = null;
     
     // create path and map variables
@@ -237,7 +235,7 @@ public class AuthApi extends BaseApi {
 
     String[] localVarAuthNames = new String[] { "session-cookie" };
 
-    TypeReference<LoginResult> localVarReturnType = new TypeReference<LoginResult>() {};
+    TypeReference<ApiResponseLoginResult> localVarReturnType = new TypeReference<ApiResponseLoginResult>() {};
     return apiClient.invokeAPI(
         localVarPath,
         "GET",
@@ -259,10 +257,10 @@ public class AuthApi extends BaseApi {
    * Register new user
    * Create a new Cloud Console account with email + password. In Week 2 preview, email is auto-verified (magic link deferred).
    * @param registerRequest  (required)
-   * @return UserResponse
+   * @return ApiResponseUserResponse
    * @throws ApiException if fails to make API call
    */
-  public UserResponse register(@jakarta.annotation.Nonnull RegisterRequest registerRequest) throws ApiException {
+  public ApiResponseUserResponse register(@jakarta.annotation.Nonnull RegisterRequest registerRequest) throws ApiException {
     return this.register(registerRequest, Collections.emptyMap());
   }
 
@@ -272,10 +270,10 @@ public class AuthApi extends BaseApi {
    * Create a new Cloud Console account with email + password. In Week 2 preview, email is auto-verified (magic link deferred).
    * @param registerRequest  (required)
    * @param additionalHeaders additionalHeaders for this call
-   * @return UserResponse
+   * @return ApiResponseUserResponse
    * @throws ApiException if fails to make API call
    */
-  public UserResponse register(@jakarta.annotation.Nonnull RegisterRequest registerRequest, Map<String, String> additionalHeaders) throws ApiException {
+  public ApiResponseUserResponse register(@jakarta.annotation.Nonnull RegisterRequest registerRequest, Map<String, String> additionalHeaders) throws ApiException {
     Object localVarPostBody = registerRequest;
     
     // verify the required parameter 'registerRequest' is set
@@ -311,7 +309,7 @@ public class AuthApi extends BaseApi {
 
     String[] localVarAuthNames = new String[] { "session-cookie" };
 
-    TypeReference<UserResponse> localVarReturnType = new TypeReference<UserResponse>() {};
+    TypeReference<ApiResponseUserResponse> localVarReturnType = new TypeReference<ApiResponseUserResponse>() {};
     return apiClient.invokeAPI(
         localVarPath,
         "POST",
