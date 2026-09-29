@@ -10,7 +10,7 @@
 
   <groupId>io.tapstate</groupId>
   <artifactId>tapstate-cloud-parent</artifactId>
-  <version>0.1.0-SNAPSHOT</version>
+  <version>0.1.0</version>
   <packaging>pom</packaging>
 
   <name>Tapstate Cloud — Parent (multi-module)</name>
@@ -29,7 +29,7 @@
   </parent>
 
   <properties>
-    <revision>0.1.0-SNAPSHOT</revision>
+    <revision>0.1.0</revision>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <maven.compiler.release>21</maven.compiler.release>
     <project.build.outputTimestamp>2026-09-27T00:00:00Z</project.build.outputTimestamp>
@@ -139,4 +139,15 @@
       </plugins>
     </pluginManagement>
   </build>
+
+  <distributionManagement>
+    <snapshotRepository>
+      <id>nexus-tapdata-net</id>
+      <url>https://nexus.tapdata.net/repository/maven-snapshots/</url>
+    </snapshotRepository>
+    <repository>
+      <id>nexus-tapdata-net</id>
+      <url>https://nexus.tapdata.net/repository/maven-releases/</url>
+    </repository>
+  </distributionManagement>
 </project>
