@@ -17,7 +17,6 @@ import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
-
 /**
  * Service for JWKS key rotation.
  * Generates new RSA key pairs daily, stores them in MongoDB, and cleans up expired keys.
@@ -258,6 +257,84 @@ public class JwksRotationService {
      */
     public Optional<JwksKey> getActiveKey() {
         return repository.findFirstByStatusOrderByCreatedAtDesc(JwksKey.KeyStatus.ACTIVE);
+    }
+
+    /**
+     * Build a fresh signing KeyPair from MongoDB's active key (real rotation-aware).
+     * <p>
+     * ExchangeService and CallbackSignService MUST call this on every signature,
+     * never caching a KeyPair at construction time. The returned KeyPair carries
+     * the CURRENT active private key from MongoDB — if a rotation happened since
+     * the caller was built, this picks up the new key.
+     *
+     * @return freshly built KeyPair (public + private) from MongoDB active key
+     * @throws IllegalStateException if rotation is disabled or no active key exists
+     */
+    public KeyPair buildActiveSigningKeyPair() {
+        Optional<JwksKey> active = getActiveKey();
+        if (active.isEmpty()) {
+            throw new IllegalStateException(
+                "No active JWKS key in MongoDB — cannot sign JWTs or callbacks");
+        }
+        JwksKey key = active.get();
+        try {
+            java.security.KeyFactory kf = java.security.KeyFactory.getInstance("RSA");
+            java.security.PublicKey pub = parsePublicKeyFromPem(key.getPublicKeyPem());
+
+            String pem = key.getPrivateKeyPem();
+            if (encryptionEnabled && pem != null) {
+                pem = decryptPrivateKey(pem);
+            }
+            java.security.PrivateKey priv = parsePrivateKeyFromPem(pem);
+            return new KeyPair(pub, priv);
+        } catch (Exception e) {
+            throw new IllegalStateException(
+                "Failed to rebuild signing KeyPair from JWKS key kid=" + key.getKid(), e);
+        }
+    }
+
+    /**
+     * PublicKey-only rebuild from PEM — used by JWKS endpoint + ResolveController fallback.
+     */
+    static java.security.PublicKey parsePublicKeyFromPem(String pem) throws Exception {
+        String stripped = stripPem(pem);
+        byte[] bytes = Base64.getDecoder().decode(stripped);
+        java.security.KeyFactory kf = java.security.KeyFactory.getInstance("RSA");
+        return kf.generatePublic(new X509EncodedKeySpec(bytes));
+    }
+
+    static java.security.PrivateKey parsePrivateKeyFromPem(String pem) throws Exception {
+        String stripped = stripPem(pem);
+        byte[] bytes = Base64.getDecoder().decode(stripped);
+        java.security.KeyFactory kf = java.security.KeyFactory.getInstance("RSA");
+        return kf.generatePrivate(new PKCS8EncodedKeySpec(bytes));
+    }
+
+    private static String stripPem(String pem) {
+        StringBuilder sb = new StringBuilder();
+        for (String line : pem.split("\n")) {
+            if (!line.startsWith("-----") && !line.trim().isEmpty()) sb.append(line.trim());
+        }
+        return sb.toString();
+    }
+
+    private String decryptPrivateKey(String encryptedPrivateKeyPem) {
+        if (encryptionKey == null || encryptionKey.isEmpty()) {
+            log.warn("Decryption requested but encryption key is not set. Returning encrypted key.");
+            return encryptedPrivateKeyPem;
+        }
+        try {
+            byte[] keyBytes = encryptionKey.getBytes("UTF-8");
+            byte[] paddedKey = new byte[32];
+            System.arraycopy(keyBytes, 0, paddedKey, 0, Math.min(keyBytes.length, 32));
+            javax.crypto.spec.SecretKeySpec keySpec = new javax.crypto.spec.SecretKeySpec(paddedKey, "AES");
+            javax.crypto.Cipher cipher = javax.crypto.Cipher.getInstance("AES/ECB/PKCS5Padding");
+            cipher.init(javax.crypto.Cipher.DECRYPT_MODE, keySpec);
+            return new String(cipher.doFinal(Base64.getDecoder().decode(encryptedPrivateKeyPem)), "UTF-8");
+        } catch (Exception e) {
+            log.error("Failed to decrypt private key", e);
+            return encryptedPrivateKeyPem;
+        }
     }
 
     /**

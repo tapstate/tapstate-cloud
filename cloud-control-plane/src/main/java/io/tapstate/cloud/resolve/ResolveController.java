@@ -13,7 +13,6 @@ import io.tapstate.cloud.common.api.BaseController;
 import io.tapstate.cloud.common.CurrentUser;
 import io.tapstate.cloud.config.JwksKey;
 import io.tapstate.cloud.config.JwksRotationService;
-import io.tapstate.cloud.config.JwtKeysConfig;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -153,7 +152,7 @@ public class ResolveController extends BaseController {
             RSAPublicKey publicKey = (RSAPublicKey) jwtSigningKeyPair.getPublic();
             Map<String, Object> jwk = new LinkedHashMap<>();
             jwk.put("kty", "RSA");
-            jwk.put("kid", JwtKeysConfig.KID);
+            jwk.put("kid", "fallback-rsa-2048");  // dev-mode synthetic kid — no rotation here
             jwk.put("use", "sig");
             jwk.put("alg", "RS256");
             jwk.put("n", base64UrlEncode(publicKey.getModulus().toByteArray()));
