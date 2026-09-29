@@ -35,7 +35,7 @@ import java.util.StringJoiner;
   RegionResponse.JSON_PROPERTY_OPEN,
   RegionResponse.JSON_PROPERTY_DEFAULT_SPEC_KEY
 })
-@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-29T15:09:15.867007+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
+@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-29T19:11:22.561011+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
 public class RegionResponse {
   public static final String JSON_PROPERTY_CODE = "code";
   @jakarta.annotation.Nullable

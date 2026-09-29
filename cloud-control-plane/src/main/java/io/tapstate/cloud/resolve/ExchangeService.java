@@ -7,7 +7,8 @@ import io.tapstate.cloud.cluster.ClusterRepository;
 import io.tapstate.cloud.cluster.ClusterState;
 import io.tapstate.cloud.common.api.AppErrorCode;
 import io.tapstate.cloud.common.api.BusinessException;
-import io.tapstate.cloud.config.JwtKeysConfig;
+import io.tapstate.cloud.config.JwksKey;
+import io.tapstate.cloud.config.JwksRotationService;
 import io.tapstate.cloud.identity.User;
 import io.tapstate.cloud.identity.UserRepository;
 import io.tapstate.cloud.org.MemberRepository;
@@ -29,6 +30,7 @@ import java.util.Date;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -60,7 +62,7 @@ public class ExchangeService {
     private final MemberRepository memberRepo;
     private final UserRepository userRepo;
     private final JtiRecordRepository jtiRecordRepo;
-    private final KeyPair jwtSigningKeyPair;
+    private final JwksRotationService jwksRotationService;
 
     @Value("${tapstate.cloud.issuer:https://cloud.tapstate.io}")
     private String issuer;
@@ -82,14 +84,14 @@ public class ExchangeService {
                            MemberRepository memberRepo,
                            UserRepository userRepo,
                            JtiRecordRepository jtiRecordRepo,
-                           KeyPair jwtSigningKeyPair) {
+                           JwksRotationService jwksRotationService) {
         this.codeRepo = codeRepo;
         this.mongoTemplate = mongoTemplate;
         this.clusterRepo = clusterRepo;
         this.memberRepo = memberRepo;
         this.userRepo = userRepo;
         this.jtiRecordRepo = jtiRecordRepo;
-        this.jwtSigningKeyPair = jwtSigningKeyPair;
+        this.jwksRotationService = jwksRotationService;
     }
 
     // ========== Step 1: Issue exchange code ==========
@@ -204,6 +206,18 @@ public class ExchangeService {
         Instant jwtExp = now.plus(jwtExpiryMinutes, ChronoUnit.MINUTES);
         String aud = consumed.getClusterId() + ".api.tapstate.io";
 
+        // Live-read the CURRENT active signing key from MongoDB — rotation-aware:
+        // if JwksRotationService rotated since this service bean was built, the new
+        // key's private key is picked up here. Also read kid from the same key so
+        // the JWT header carries the real kid the JWKS endpoint is publishing.
+        Optional<JwksKey> activeKeyOpt = jwksRotationService.getActiveKey();
+        if (activeKeyOpt.isEmpty()) {
+            throw new BusinessException(AppErrorCode.SYSTEM_ERROR, 500,
+                "No active JWKS key in MongoDB — cannot sign JWT");
+        }
+        JwksKey activeKey = activeKeyOpt.get();
+        KeyPair signingKp = jwksRotationService.buildActiveSigningKeyPair();
+
         String jwt = Jwts.builder()
             .id(jwtId)
             .issuer(issuer)
@@ -216,10 +230,10 @@ public class ExchangeService {
             .issuedAt(Date.from(now))
             .expiration(Date.from(jwtExp))
             .header()
-                .keyId(JwtKeysConfig.KID)
+                .keyId(activeKey.getKid())   // real kid from MongoDB — no hardcoded constant
                 .type("JWT")
             .and()
-            .signWith(jwtSigningKeyPair.getPrivate())
+            .signWith(signingKp.getPrivate())
             .compact();
 
         log.info("Exchange code redeemed → JWT issued jti={}, cluster={}, user={}, userId={}",
