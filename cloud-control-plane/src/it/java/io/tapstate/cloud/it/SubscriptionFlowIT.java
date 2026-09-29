@@ -55,9 +55,9 @@ class SubscriptionFlowIT extends BaseIT {
 
     // ========== Raw helpers (SDK listClusters returns wrong type) ==========
 
-    /** Raw GET /v1/orgs/{orgId}/clusters → unwrap ApiResponse envelope. */
+    /** Raw GET /v1/api/orgs/{orgId}/clusters → unwrap ApiResponse envelope. */
     private JsonNode rawListClusters() throws Exception {
-        HttpResponse<String> resp = get("/v1/orgs/" + orgId + "/clusters",
+        HttpResponse<String> resp = get("/v1/api/orgs/" + orgId + "/clusters",
             Map.of("Cookie", "TAPSTATE_CLOUD_SESSION=" + sessionCookieValue));
         return mapper.readTree(resp.body()).path("data");
     }

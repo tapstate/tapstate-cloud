@@ -31,7 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.StringJoiner;
 
-@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-29T13:29:44.611101+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
+@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-29T15:09:15.867007+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
 public class C2StatusReportApi extends BaseApi {
 
   public C2StatusReportApi() {
@@ -80,7 +80,7 @@ public class C2StatusReportApi extends BaseApi {
     }
     
     // create path and map variables
-    String localVarPath = "/v1/clusters/{clusterId}/status-report"
+    String localVarPath = "/v1/api/clusters/{clusterId}/status-report"
       .replaceAll("\\{" + "clusterId" + "\\}", apiClient.escapeString(apiClient.parameterToString(clusterId)));
 
     StringJoiner localVarQueryStringJoiner = new StringJoiner("&");

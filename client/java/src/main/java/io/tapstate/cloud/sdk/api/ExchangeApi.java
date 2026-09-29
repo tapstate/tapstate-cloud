@@ -31,7 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.StringJoiner;
 
-@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-29T13:29:44.611101+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
+@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-29T15:09:15.867007+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
 public class ExchangeApi extends BaseApi {
 
   public ExchangeApi() {
@@ -75,7 +75,7 @@ public class ExchangeApi extends BaseApi {
     }
     
     // create path and map variables
-    String localVarPath = "/v1/auth/exchange";
+    String localVarPath = "/v1/api/auth/exchange";
 
     StringJoiner localVarQueryStringJoiner = new StringJoiner("&");
     String localVarQueryParameterBaseName;

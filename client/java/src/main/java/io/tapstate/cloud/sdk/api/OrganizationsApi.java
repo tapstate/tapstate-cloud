@@ -31,7 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.StringJoiner;
 
-@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-29T13:29:44.611101+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
+@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-29T15:09:15.867007+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
 public class OrganizationsApi extends BaseApi {
 
   public OrganizationsApi() {
@@ -71,7 +71,7 @@ public class OrganizationsApi extends BaseApi {
     }
     
     // create path and map variables
-    String localVarPath = "/v1/orgs";
+    String localVarPath = "/v1/api/orgs";
 
     StringJoiner localVarQueryStringJoiner = new StringJoiner("&");
     String localVarQueryParameterBaseName;
@@ -145,7 +145,7 @@ public class OrganizationsApi extends BaseApi {
     }
     
     // create path and map variables
-    String localVarPath = "/v1/orgs/{orgId}"
+    String localVarPath = "/v1/api/orgs/{orgId}"
       .replaceAll("\\{" + "orgId" + "\\}", apiClient.escapeString(apiClient.parameterToString(orgId)));
 
     StringJoiner localVarQueryStringJoiner = new StringJoiner("&");
@@ -213,7 +213,7 @@ public class OrganizationsApi extends BaseApi {
     Object localVarPostBody = null;
     
     // create path and map variables
-    String localVarPath = "/v1/orgs";
+    String localVarPath = "/v1/api/orgs";
 
     StringJoiner localVarQueryStringJoiner = new StringJoiner("&");
     String localVarQueryParameterBaseName;

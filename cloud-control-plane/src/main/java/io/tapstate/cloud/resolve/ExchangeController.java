@@ -23,7 +23,7 @@ import org.springframework.web.bind.annotation.*;
  * This is called BACK-CHANNEL by the Cluster Server (not the browser):
  * <ol>
  *   <li>Browser: GET {base_uri}/auth/exchange?code={exchange_code} → Cluster Server</li>
- *   <li>Cluster Server backend: POST /v1/auth/exchange → this endpoint (carrying both
+ *   <li>Cluster Server backend: POST /v1/api/auth/exchange → this endpoint (carrying both
  *       the raw exchange_code AND the Cluster's own service identity Secret)</li>
  *   <li>GC verifies: Secret matches + code unconsumed + unexpired + cluster_id bound
  *       → atomic conditional write consumes code → signs resolve JWT (RS256, 15min)</li>
@@ -35,7 +35,7 @@ import org.springframework.web.bind.annotation.*;
  * only the owning Cluster Server can redeem its exchange_codes (ADR-0125 D4).
  */
 @RestController
-@RequestMapping("/v1/auth")
+@RequestMapping("/v1/api/auth")
 @RequiredArgsConstructor
 @Tag(name = "Exchange",
      description = "Atomic exchange_code → resolve JWT redemption. Called by Cluster Server backend only — JWT never reaches the browser (ADR-0125).")

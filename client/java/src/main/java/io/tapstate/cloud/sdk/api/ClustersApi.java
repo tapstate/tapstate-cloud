@@ -31,7 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.StringJoiner;
 
-@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-29T13:29:44.611101+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
+@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-29T15:09:15.867007+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
 public class ClustersApi extends BaseApi {
 
   public ClustersApi() {
@@ -78,7 +78,7 @@ public class ClustersApi extends BaseApi {
     }
     
     // create path and map variables
-    String localVarPath = "/v1/orgs/{orgId}/clusters/{clusterId}"
+    String localVarPath = "/v1/api/orgs/{orgId}/clusters/{clusterId}"
       .replaceAll("\\{" + "orgId" + "\\}", apiClient.escapeString(apiClient.parameterToString(orgId)))
       .replaceAll("\\{" + "clusterId" + "\\}", apiClient.escapeString(apiClient.parameterToString(clusterId)));
 
@@ -154,7 +154,7 @@ public class ClustersApi extends BaseApi {
     }
     
     // create path and map variables
-    String localVarPath = "/v1/orgs/{orgId}/clusters"
+    String localVarPath = "/v1/api/orgs/{orgId}/clusters"
       .replaceAll("\\{" + "orgId" + "\\}", apiClient.escapeString(apiClient.parameterToString(orgId)));
 
     StringJoiner localVarQueryStringJoiner = new StringJoiner("&");
@@ -236,7 +236,7 @@ public class ClustersApi extends BaseApi {
     }
     
     // create path and map variables
-    String localVarPath = "/v1/orgs/{orgId}/clusters/{clusterId}/retry"
+    String localVarPath = "/v1/api/orgs/{orgId}/clusters/{clusterId}/retry"
       .replaceAll("\\{" + "orgId" + "\\}", apiClient.escapeString(apiClient.parameterToString(orgId)))
       .replaceAll("\\{" + "clusterId" + "\\}", apiClient.escapeString(apiClient.parameterToString(clusterId)));
 

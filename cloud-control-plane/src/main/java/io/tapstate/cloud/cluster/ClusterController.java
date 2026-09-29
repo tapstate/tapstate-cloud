@@ -29,7 +29,7 @@ import java.util.List;
  * Access requires Cloud Console session (ADR-0122 D2).
  */
 @RestController
-@RequestMapping("/v1/orgs/{orgId}/clusters")
+@RequestMapping("/v1/api/orgs/{orgId}/clusters")
 @RequiredArgsConstructor
 @Tag(name = "Clusters", description = "Cluster read + retry — lifecycle managed via Subscription")
 public class ClusterController extends BaseController {

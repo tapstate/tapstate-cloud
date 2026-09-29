@@ -23,7 +23,7 @@ public class JwksIT extends BaseIT {
     @Test
     void testJwksEndpointReturnsValidJson() throws Exception {
         // Get JWKS directly
-        var response = get("/v1/jwks.json", null);
+        var response = get("/v1/api/jwks.json", null);
 
         assertEquals(200, response.statusCode(), "JWKS endpoint should return 200");
 
@@ -34,7 +34,7 @@ public class JwksIT extends BaseIT {
 
     @Test
     void testJwksContainsAtLeastOneKey() throws Exception {
-        var response = get("/v1/jwks.json", null);
+        var response = get("/v1/api/jwks.json", null);
 
         assertEquals(200, response.statusCode());
 
@@ -46,7 +46,7 @@ public class JwksIT extends BaseIT {
 
     @Test
     void testJwksKeyHasRequiredFields() throws Exception {
-        var response = get("/v1/jwks.json", null);
+        var response = get("/v1/api/jwks.json", null);
 
         assertEquals(200, response.statusCode());
 
@@ -74,7 +74,7 @@ public class JwksIT extends BaseIT {
     @Test
     void testResolveEndpointRequiresSession() throws Exception {
         // Verify resolve endpoint returns 401 without session
-        var response = get("/v1/clusters/c001/resolve?orgId=o001", null);
+        var response = get("/v1/api/clusters/c001/resolve?orgId=o001", null);
         assertEquals(401, response.statusCode(), "Resolve endpoint should require authentication");
     }
 
@@ -83,7 +83,7 @@ public class JwksIT extends BaseIT {
         // This test verifies the JWKS endpoint can return multiple keys
         // (active + previous) during the rotation overlap period.
 
-        var response = get("/v1/jwks.json", null);
+        var response = get("/v1/api/jwks.json", null);
 
         assertEquals(200, response.statusCode());
 
