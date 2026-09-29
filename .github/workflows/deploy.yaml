@@ -84,6 +84,16 @@ jobs:
         run: |
           kubectl create namespace tapstate --dry-run=client -o yaml | kubectl apply -f -
 
+      - name: Refresh ECR imagePullSecret (awsdev)
+        run: |
+          TOKEN=$(aws ecr get-login-password --region ${{ secrets.AWS_REGION }})
+          kubectl create secret docker-registry tapstate-ecr-pull \
+            --namespace tapstate \
+            --docker-server=$(echo ${{ secrets.ECR_REPO_URI }} | sed 's|/.*||') \
+            --docker-username=AWS \
+            --docker-password="$TOKEN" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
       - name: helm upgrade — awsdev
         run: |
           helm upgrade --install tapstate-cloud-control helm/tapstate-cloud-control \
@@ -156,6 +166,16 @@ jobs:
       - name: Ensure namespace exists
         run: |
           kubectl create namespace tapstate-cloud-control --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Refresh ECR imagePullSecret (production)
+        run: |
+          TOKEN=$(aws ecr get-login-password --region ${{ secrets.AWS_REGION }})
+          kubectl create secret docker-registry tapstate-ecr-pull \
+            --namespace tapstate-cloud-control \
+            --docker-server=$(echo ${{ secrets.ECR_REPO_URI }} | sed 's|/.*||') \
+            --docker-username=AWS \
+            --docker-password="$TOKEN" \
+            --dry-run=client -o yaml | kubectl apply -f -
 
       - name: helm upgrade — production
         run: |
