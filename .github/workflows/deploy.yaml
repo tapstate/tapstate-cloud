@@ -23,7 +23,7 @@ on:
 
 jobs:
   # ============================================================
-  # SDK Publish — Nexus maven repository (common + sdk modules)
+  # SDK Publish — Nexus maven repository (client/java only)
   # Runs on both main and release branches. Dynamic version is
   # computed per-deploy via git tag + commit SHA; pom.xml is
   # reverted after deploy so the checked-in baseline stays 0.1.0.
@@ -80,7 +80,7 @@ jobs:
             -DnewVersion=${{ steps.version.outputs.sdk_version }} \
             -DgenerateBackupPoms=false \
             -q
-          mvn -pl client/java -am deploy \
+          mvn -pl client/java deploy \
             -Dmaven.test.skip=true \
             -DskipSdkGeneration=true \
             -Dmaven.javadoc.skip=true \
