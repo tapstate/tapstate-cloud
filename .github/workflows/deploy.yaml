@@ -6,12 +6,10 @@
 #   release-v*.x.x       → production environment (values-aws.yaml, namespace: tapstate-cloud-control)
 # ============================================================
 # Prerequisites (GitHub Repository Secrets):
-#   AWS_ACCESS_KEY_ID       — AWS credentials for ECR push (same creds for both envs)
+#   AWS_ACCESS_KEY_ID       — AWS credentials for ECR push
 #   AWS_SECRET_ACCESS_KEY   — AWS credentials for ECR push
-#   AWS_REGION_DEV          — awsdev ECR region (ap-east-1)
-#   AWS_REGION_PROD         — production ECR region (ap-southeast-1)
-#   ECR_REPO_URI_DEV        — awsdev ECR repo (263186327888.dkr.ecr.ap-east-1.amazonaws.com/tapstate-cloud/tapstate-cloud-control)
-#   ECR_REPO_URI_PROD       — production ECR repo (tapstate-cloud prod repo URI)
+#   AWS_REGION              — ap-east-1 (both envs)
+#   ECR_REPO_URI            — e.g. 263186327888.dkr.ecr.ap-east-1.amazonaws.com/tapstate-cloud/tapstate-cloud-control
 #   KUBECONFIG_BASE64       — k3s kubeconfig (same cluster for both namespaces)
 # ============================================================
 
@@ -37,7 +35,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Step 1: Build
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
@@ -48,19 +45,17 @@ jobs:
       - name: Build fat jar
         run: mvn clean package -B -DskipTests -q
 
-      # Step 2: Login to awsdev ECR (ap-east-1)
-      - name: Configure AWS credentials (awsdev)
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION_DEV }}
+          aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Login to Amazon ECR
         id: login-ecr-dev
         uses: aws-actions/amazon-ecr-login@v2
 
-      # Step 3: Push to awsdev ECR
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -69,11 +64,10 @@ jobs:
         with:
           context: .
           push: true
-          tags: ${{ secrets.ECR_REPO_URI_DEV }}:${{ github.sha }}
+          tags: ${{ secrets.ECR_REPO_URI }}:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # Step 4: helm upgrade to tapstate namespace
       - name: Setup Helm
         uses: azure/setup-helm@v4
         with:
@@ -94,7 +88,7 @@ jobs:
         run: |
           helm upgrade --install tapstate-cloud-control helm/tapstate-cloud-control \
             --namespace tapstate \
-            --set image.repository=${{ secrets.ECR_REPO_URI_DEV }} \
+            --set image.repository=${{ secrets.ECR_REPO_URI }} \
             --set image.tag=${{ github.sha }} \
             --values helm/tapstate-cloud-control/values-awsdev.yaml \
             --timeout 5m \
@@ -114,7 +108,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Step 1: Build
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
@@ -125,19 +118,17 @@ jobs:
       - name: Build fat jar
         run: mvn clean package -B -DskipTests -q
 
-      # Step 2: Login to production ECR (ap-southeast-1)
-      - name: Configure AWS credentials (prod)
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION_PROD }}
+          aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Login to Amazon ECR
         id: login-ecr-prod
         uses: aws-actions/amazon-ecr-login@v2
 
-      # Step 3: Push to production ECR
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -146,11 +137,10 @@ jobs:
         with:
           context: .
           push: true
-          tags: ${{ secrets.ECR_REPO_URI_PROD }}:${{ github.sha }}
+          tags: ${{ secrets.ECR_REPO_URI }}:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # Step 4: helm upgrade to tapstate-cloud-control namespace
       - name: Setup Helm
         uses: azure/setup-helm@v4
         with:
@@ -171,7 +161,7 @@ jobs:
         run: |
           helm upgrade --install tapstate-cloud-control helm/tapstate-cloud-control \
             --namespace tapstate-cloud-control \
-            --set image.repository=${{ secrets.ECR_REPO_URI_PROD }} \
+            --set image.repository=${{ secrets.ECR_REPO_URI }} \
             --set image.tag=${{ github.sha }} \
             --set image.pullPolicy=Always \
             --values helm/tapstate-cloud-control/values-aws.yaml \
