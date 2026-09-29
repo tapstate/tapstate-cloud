@@ -40,7 +40,7 @@ import java.util.StringJoiner;
   ItemResponse.JSON_PROPERTY_UNIT_PRICE_CENTS,
   ItemResponse.JSON_PROPERTY_METADATA
 })
-@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-29T13:24:47.008210+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
+@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-29T13:29:44.611101+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
 public class ItemResponse {
   public static final String JSON_PROPERTY_ID = "id";
   @jakarta.annotation.Nullable

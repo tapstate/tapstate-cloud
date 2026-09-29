@@ -34,7 +34,7 @@ import java.util.StringJoiner;
   CreateSubscriptionRequest.JSON_PROPERTY_CLUSTER_NAME,
   CreateSubscriptionRequest.JSON_PROPERTY_SPEC_KEY
 })
-@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-29T13:24:47.008210+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
+@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-29T13:29:44.611101+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
 public class CreateSubscriptionRequest {
   public static final String JSON_PROPERTY_REGION = "region";
   @jakarta.annotation.Nonnull
