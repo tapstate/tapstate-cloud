@@ -11,6 +11,8 @@ import io.tapstate.cloud.common.api.ApiResponse;
 import io.tapstate.cloud.common.api.AppErrorCode;
 import io.tapstate.cloud.common.api.BaseController;
 import io.tapstate.cloud.common.CurrentUser;
+import io.tapstate.cloud.config.JwksKey;
+import io.tapstate.cloud.config.JwksRotationService;
 import io.tapstate.cloud.config.JwtKeysConfig;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -46,13 +48,19 @@ public class ResolveController extends BaseController {
     private final ExchangeService exchangeService;
     private final ClusterRepository clusterRepo;
     private final KeyPair jwtSigningKeyPair;
+    private final JwksRotationService jwksRotationService;
+    private final boolean rotationEnabled;
 
     public ResolveController(ExchangeService exchangeService,
                              ClusterRepository clusterRepo,
-                             KeyPair jwtSigningKeyPair) {
+                             KeyPair jwtSigningKeyPair,
+                             JwksRotationService jwksRotationService,
+                             @org.springframework.beans.factory.annotation.Value("${tapstate.cloud.jwks.rotation-enabled:true}") boolean rotationEnabled) {
         this.exchangeService = exchangeService;
         this.clusterRepo = clusterRepo;
         this.jwtSigningKeyPair = jwtSigningKeyPair;
+        this.jwksRotationService = jwksRotationService;
+        this.rotationEnabled = rotationEnabled;
     }
 
     // ========== Resolve — issue exchange_code (Step 1 of ADR-0125) ==========
@@ -130,20 +138,63 @@ public class ResolveController extends BaseController {
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "JWKS JSON document")
     })
     public ResponseEntity<Map<String, Object>> jwks() {
-        RSAPublicKey publicKey = (RSAPublicKey) jwtSigningKeyPair.getPublic();
+        List<Map<String, Object>> jwksList = new ArrayList<>();
 
-        Map<String, Object> jwk = new LinkedHashMap<>();
-        jwk.put("kty", "RSA");
-        jwk.put("kid", JwtKeysConfig.KID);
-        jwk.put("use", "sig");
-        jwk.put("alg", "RS256");
-        jwk.put("n", base64UrlEncode(publicKey.getModulus().toByteArray()));
-        jwk.put("e", base64UrlEncode(publicKey.getPublicExponent().toByteArray()));
+        if (rotationEnabled) {
+            // Load keys from MongoDB (both active and previous)
+            List<JwksKey> keys = jwksRotationService.getNonExpiredKeys();
+            for (JwksKey key : keys) {
+                jwksList.add(parsePublicKeyFromPem(key.getKid(), key.getPublicKeyPem()));
+            }
+        }
+
+        // Fallback to in-memory generated keys for dev mode when MongoDB has no keys
+        if (jwksList.isEmpty()) {
+            RSAPublicKey publicKey = (RSAPublicKey) jwtSigningKeyPair.getPublic();
+            Map<String, Object> jwk = new LinkedHashMap<>();
+            jwk.put("kty", "RSA");
+            jwk.put("kid", JwtKeysConfig.KID);
+            jwk.put("use", "sig");
+            jwk.put("alg", "RS256");
+            jwk.put("n", base64UrlEncode(publicKey.getModulus().toByteArray()));
+            jwk.put("e", base64UrlEncode(publicKey.getPublicExponent().toByteArray()));
+            jwksList.add(jwk);
+        }
 
         Map<String, Object> jwks = new LinkedHashMap<>();
-        jwks.put("keys", List.of(jwk));
+        jwks.put("keys", jwksList);
 
         return ResponseEntity.ok(jwks);
+    }
+
+    private Map<String, Object> parsePublicKeyFromPem(String kid, String publicKeyPem) {
+        try {
+            // Extract base64 content from PEM
+            String[] lines = publicKeyPem.split("\n");
+            StringBuilder base64Builder = new StringBuilder();
+            for (String line : lines) {
+                if (!line.startsWith("-----") && !line.trim().isEmpty()) {
+                    base64Builder.append(line.trim());
+                }
+            }
+            byte[] encoded = java.util.Base64.getDecoder().decode(base64Builder.toString());
+            java.security.KeyFactory keyFactory = java.security.KeyFactory.getInstance("RSA");
+            java.security.spec.X509EncodedKeySpec keySpec = new java.security.spec.X509EncodedKeySpec(encoded);
+            java.security.PublicKey publicKey = keyFactory.generatePublic(keySpec);
+            RSAPublicKey rsaPublicKey = (RSAPublicKey) publicKey;
+
+            Map<String, Object> jwk = new LinkedHashMap<>();
+            jwk.put("kty", "RSA");
+            jwk.put("kid", kid);
+            jwk.put("use", "sig");
+            jwk.put("alg", "RS256");
+            jwk.put("n", base64UrlEncode(rsaPublicKey.getModulus().toByteArray()));
+            jwk.put("e", base64UrlEncode(rsaPublicKey.getPublicExponent().toByteArray()));
+            return jwk;
+        } catch (Exception e) {
+            log.error("Failed to parse public key for kid: {}", kid, e);
+            return new LinkedHashMap<>();
+        }
     }
 
     // ========== Helpers ==========
