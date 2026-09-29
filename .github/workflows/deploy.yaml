@@ -74,12 +74,16 @@ jobs:
         with:
           version: v3.16.0
 
-      - name: Setup kubectl (decode kubeconfig)
+      - name: Decode kubeconfig
         run: |
           mkdir -p $HOME/.kube
           echo "${{ secrets.KUBECONFIG_BASE64 }}" | base64 -d > $HOME/.kube/config
           chmod 600 $HOME/.kube/config
           kubectl cluster-info
+
+      - name: Ensure namespace exists
+        run: |
+          kubectl create namespace tapstate-cloud-control --dry-run=client -o yaml | kubectl apply -f -
 
       - name: helm upgrade — install
         run: |
