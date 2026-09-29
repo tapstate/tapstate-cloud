@@ -1,14 +1,15 @@
 # ============================================================
 # CD — Deploy to k3s (push main)
-# Per ADR-0124 D6: push main → docker build → ECR push → kubectl rollout restart
-#     — k3s EC2 self-hosted cluster; NOT ECS Fargate
+# Per ADR-0124 D6: push main → docker build → ECR push → helm upgrade
+#     — k3s EC2 self-hosted cluster; helm replaces kubectl rollout
+#     — ADR-0120/0121/0124: all config via helm values + k3s Secrets
 # ============================================================
 # Prerequisites (GitHub Repository Secrets):
 #   AWS_ACCESS_KEY_ID       — for ECR push + CloudFormation API
 #   AWS_SECRET_ACCESS_KEY   — for ECR push + CloudFormation API
 #   AWS_REGION              — ap-southeast-1
 #   ECR_REPO_URI            — e.g., 123456789012.dkr.ecr.ap-southeast-1.amazonaws.com/tapstate-cloud
-#   KUBECONFIG_BASE64       — base64-encoded k3s kubeconfig (kubectl rollout restart)
+#   KUBECONFIG_BASE64       — base64-encoded k3s kubeconfig (helm upgrade)
 # ============================================================
 
 name: CD — Deploy to k3s
@@ -19,7 +20,7 @@ on:
 
 jobs:
   deploy:
-    name: Build → ECR → k3s rollout
+    name: Build → ECR → helm upgrade
     runs-on: ubuntu-latest
     environment:
       name: production
@@ -68,48 +69,54 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # ========== Step 4: kubectl rollout restart on k3s ==========
-      # ADR-0120: k3s kubectl rollout restart (NOT ECS update-service)
-      - name: Setup kubectl
-        uses: azure/setup-kubectl@v4
+      # ========== Step 4: helm upgrade (replaces kubectl rollout) ==========
+      # ADR-0120/0121/0124: helm is the single deployment tool
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
         with:
-          version: 'latest'
+          version: v3.16.0
 
-      - name: Decode kubeconfig
+      - name: Setup kubectl (decode kubeconfig)
         run: |
           mkdir -p $HOME/.kube
           echo "${{ secrets.KUBECONFIG_BASE64 }}" | base64 -d > $HOME/.kube/config
           chmod 600 $HOME/.kube/config
           kubectl cluster-info
 
-      - name: Update deployment image
+      - name: helm upgrade — install
         run: |
-          kubectl --namespace tapstate-cloud-control \
-            set image deployment/tapstate-cloud-control \
-            tapstate-cloud-control=${{ secrets.ECR_REPO_URI }}:${{ github.sha }}
+          helm upgrade --install tapstate-cloud-control helm/tapstate-cloud-control \
+            --namespace tapstate-cloud-control \
+            --set image.repository=${{ secrets.ECR_REPO_URI }} \
+            --set image.tag=${{ github.sha }} \
+            --set image.pullPolicy=Always \
+            --set replicaCount=2 \
+            --values helm/tapstate-cloud-control/values-local.yaml \
+            --values helm/tapstate-cloud-control/values-aws.yaml \
+            --timeout 5m \
+            --wait \
+            --wait-for-jobs
 
-      - name: Wait for rollout to complete
+      - name: helm test — check deployment
         run: |
-          kubectl --namespace tapstate-cloud-control \
-            rollout status deployment/tapstate-cloud-control \
-            --timeout=300s
+          helm test tapstate-cloud-control --namespace tapstate-cloud-control
 
       - name: Verify deployment health
         run: |
           # Check pod status
-          kubectl --namespace tapstate-cloud-control get pods -l app=tapstate-cloud-control
-          
+          kubectl --namespace tapstate-cloud-control get pods -l app.kubernetes.io/name=tapstate-cloud-control
+
           # Port-forward and health check
           kubectl --namespace tapstate-cloud-control port-forward \
             deployment/tapstate-cloud-control 8080:8080 &
           sleep 5
           curl -f http://localhost:8080/health || {
             echo "Health check FAILED!"
+            kubectl --namespace tapstate-cloud-control logs deployment/tapstate-cloud-control | head -100
             exit 1
           }
           kill %1
 
-      # ========== Step 5: Notification (optional) ==========
       - name: Post-deploy summary
         run: |
           echo "============================================"
