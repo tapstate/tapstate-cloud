@@ -74,13 +74,13 @@ jobs:
           echo "Computed SDK version: ${VERSION}"
           echo "sdk_version=${VERSION}" >> $GITHUB_OUTPUT
 
-      - name: Set dynamic version and deploy to Nexus
+      - name: Set dynamic version and deploy SDK to Nexus
         run: |
           mvn versions:set \
             -DnewVersion=${{ steps.version.outputs.sdk_version }} \
             -DgenerateBackupPoms=false \
             -q
-          mvn deploy \
+          mvn -pl client/java -am deploy \
             -Dmaven.test.skip=true \
             -DskipSdkGeneration=true \
             -Dmaven.javadoc.skip=true \
