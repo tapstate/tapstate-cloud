@@ -36,7 +36,7 @@ import java.util.StringJoiner;
   StatusReportRequest.JSON_PROPERTY_ACTIVE_PIPELINES,
   StatusReportRequest.JSON_PROPERTY_LAST_ERROR_AT
 })
-@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-29T13:24:47.008210+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
+@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-29T13:29:44.611101+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
 public class StatusReportRequest {
   public static final String JSON_PROPERTY_NONCE = "nonce";
   @jakarta.annotation.Nullable

