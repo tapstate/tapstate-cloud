@@ -44,7 +44,7 @@ class CloudControlPlaneSdkTest {
 
     @BeforeEach
     void setUp() {
-        JwksKeyCache jwksCache = new JwksKeyCache(BASE_URL + "/v1/jwks.json",
+        JwksKeyCache jwksCache = new JwksKeyCache(BASE_URL + "/v1/api/jwks.json",
             java.time.Duration.ofMinutes(10));
         sdk = CloudControlPlaneSdk.builder()
             .baseUrl(BASE_URL)

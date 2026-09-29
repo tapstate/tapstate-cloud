@@ -29,15 +29,15 @@ import java.util.*;
  * This endpoint does NOT issue the resolve JWT directly — it issues a one-time
  * exchange_code (60-second TTL, base64url-encoded 32-byte random) that the
  * browser passes to the target Cluster Server via URL param. The Cluster Server
- * then performs the backend → GC atomic redemption via POST /v1/auth/exchange,
+ * then performs the backend → GC atomic redemption via POST /v1/api/auth/exchange,
  * which is where the JWT is actually signed (back-channel only — JWT never
  * touches the browser).
  * <p>
- * JWKS is also published here — {@code GET /v1/jwks.json} (RFC 7517) for
+ * JWKS is also published here — {@code GET /v1/api/jwks.json} (RFC 7517) for
  * runtime offline JWT verification (ADR-0122 D5 / ADR-0125 D6).
  */
 @RestController
-@RequestMapping("/v1")
+@RequestMapping("/v1/api")
 @Tag(name = "Resolve / Exchange",
      description = "Cloud Console → Cluster Console handoff. /resolve issues a one-time exchange_code; " +
                    "/auth/exchange (handled by ExchangeController) atomically redeems it for a resolve JWT. " +
@@ -89,7 +89,7 @@ public class ResolveController extends BaseController {
                       "plus the Cluster origin base_uri.\n\n" +
                       "The browser then does NOT get a JWT here — it GETs " +
                       "`{base_uri}/auth/exchange?code={exchange_code}` on the Cluster Server. " +
-                      "The Cluster Server's GC SDK back-channel-calls POST /v1/auth/exchange " +
+                      "The Cluster Server's GC SDK back-channel-calls POST /v1/api/auth/exchange " +
                       "(ExchangeController) where the resolve JWT is atomically signed."
     )
     @ApiResponses(value = {

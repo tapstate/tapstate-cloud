@@ -25,7 +25,7 @@ import org.springframework.web.bind.annotation.*;
  *   <li>HTTP method: POST</li>
  *   <li>Header: {@code Authorization: Bearer <sdk-static-token>} — per-Cluster unique
  *       string stored on {@link Cluster#sdkStaticToken} at provisioning time</li>
- *   <li>Path: {@code /v1/clusters/{clusterId}/status-report}</li>
+ *   <li>Path: {@code /v1/api/clusters/{clusterId}/status-report}</li>
  * </ul>
  * This endpoint is <b>publicly reachable</b> in Spring Security (no session cookie
  * required). The Bearer token inside is the sole authentication mechanism — each
@@ -41,7 +41,7 @@ import org.springframework.web.bind.annotation.*;
  * or any other business state.
  */
 @RestController
-@RequestMapping("/v1/clusters")
+@RequestMapping("/v1/api/clusters")
 @RequiredArgsConstructor
 @Slf4j
 @Tag(name = "C2 Status Report", description = "Runtime → Global Control Plane heartbeat + health metrics (SDK Bearer auth)")

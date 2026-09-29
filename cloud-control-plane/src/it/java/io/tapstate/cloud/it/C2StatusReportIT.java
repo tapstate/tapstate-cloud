@@ -59,7 +59,7 @@ class C2StatusReportIT extends BaseIT {
         // Poll clusters list via raw HTTP until we find our cluster
         String clusterId = null;
         for (int i = 0; i < 10; i++) {
-            HttpResponse<String> resp = get("/v1/orgs/" + orgId + "/clusters",
+            HttpResponse<String> resp = get("/v1/api/orgs/" + orgId + "/clusters",
                 Map.of("Cookie", "TAPSTATE_CLOUD_SESSION=" + sessionCookieValue));
             JsonNode arr = mapper.readTree(resp.body()).path("data");
             if (arr.isArray()) {
@@ -88,7 +88,7 @@ class C2StatusReportIT extends BaseIT {
         return new String[]{orgId, clusterId, token};
     }
 
-    /** POST /v1/clusters/{clusterId}/status-report with optional Bearer. */
+    /** POST /v1/api/clusters/{clusterId}/status-report with optional Bearer. */
     private HttpResponse<String> sendStatusReport(String pathClusterId, String bearerToken, String nonce)
         throws Exception {
         String body = mapper.writeValueAsString(Map.of(
@@ -96,7 +96,7 @@ class C2StatusReportIT extends BaseIT {
             "uptimeMs", 12345L,
             "activePipelines", 1));
         HttpRequest.Builder b = HttpRequest.newBuilder()
-            .uri(URI.create(BASE_URL + "/v1/clusters/" + pathClusterId + "/status-report"))
+            .uri(URI.create(BASE_URL + "/v1/api/clusters/" + pathClusterId + "/status-report"))
             .POST(HttpRequest.BodyPublishers.ofString(body))
             .header("Content-Type", "application/json");
         if (bearerToken != null) {

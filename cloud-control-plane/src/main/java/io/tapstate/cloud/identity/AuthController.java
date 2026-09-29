@@ -48,7 +48,7 @@ import java.util.List;
  * - Idle expiry: 7 days (configured in application.yml spring.session.timeout)
  */
 @RestController
-@RequestMapping("/v1/auth")
+@RequestMapping("/v1/api/auth")
 @RequiredArgsConstructor
 @Slf4j
 @Tag(name = "Auth", description = "Cloud Console authentication — register, login, session management")

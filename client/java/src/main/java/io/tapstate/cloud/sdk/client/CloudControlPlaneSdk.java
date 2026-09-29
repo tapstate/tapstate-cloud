@@ -144,7 +144,7 @@ public final class CloudControlPlaneSdk {
     }
 
     private static JwksKeyCache buildJwksCache(String baseUrl, Duration refreshInterval) {
-        String jwksUrl = baseUrl.replaceAll("/+$", "") + "/v1/jwks.json";
+        String jwksUrl = baseUrl.replaceAll("/+$", "") + "/v1/api/jwks.json";
         return new JwksKeyCache(jwksUrl, refreshInterval);
     }
 
@@ -516,7 +516,7 @@ public final class CloudControlPlaneSdk {
         }
 
         /**
-         * JWKS refresh interval — how often to re-fetch {@code /v1/jwks.json} in the
+         * JWKS refresh interval — how often to re-fetch {@code /v1/api/jwks.json} in the
          * background when cache expires. Default: 10 minutes (ADR-0125 D6).
          * During key rotation GC adds new keys to JWKS before removing old ones — the
          * overlap window gives callers time to pick up the new kid.

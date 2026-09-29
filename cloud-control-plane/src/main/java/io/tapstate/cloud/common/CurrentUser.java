@@ -6,7 +6,7 @@ import org.springframework.security.core.userdetails.UserDetails;
 /**
  * Extract the authenticated user's email from SecurityContext.
  * <p>
- * Works with both String principal (set by our custom /v1/auth/login endpoint)
+ * Works with both String principal (set by our custom /v1/api/auth/login endpoint)
  * and UserDetails principal (if Spring Security form-login is used in future).
  * <p>
  * Returns {@code null} if no authenticated user is present (caller handles 401).

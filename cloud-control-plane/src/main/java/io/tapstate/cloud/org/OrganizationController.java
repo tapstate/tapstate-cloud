@@ -25,7 +25,7 @@ import java.util.Map;
  * Access requires Cloud Console session (ADR-0122 D2).
  */
 @RestController
-@RequestMapping("/v1/orgs")
+@RequestMapping("/v1/api/orgs")
 @RequiredArgsConstructor
 @Tag(name = "Organizations", description = "Organization management — isolation boundary for Clusters")
 public class OrganizationController extends BaseController {

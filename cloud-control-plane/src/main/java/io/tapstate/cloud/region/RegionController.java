@@ -18,7 +18,7 @@ import java.util.List;
  * Region endpoints — list available AWS regions for Cluster provisioning.
  */
 @RestController
-@RequestMapping("/v1/regions")
+@RequestMapping("/v1/api/regions")
 @RequiredArgsConstructor
 @Tag(name = "Regions", description = "Available AWS regions for Cluster provisioning")
 public class RegionController extends BaseController {
