@@ -358,18 +358,27 @@ public final class CloudControlPlaneSdk {
     public boolean verifyRequest(String method, String ts, String nonce, String data, String sign) {
         String canonical = method + "|" + ts + "|" + nonce + "|" + data;
         try {
-            // Cloud signs with its JWKS public key — use first available key (Cloud deploys one signing key at a time)
             Map<String, RSAPublicKey> cached = jwksCache.getKeysSnapshot();
-            RSAPublicKey key = cached.values().iterator().next();
-            if (key == null) {
+            if (cached.isEmpty()) {
                 log.warn("verifyRequest: JWKS cache is empty");
                 return false;
             }
-            java.security.Signature sig = java.security.Signature.getInstance("SHA256withRSA");
-            sig.initVerify(key);
-            sig.update(canonical.getBytes(java.nio.charset.StandardCharsets.UTF_8));
             byte[] signBytes = Base64.getUrlDecoder().decode(sign);
-            return sig.verify(signBytes);
+            // Try every cached key — callback signatures carry no kid, so during JWKS
+            // overlap (old key + new key both in cache) we must attempt all keys until
+            // one verifies. ExchangeService signs with the ACTIVE key at sign-time, so
+            // whichever of the overlap keys happened to produce this signature will match.
+            for (Map.Entry<String, RSAPublicKey> e : cached.entrySet()) {
+                java.security.Signature sig = java.security.Signature.getInstance("SHA256withRSA");
+                sig.initVerify(e.getValue());
+                sig.update(canonical.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                if (sig.verify(signBytes)) {
+                    log.debug("verifyRequest passed with kid={}", e.getKey());
+                    return true;
+                }
+            }
+            log.warn("verifyRequest: no cached JWKS key verified the signature (tried {} keys)", cached.size());
+            return false;
         } catch (Exception e) {
             log.warn("verifyRequest failed: {}", e.getMessage());
             return false;
