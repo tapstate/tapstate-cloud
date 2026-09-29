@@ -12,6 +12,7 @@ import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.tapstate.cloud.sdk.ApiClient;
 import io.tapstate.cloud.sdk.ApiException;
+import io.tapstate.cloud.sdk.api.C2StatusReportApi;
 import io.tapstate.cloud.sdk.api.ExchangeApi;
 import io.tapstate.cloud.sdk.model.ExchangeRequest;
 import io.tapstate.cloud.sdk.model.ExchangeResponse;
@@ -95,12 +96,20 @@ public final class CloudControlPlaneSdk {
 
     /**
      * Cluster UUID — read from environment variable {@code CLUSTER_ID} by default.
-     * Used by {@link #exchangeForJwt(String)}; {@link #verifyJwt(String)} does NOT
+     * Used by {@link #exchangeForJwt(String)} and {@link #reportStatus(...)}; {@link #verifyJwt(String)} does NOT
      * need it because the Cluster already knows which org/cluster it belongs to —
      * it just asks the SDK "is this JWT valid?" and reads org_id/cluster_id from
      * the returned {@link VerifiedJwt} if it wants to scope-check.
      */
     private final String clusterId;
+
+    /**
+     * Per-Cluster static SDK Bearer token for C2 status-report auth (ADR-0124 D3).
+     * Different from {@link #clusterIdentitySecret} (which authenticates /exchange) —
+     * this is the long-lived token on {@code Cluster.sdkStaticToken} set at provisioning time.
+     * Null for SDKs that never call C2 (verify-only or exchange-only).
+     */
+    private final String sdkStaticToken;
 
     // ========== Dependencies ==========
 
@@ -110,16 +119,21 @@ public final class CloudControlPlaneSdk {
     /** JWKS → cached RSA keys (Function 2). */
     private final JwksKeyCache jwksCache;
 
+    /** Runtime → GC C2 status-report (Function 3). Built lazily — only needed when callers invoke reportStatus(). */
+    private C2StatusReportApi c2StatusReportApi;
+
     // ========== Construction ==========
 
     private CloudControlPlaneSdk(String baseUrl, String issuer,
                                   String clusterIdentitySecret, String clusterId,
+                                  String sdkStaticToken,
                                   ExchangeApi exchangeApi,
                                   JwksKeyCache jwksCache) {
         this.baseUrl = baseUrl;
         this.issuer = issuer;
         this.clusterIdentitySecret = clusterIdentitySecret;
         this.clusterId = clusterId;
+        this.sdkStaticToken = sdkStaticToken;
         this.exchangeApi = exchangeApi;
         this.jwksCache = jwksCache;
     }
@@ -132,7 +146,7 @@ public final class CloudControlPlaneSdk {
                           ExchangeApi exchangeApi,
                           JwksKeyCache jwksCache,
                           @SuppressWarnings("unused") boolean testFlag) {
-        this(baseUrl, issuer, clusterIdentitySecret, clusterId, exchangeApi, jwksCache);
+        this(baseUrl, issuer, clusterIdentitySecret, clusterId, null, exchangeApi, jwksCache);
     }
 
     private static ExchangeApi buildExchangeApi(String baseUrl) {
@@ -146,6 +160,17 @@ public final class CloudControlPlaneSdk {
     private static JwksKeyCache buildJwksCache(String baseUrl, Duration refreshInterval) {
         String jwksUrl = baseUrl.replaceAll("/+$", "") + "/v1/api/jwks.json";
         return new JwksKeyCache(jwksUrl, refreshInterval);
+    }
+
+    /** Lazily-build a C2StatusReportApi backed by the same ApiClient baseUrl as ExchangeApi. */
+    private synchronized C2StatusReportApi getOrBuildC2Api() {
+        if (c2StatusReportApi == null) {
+            ApiClient client = new ApiClient();
+            client.setBasePath(baseUrl);
+            client.setUserAgent(USER_AGENT);
+            c2StatusReportApi = new C2StatusReportApi(client);
+        }
+        return c2StatusReportApi;
     }
 
     // ========== Function 1: exchange_code → resolve JWT ==========
@@ -385,6 +410,108 @@ public final class CloudControlPlaneSdk {
         }
     }
 
+    // ========== Function 3 — C2 status report (runtime → Global Control Plane) ==========
+
+    /** Default C2 bounded-retry policy (Issue #19 acceptance criterion 3). */
+    static final int C2_MAX_ATTEMPTS = 3;
+    static final Duration C2_INITIAL_BACKOFF = Duration.ofMillis(500);
+    static final double C2_BACKOFF_MULTIPLIER = 2.0;
+
+    /**
+     * Send a C2 status-report heartbeat to the Global Control Plane (ADR-0124 D3 — C2 contract).
+     * <p>
+     * This is the runtime SDK's inbound auth → GC heartbeat path. Called by the runtime's
+     * periodic health-report scheduler (every ~30s). Uses the Cluster's static SDK token
+     * for authentication, not a resolve JWT — so GC-side C2 failures do NOT affect the
+     * workload auth path (Function 2).
+     * <p>
+     * Bounded retry: up to {@value #C2_MAX_ATTEMPTS} attempts with exponential backoff
+     * starting at {@value #C2_INITIAL_BACKOFF}ms, {@value #C2_BACKOFF_MULTIPLIER}x multiplier.
+     * Only retries 5xx and connection-level failures; 4xx (401 token invalid, 403 cluster
+     * mismatch, 409 nonce replay) are NOT retried — they would never succeed on retry.
+     *
+     * @param nonce             unique per-request nonce (same value twice → GC returns 409)
+     * @param runtimeVersion    Tapstate runtime version string, e.g. "2.1.0" (null allowed)
+     * @param uptimeMs          milliseconds since runtime process started (null allowed)
+     * @param activePipelines   currently-running pipeline count (null allowed)
+     * @param lastErrorAt       ISO-8601 UTC instant of last runtime error, or null if clean
+     * @throws CloudControlPlaneException.C2TokenMissing   SDK token not configured — cannot call C2
+     * @throws CloudControlPlaneException.C2AuthFailed      GC returned 401/403 — token invalid / cluster mismatch
+     * @throws CloudControlPlaneException.C2NonceReplay     GC returned 409 — same nonce used twice
+     * @throws CloudControlPlaneException.C2Transient      all retry attempts exhausted on 5xx / network
+     */
+    public void reportStatus(String nonce, String runtimeVersion, Long uptimeMs,
+                             Integer activePipelines, String lastErrorAt) throws CloudControlPlaneException {
+        if (sdkStaticToken == null || sdkStaticToken.isEmpty()) {
+            throw new CloudControlPlaneException.C2TokenMissing();
+        }
+        if (clusterId == null || clusterId.isEmpty()) {
+            throw new CloudControlPlaneException(
+                "c2.cluster-id-missing", 0,
+                "C2 reportStatus: clusterId not configured — cannot build endpoint path");
+        }
+        try {
+            doReportStatus(nonce, runtimeVersion, uptimeMs, activePipelines, lastErrorAt, 1);
+        } catch (ApiException e) {
+            throw classifyC2Error(e);
+        }
+    }
+
+    private void doReportStatus(String nonce, String runtimeVersion, Long uptimeMs,
+                                Integer activePipelines, String lastErrorAt,
+                                int attempt) throws ApiException {
+        var request = new io.tapstate.cloud.sdk.model.StatusReportRequest()
+            .nonce(nonce)
+            .runtimeVersion(runtimeVersion)
+            .uptimeMs(uptimeMs)
+            .activePipelines(activePipelines)
+            .lastErrorAt(lastErrorAt);
+
+        io.tapstate.cloud.sdk.api.C2StatusReportApi api = getOrBuildC2Api();
+        try {
+            api.report(clusterId, request, "Bearer " + sdkStaticToken);
+        } catch (ApiException ae) {
+            int code = ae.getCode();
+            boolean retryable = code == 0 || code >= 500;
+            if (retryable && attempt < C2_MAX_ATTEMPTS) {
+                long backoffMs = (long) (C2_INITIAL_BACKOFF.toMillis()
+                    * Math.pow(C2_BACKOFF_MULTIPLIER, attempt - 1));
+                log.warn("C2 status-report attempt {}/{} failed (code={}), retrying in {}ms",
+                    attempt, C2_MAX_ATTEMPTS, code, backoffMs);
+                try { Thread.sleep(backoffMs); } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw ae;  // give up on interrupt
+                }
+                doReportStatus(nonce, runtimeVersion, uptimeMs, activePipelines, lastErrorAt, attempt + 1);
+            } else {
+                throw ae;  // propagate — call classifyC2Error to map
+            }
+        }
+    }
+
+    /**
+     * Classify a C2 API error into a typed CloudControlPlaneException.
+     * 4xx → terminal (auth / nonce), 5xx + connect → transient, never retry-worthy after exhaustion.
+     */
+    private CloudControlPlaneException classifyC2Error(ApiException e) {
+        int code = e.getCode();
+        if (code == 401) {
+            return new CloudControlPlaneException.C2AuthFailed(
+                "C2 status-report: SDK token invalid or missing", e);
+        }
+        if (code == 403) {
+            return new CloudControlPlaneException.C2AuthFailed(
+                "C2 status-report: token does not own path clusterId", e);
+        }
+        if (code == 409) {
+            return new CloudControlPlaneException.C2NonceReplay(
+                "C2 status-report: nonce already seen — must generate a fresh UUID for each call", e);
+        }
+        // 5xx (>=500) or connect failure (0) — transient; retries exhausted already
+        return new CloudControlPlaneException.C2Transient(
+            "C2 status-report failed after " + C2_MAX_ATTEMPTS + " attempts (code=" + code + ") — GC may be unreachable or overloaded", e);
+    }
+
     // ========== Helpers ==========
 
     /**
@@ -486,6 +613,7 @@ public final class CloudControlPlaneSdk {
         /** Cluster UUID — defaults to {@code System.getenv("CLUSTER_ID")}. */
         private String clusterId = System.getenv("CLUSTER_ID");
         private Duration jwksRefreshInterval = DEFAULT_JWKS_REFRESH;
+        private String sdkStaticToken;
 
         private Builder() {}
 
@@ -535,13 +663,24 @@ public final class CloudControlPlaneSdk {
             return this;
         }
 
+        /**
+         * Per-Cluster static SDK Bearer token for C2 status-report auth (ADR-0124 D3).
+         * Set on {@code Cluster.sdkStaticToken} at provisioning time.
+         * Required for {@link CloudControlPlaneSdk#reportStatus(...)}; leave null if you
+         * only use exchange / verifyJwt / verifyRequest.
+         */
+        public Builder sdkStaticToken(String sdkStaticToken) {
+            this.sdkStaticToken = sdkStaticToken;
+            return this;
+        }
+
         public CloudControlPlaneSdk build() {
             if (baseUrl == null || baseUrl.isBlank()) {
                 throw new IllegalArgumentException("baseUrl is required");
             }
             ExchangeApi exchangeApi = buildExchangeApi(baseUrl);
             JwksKeyCache jwksCache = buildJwksCache(baseUrl, jwksRefreshInterval);
-            return new CloudControlPlaneSdk(baseUrl, issuer, clusterIdentitySecret, clusterId, exchangeApi, jwksCache);
+            return new CloudControlPlaneSdk(baseUrl, issuer, clusterIdentitySecret, clusterId, sdkStaticToken, exchangeApi, jwksCache);
         }
 
         /**
