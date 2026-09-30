@@ -91,6 +91,9 @@ public class Cluster {
     @Schema(description = "Last accepted C2 nonce — used for replay protection (ADR-0124 D3)")
     private String lastC2Nonce;
 
+    @Schema(description = "Latest C2 status-report snapshot — full runtime health payload stored as embedded document, overwritten on every heartbeat")
+    private StatusReportRequest lastStatusReport;
+
     @Schema(description = "When Cluster transitioned to TERMINATED (resources cleaned up)")
     private Instant terminatedAt;
 

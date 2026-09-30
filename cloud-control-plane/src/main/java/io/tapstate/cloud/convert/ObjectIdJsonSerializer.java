@@ -1,15 +1,15 @@
 package io.tapstate.cloud.convert;
 
-import com.fasterxml.jackson.core.JsonGenerator;
-import com.fasterxml.jackson.databind.JsonSerializer;
-import com.fasterxml.jackson.databind.SerializerProvider;
 import org.bson.types.ObjectId;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.JsonGenerator;
+import tools.jackson.databind.SerializationContext;
+import tools.jackson.databind.ValueSerializer;
 
-import java.io.IOException;
+public class ObjectIdJsonSerializer extends ValueSerializer<ObjectId> {
 
-public class ObjectIdJsonSerializer extends JsonSerializer<ObjectId> {
     @Override
-    public void serialize(ObjectId value, JsonGenerator gen, SerializerProvider serializers) throws IOException {
+    public void serialize(ObjectId value, JsonGenerator gen, SerializationContext ctxt) throws JacksonException {
         if (value != null) {
             gen.writeString(value.toHexString());
         } else {

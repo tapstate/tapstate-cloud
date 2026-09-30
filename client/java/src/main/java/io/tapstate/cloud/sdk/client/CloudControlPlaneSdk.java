@@ -132,17 +132,6 @@ public final class CloudControlPlaneSdk {
         this.jwksCache = jwksCache;
     }
 
-    /**
-     * Package-private constructor for unit tests — inject all collaborators.
-     */
-    CloudControlPlaneSdk(String baseUrl, String issuer,
-                          String clusterId,
-                          ExchangeApi exchangeApi,
-                          JwksKeyCache jwksCache,
-                          @SuppressWarnings("unused") boolean testFlag) {
-        this(baseUrl, issuer, clusterId, null, exchangeApi, jwksCache);
-    }
-
     private static ExchangeApi buildExchangeApi(String baseUrl) {
         // Fresh ApiClient per instance — never mutate Configuration global singleton.
         ApiClient client = new ApiClient();
@@ -669,7 +658,7 @@ public final class CloudControlPlaneSdk {
          * Build an SDK with pre-injected collaborators — for unit tests only.
          */
         CloudControlPlaneSdk buildForTest(String clusterId, ExchangeApi exchangeApi, JwksKeyCache jwksCache) {
-            return new CloudControlPlaneSdk(baseUrl, issuer, clusterId, exchangeApi, jwksCache, true);
+            return new CloudControlPlaneSdk(baseUrl, issuer, clusterId, sdkStaticToken, exchangeApi, jwksCache);
         }
     }
 }
