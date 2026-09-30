@@ -190,8 +190,8 @@ public class SubscriptionController extends BaseController {
     ) {
         public static SubscriptionResponse from(Subscription s, List<SubscriptionItem> items) {
             return new SubscriptionResponse(
-                s.getId(),
-                s.getOrgId(),
+                s.getId() != null ? s.getId().toHexString() : null,
+                s.getOrgId() != null ? s.getOrgId().toHexString() : null,
                 s.getStatus().name(),
                 s.getCurrentPeriodStart(),
                 s.getCurrentPeriodEnd(),
@@ -214,7 +214,7 @@ public class SubscriptionController extends BaseController {
         public static ItemResponse from(SubscriptionItem item) {
             SubscriptionItemType t = item.getItemType();
             return new ItemResponse(
-                item.getId(),
+                item.getId() != null ? item.getId().toHexString() : null,
                 t.name(),
                 t.getDisplayName(),
                 t.getBillingUnit(),

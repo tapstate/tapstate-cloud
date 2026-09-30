@@ -310,7 +310,7 @@ public class AuthController extends BaseController {
     ) {
         public static UserResponse from(User user) {
             return new UserResponse(
-                user.getId(),
+                user.getId() != null ? user.getId().toHexString() : null,
                 user.getEmail(),
                 user.getDisplayName(),
                 user.getStatus(),

@@ -44,7 +44,7 @@ import java.util.Set;
  * <pre>
  * CloudControlPlaneSdk sdk = CloudControlPlaneSdk.builder()
  *     .baseUrl("https://cloud.tapstate.io")
- *     .clusterIdentitySecret(System.getenv("CLUSTER_IDENTITY_SECRET"))
+ *     .sdkStaticToken(System.getenv("SDK_STATIC_TOKEN"))
  *     // clusterId defaults to System.getenv("CLUSTER_ID") — set it explicitly if needed
  *     .build();
  *
@@ -91,9 +91,6 @@ public final class CloudControlPlaneSdk {
     /** Expected {@code iss} claim in resolve JWTs. */
     private final String issuer;
 
-    /** Per-Cluster service identity Secret (ADR-0125 D4). Null for verify-only SDKs. */
-    private final String clusterIdentitySecret;
-
     /**
      * Cluster UUID — read from environment variable {@code CLUSTER_ID} by default.
      * Used by {@link #exchangeForJwt(String)} and {@link #reportStatus(...)}; {@link #verifyJwt(String)} does NOT
@@ -105,7 +102,6 @@ public final class CloudControlPlaneSdk {
 
     /**
      * Per-Cluster static SDK Bearer token for C2 status-report auth (ADR-0124 D3).
-     * Different from {@link #clusterIdentitySecret} (which authenticates /exchange) —
      * this is the long-lived token on {@code Cluster.sdkStaticToken} set at provisioning time.
      * Null for SDKs that never call C2 (verify-only or exchange-only).
      */
@@ -125,13 +121,11 @@ public final class CloudControlPlaneSdk {
     // ========== Construction ==========
 
     private CloudControlPlaneSdk(String baseUrl, String issuer,
-                                  String clusterIdentitySecret, String clusterId,
-                                  String sdkStaticToken,
+                                  String clusterId, String sdkStaticToken,
                                   ExchangeApi exchangeApi,
                                   JwksKeyCache jwksCache) {
         this.baseUrl = baseUrl;
         this.issuer = issuer;
-        this.clusterIdentitySecret = clusterIdentitySecret;
         this.clusterId = clusterId;
         this.sdkStaticToken = sdkStaticToken;
         this.exchangeApi = exchangeApi;
@@ -142,11 +136,11 @@ public final class CloudControlPlaneSdk {
      * Package-private constructor for unit tests — inject all collaborators.
      */
     CloudControlPlaneSdk(String baseUrl, String issuer,
-                          String clusterIdentitySecret, String clusterId,
+                          String clusterId,
                           ExchangeApi exchangeApi,
                           JwksKeyCache jwksCache,
                           @SuppressWarnings("unused") boolean testFlag) {
-        this(baseUrl, issuer, clusterIdentitySecret, clusterId, null, exchangeApi, jwksCache);
+        this(baseUrl, issuer, clusterId, null, exchangeApi, jwksCache);
     }
 
     private static ExchangeApi buildExchangeApi(String baseUrl) {
@@ -195,10 +189,10 @@ public final class CloudControlPlaneSdk {
     public JwtExchangeResult exchangeForJwt(String exchangeCode)
             throws CloudControlPlaneException {
 
-        if (clusterIdentitySecret == null) {
+        if (sdkStaticToken == null) {
             throw new CloudControlPlaneException(
                 "sdk.not-configured", 0,
-                "CloudControlPlaneSdk has no clusterIdentitySecret configured — cannot call exchange");
+                "CloudControlPlaneSdk has no sdkStaticToken configured — cannot call exchange");
         }
         if (clusterId == null) {
             throw new CloudControlPlaneException(
@@ -218,7 +212,7 @@ public final class CloudControlPlaneSdk {
         ExchangeResponse data;
         try {
             // Generated ExchangeApi returns ApiResponseExchangeResponse envelope — unwrap .getData()
-            data = exchangeApi.exchange(request, clusterIdentitySecret, null).getData();
+            data = exchangeApi.exchange(request, sdkStaticToken, null).getData();
         } catch (ApiException apiEx) {
             handleApiException(apiEx);
             throw new AssertionError("handleApiException must always throw");
@@ -426,7 +420,6 @@ public final class CloudControlPlaneSdk {
      * workload auth path (Function 2).
      * <p>
      * Bounded retry: up to {@value #C2_MAX_ATTEMPTS} attempts with exponential backoff
-     * starting at {@value #C2_INITIAL_BACKOFF}ms, {@value #C2_BACKOFF_MULTIPLIER}x multiplier.
      * Only retries 5xx and connection-level failures; 4xx (401 token invalid, 403 cluster
      * mismatch, 409 nonce replay) are NOT retried — they would never succeed on retry.
      *
@@ -609,7 +602,6 @@ public final class CloudControlPlaneSdk {
     public static final class Builder {
         private String baseUrl;
         private String issuer = DEFAULT_ISSUER;
-        private String clusterIdentitySecret;
         /** Cluster UUID — defaults to {@code System.getenv("CLUSTER_ID")}. */
         private String clusterId = System.getenv("CLUSTER_ID");
         private Duration jwksRefreshInterval = DEFAULT_JWKS_REFRESH;
@@ -629,16 +621,6 @@ public final class CloudControlPlaneSdk {
          */
         public Builder issuer(String issuer) {
             this.issuer = issuer;
-            return this;
-        }
-
-        /**
-         * Per-Cluster service identity Secret (ADR-0125 D4).
-         * Required ONLY if you call {@code exchangeForJwt()}. For verify-only SDKs
-         * (e.g. Cluster Console backend that receives already-set cookies), leave null.
-         */
-        public Builder clusterIdentitySecret(String clusterIdentitySecret) {
-            this.clusterIdentitySecret = clusterIdentitySecret;
             return this;
         }
 
@@ -680,14 +662,14 @@ public final class CloudControlPlaneSdk {
             }
             ExchangeApi exchangeApi = buildExchangeApi(baseUrl);
             JwksKeyCache jwksCache = buildJwksCache(baseUrl, jwksRefreshInterval);
-            return new CloudControlPlaneSdk(baseUrl, issuer, clusterIdentitySecret, clusterId, sdkStaticToken, exchangeApi, jwksCache);
+            return new CloudControlPlaneSdk(baseUrl, issuer, clusterId, sdkStaticToken, exchangeApi, jwksCache);
         }
 
         /**
          * Build an SDK with pre-injected collaborators — for unit tests only.
          */
         CloudControlPlaneSdk buildForTest(String clusterId, ExchangeApi exchangeApi, JwksKeyCache jwksCache) {
-            return new CloudControlPlaneSdk(baseUrl, issuer, clusterIdentitySecret, clusterId, exchangeApi, jwksCache, true);
+            return new CloudControlPlaneSdk(baseUrl, issuer, clusterId, exchangeApi, jwksCache, true);
         }
     }
 }

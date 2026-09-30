@@ -63,9 +63,9 @@ class ExchangeOAuthIT extends BaseIT {
 
         waitForReady(orgId, clusterId);
 
-        // bootstrapToken = per-Cluster service identity secret
+        // sdkStaticToken = per-Cluster service identity secret (for exchange endpoint)
         Process p = new ProcessBuilder("mongosh", "--quiet", "--eval",
-            "db.clusters.findOne({_id: '" + clusterId + "'}, {bootstrapToken:1}).bootstrapToken",
+            "db.clusters.findOne({_id: ObjectId('" + clusterId + "')}, {sdkStaticToken:1}).sdkStaticToken",
             MONGO_DB)
             .redirectErrorStream(true).start();
         String bootstrapToken = new String(p.getInputStream().readAllBytes()).trim();

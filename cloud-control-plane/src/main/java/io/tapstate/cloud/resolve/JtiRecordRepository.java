@@ -6,12 +6,13 @@ import org.springframework.stereotype.Repository;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import org.bson.types.ObjectId;
 
 /**
  * Repository for {@link JtiRecord} — tracks issued resolve JWTs for revocation.
  */
 @Repository
-public interface JtiRecordRepository extends MongoRepository<JtiRecord, String> {
+public interface JtiRecordRepository extends MongoRepository<JtiRecord, ObjectId> {
 
     /** Find all active (non-revoked) JWT records for a user — REGARDLESS of JWT expiry.
      *  Cluster local sessions outlive the 15min JWT window (30min sliding idle → max ~24h),

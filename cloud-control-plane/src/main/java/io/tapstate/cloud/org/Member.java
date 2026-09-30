@@ -10,6 +10,7 @@ import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.Instant;
+import org.bson.types.ObjectId;
 
 /**
  * Organization member — tracks which users belong to which Organizations.
@@ -25,9 +26,9 @@ import java.time.Instant;
 public class Member {
 
     @Id
-    private String id;
+    private ObjectId id;
 
-    private String orgId;
+    private ObjectId orgId;
 
     private String userEmail;
 

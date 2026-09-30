@@ -120,7 +120,8 @@ public class ClusterController extends BaseController {
     ) {
         public static ClusterResponse from(Cluster c) {
             return new ClusterResponse(
-                c.getId(), c.getOrgId(), c.getRegion(), c.getName(), c.getSpecKey(),
+                c.getId() != null ? c.getId().toHexString() : null, c.getOrgId() != null ? c.getOrgId().toHexString() : null,
+                c.getRegion(), c.getName(), c.getSpecKey(),
                 c.getState(), c.getProvisionErrorCode(),
                 c.getRuntimeId(), c.getPublicDns(), c.getElasticIp(),
                 c.getLastHeartbeatAt() != null ? c.getLastHeartbeatAt().toString() : null,

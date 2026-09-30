@@ -11,6 +11,7 @@ import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.Instant;
+import org.bson.types.ObjectId;
 
 /**
  * Organization — isolation boundary for Clusters (ADR-0122 D3).
@@ -27,8 +28,8 @@ import java.time.Instant;
 public class Organization {
 
     @Id
-    @Schema(description = "Organization UUID")
-    private String id;
+    @Schema(description = "Organization ID")
+    private ObjectId id;
 
     @Schema(description = "Organization name", example = "Acme Corp")
     private String name;

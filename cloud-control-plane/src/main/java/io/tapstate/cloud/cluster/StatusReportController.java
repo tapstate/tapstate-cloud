@@ -88,7 +88,7 @@ public class StatusReportController extends BaseController {
         }
         String token = authHeader.substring(7).trim();
         Cluster cluster = clusterService.getBySdkToken(token);
-        if (!cluster.getId().equals(clusterId)) {
+        if (!cluster.getId().toHexString().equals(clusterId)) {
             // Token belongs to a DIFFERENT cluster than the path variable — reject
             log.warn("[C2] Token mismatch: path.clusterId={}, token.owns={}", clusterId, cluster.getId());
             throw new BusinessException(AppErrorCode.SDK_TOKEN_INVALID, HttpStatus.UNAUTHORIZED);

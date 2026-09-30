@@ -5,15 +5,16 @@ import org.springframework.stereotype.Repository;
 
 import java.util.List;
 import java.util.Optional;
+import org.bson.types.ObjectId;
 
 @Repository
-public interface MemberRepository extends MongoRepository<Member, String> {
+public interface MemberRepository extends MongoRepository<Member, ObjectId> {
 
-    List<Member> findByOrgId(String orgId);
+    List<Member> findByOrgId(ObjectId orgId);
 
     List<Member> findByUserEmail(String userEmail);
 
-    Optional<Member> findByOrgIdAndUserEmail(String orgId, String userEmail);
+    Optional<Member> findByOrgIdAndUserEmail(ObjectId orgId, String userEmail);
 
-    boolean existsByOrgIdAndUserEmail(String orgId, String userEmail);
+    boolean existsByOrgIdAndUserEmail(ObjectId orgId, String userEmail);
 }

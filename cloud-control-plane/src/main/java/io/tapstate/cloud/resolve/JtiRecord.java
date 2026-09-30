@@ -10,6 +10,7 @@ import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.Instant;
+import org.bson.types.ObjectId;
 
 /**
  * Tracks an issued resolve JWT for Cloud-side logout revocation (ADR-0125 D4).
@@ -32,7 +33,7 @@ import java.time.Instant;
 public class JtiRecord {
 
     @Id
-    private String id;
+    private ObjectId id;
 
     /** JWT jti claim — globally unique per token. */
     @Indexed(unique = true)
@@ -41,14 +42,14 @@ public class JtiRecord {
     /** User email who initiated the Cloud → Cluster handoff. */
     private String userEmail;
 
-    /** Stable user UUID (JWT claim "user_id"). */
-    private String userId;
+    /** Stable user ID (JWT claim "user_id"). */
+    private ObjectId userId;
 
-    /** Organization UUID. */
-    private String orgId;
+    /** Organization ID. */
+    private ObjectId orgId;
 
-    /** Cluster UUID the JWT is scoped to. */
-    private String clusterId;
+    /** Cluster ID the JWT is scoped to. */
+    private ObjectId clusterId;
 
     /** Cluster base URI for Cloud→Cluster revocation callback. */
     private String clusterBaseUri;

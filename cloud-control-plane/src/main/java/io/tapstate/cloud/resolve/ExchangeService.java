@@ -32,6 +32,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import org.bson.types.ObjectId;
 
 /**
  * Exchange-code lifecycle (ADR-0125).
@@ -115,14 +116,14 @@ public class ExchangeService {
             .orElseThrow(() -> new BusinessException(AppErrorCode.USER_NOT_FOUND, 404, userEmail));
 
         // Condition 2: user ∈ org
-        if (!memberRepo.existsByOrgIdAndUserEmail(orgId, userEmail)) {
+        if (!memberRepo.existsByOrgIdAndUserEmail(new ObjectId(orgId), userEmail)) {
             throw new BusinessException(AppErrorCode.ORG_NOT_MEMBER, 403, orgId);
         }
 
         // Condition 3: cluster exists + belongs to org
-        Cluster cluster = clusterRepo.findById(clusterId)
+        Cluster cluster = clusterRepo.findById(new ObjectId(clusterId))
             .orElseThrow(() -> new BusinessException(AppErrorCode.CLUSTER_NOT_FOUND, 404, clusterId));
-        if (!orgId.equals(cluster.getOrgId())) {
+        if (!new ObjectId(orgId).equals(cluster.getOrgId())) {
             throw new BusinessException(AppErrorCode.CLUSTER_ORG_MISMATCH, 400, clusterId, orgId);
         }
 
@@ -145,8 +146,8 @@ public class ExchangeService {
             .codeHash(codeHash)
             .userEmail(userEmail)
             .userId(user.getId())
-            .orgId(orgId)
-            .clusterId(clusterId)
+            .orgId(new ObjectId(orgId))
+            .clusterId(new ObjectId(clusterId))
             .targetOrigin(cluster.getPublicDns() != null
                 ? "https://" + cluster.getPublicDns()
                 : "http://localhost:30080") // Week 2 scaffold fallback
@@ -179,7 +180,7 @@ public class ExchangeService {
         Query query = Query.query(Criteria.where("codeHash").is(codeHash)
             .and("consumedAt").isNull()
             .and("expiresAt").gt(now)
-            .and("clusterId").is(expectedClusterId));
+            .and("clusterId").is(new ObjectId(expectedClusterId)));
         Update update = Update.update("consumedAt", now);
 
         ExchangeCode consumed = mongoTemplate.findAndModify(query, update, ExchangeCode.class);
@@ -193,7 +194,7 @@ public class ExchangeService {
                 throw new BusinessException(AppErrorCode.EXCHANGE_CODE_CONSUMED, 401);
             } else if (existing.getExpiresAt().isBefore(now)) {
                 throw new BusinessException(AppErrorCode.EXCHANGE_CODE_EXPIRED, 401);
-            } else if (!existing.getClusterId().equals(expectedClusterId)) {
+            } else if (!existing.getClusterId().equals(new ObjectId(expectedClusterId))) {
                 throw new BusinessException(AppErrorCode.EXCHANGE_CODE_CLUSTER_MISMATCH, 401);
             } else {
                 log.error("Exchange code validation failed unexpectedly for cluster={}", expectedClusterId);
@@ -223,9 +224,9 @@ public class ExchangeService {
             .issuer(issuer)
             .subject(consumed.getUserEmail())
             .audience().add(aud).and()
-            .claim("user_id", consumed.getUserId())
-            .claim("org_id", consumed.getOrgId())
-            .claim("cluster_id", consumed.getClusterId())
+            .claim("user_id", consumed.getUserId() != null ? consumed.getUserId().toHexString() : null)
+            .claim("org_id", consumed.getOrgId() != null ? consumed.getOrgId().toHexString() : null)
+            .claim("cluster_id", consumed.getClusterId() != null ? consumed.getClusterId().toHexString() : null)
             .claim("scope", List.of("workload:read", "workload:write"))
             .issuedAt(Date.from(now))
             .expiration(Date.from(jwtExp))
@@ -255,7 +256,10 @@ public class ExchangeService {
             .build());
 
         return new RedeemedExchange(jwt, jwtExp.toString(), jwtId,
-            consumed.getUserEmail(), consumed.getUserId(), consumed.getOrgId(), consumed.getClusterId());
+            consumed.getUserEmail(),
+            consumed.getUserId() != null ? consumed.getUserId().toHexString() : null,
+            consumed.getOrgId() != null ? consumed.getOrgId().toHexString() : null,
+            consumed.getClusterId() != null ? consumed.getClusterId().toHexString() : null);
     }
 
     // ========== Cluster service identity secret verification ==========
@@ -267,8 +271,8 @@ public class ExchangeService {
      * <ol>
      *   <li>In-memory config Map (populated from {@code tapstate.cloud.cluster-service-secrets}
      *       — useful for dev/IT with pre-known cluster ids)</li>
-     *   <li>Cluster.bootstrapToken from DB — every provisioned Cluster carries its own
-     *       service identity token set at creation time (week-2 scaffold, no k3s Secret yet)</li>
+     *   <li>Cluster.sdkStaticToken from DB — every provisioned Cluster carries its own
+     *       service identity token set at creation time</li>
      * </ol>
      */
     public boolean verifyClusterServiceSecret(String clusterId, String presentedSecret) {
@@ -277,9 +281,9 @@ public class ExchangeService {
         if (fromConfig != null && fromConfig.equals(presentedSecret)) {
             return true;
         }
-        // 2. Fall back to Cluster.bootstrapToken from DB — the per-Cluster identity secret
-        return clusterRepo.findById(clusterId)
-            .map(c -> presentedSecret != null && presentedSecret.equals(c.getBootstrapToken()))
+        // 2. Fall back to Cluster.sdkStaticToken from DB — the per-Cluster identity secret
+        return clusterRepo.findById(new ObjectId(clusterId))
+            .map(c -> presentedSecret != null && presentedSecret.equals(c.getSdkStaticToken()))
             .orElse(false);
     }
 
