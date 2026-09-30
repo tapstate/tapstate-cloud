@@ -86,12 +86,24 @@ jobs:
           echo "Computed ver:  ${VERSION}"
           echo "sdk_version=${VERSION}" >> $GITHUB_OUTPUT
 
-      - name: Set dynamic version and deploy SDK to Nexus
+      - name: Deploy parent POM + SDK to Nexus
         run: |
+          # 1. Bump version on ALL pom.xml at once (parent + children).
+          #    Parent pom must ship to Nexus too — SDK declares <parent>tapstate-cloud-parent</parent>,
+          #    consumers resolving io.tapstate:cloud-control-plane-sdk would fail without it.
           mvn versions:set \
             -DnewVersion=${{ steps.version.outputs.sdk_version }} \
             -DgenerateBackupPoms=false \
             -q
+          # 2. Parent POM only (-N = non-recursive, skips children).
+          #    Parent is pom packaging with dependencyManagement + pluginManagement only —
+          #    NO <dependencies> — so it adds zero runtime transitive deps for SDK consumers.
+          mvn -N deploy \
+            -Dmaven.test.skip=true \
+            -Dmaven.javadoc.skip=true \
+            -DskipSdkGeneration=true \
+            -B
+          # 3. SDK jar
           mvn -pl client/java deploy \
             -Dmaven.test.skip=true \
             -DskipSdkGeneration=true \
