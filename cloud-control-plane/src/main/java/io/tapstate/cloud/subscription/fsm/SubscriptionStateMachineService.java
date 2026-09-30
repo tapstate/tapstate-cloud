@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import org.bson.types.ObjectId;
 
 /**
  * Subscription state machine orchestrator — mirrors the Cluster FSM factory pattern
@@ -43,12 +44,12 @@ public class SubscriptionStateMachineService {
      * @param event          event to fire
      * @param operator       human / system identifier (for audit)
      */
-    public TransitionResult transition(String subscriptionId, SubscriptionEventType event, String operator) {
+    public TransitionResult transition(ObjectId subscriptionId, SubscriptionEventType event, String operator) {
         Subscription subscription = subscriptionRepository.findById(subscriptionId)
             .orElseThrow(() -> new IllegalStateException("Subscription not found: " + subscriptionId));
 
         StateMachine<SubscriptionStatus, SubscriptionEventType> sm =
-            subscriptionStateMachineFactory.getStateMachine("subscription-" + subscriptionId);
+            subscriptionStateMachineFactory.getStateMachine("subscription-" + subscriptionId.toHexString());
 
         sm.start();
         resetTo(sm, subscription.getStatus());

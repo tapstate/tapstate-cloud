@@ -9,6 +9,7 @@ import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.Instant;
+import org.bson.types.ObjectId;
 
 /**
  * MongoDB document for JWKS key material.
@@ -22,7 +23,7 @@ import java.time.Instant;
 public class JwksKey {
 
     @Id
-    private String id;
+    private ObjectId id;
 
     /** Key identifier (kid) for JWT verification */
     @Indexed(unique = true)

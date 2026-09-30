@@ -80,7 +80,7 @@ class SubscriptionFlowIT extends BaseIT {
 
     private JsonNode getMdbAllocationForCluster(String clusterId) throws Exception {
         Process p = new ProcessBuilder("mongosh", "--quiet", "--eval",
-            "const a = db.mdb_allocations.findOne({clusterId: '" + clusterId + "'}); print(JSON.stringify(a ? a : {}));",
+            "const a = db.mdb_allocations.findOne({clusterId: ObjectId('" + clusterId + "')}); print(JSON.stringify(a ? a : {}));",
             MONGO_DB).redirectErrorStream(true).start();
         p.waitFor();
         String out = new String(p.getInputStream().readAllBytes()).trim();
@@ -89,7 +89,7 @@ class SubscriptionFlowIT extends BaseIT {
 
     private String getMdbAllocationStatus(String clusterId) throws Exception {
         Process p = new ProcessBuilder("mongosh", "--quiet", "--eval",
-            "const a = db.mdb_allocations.findOne({clusterId: '" + clusterId + "'}); print(a ? a.status : 'NONE');",
+            "const a = db.mdb_allocations.findOne({clusterId: ObjectId('" + clusterId + "')}); print(a ? a.status : 'NONE');",
             MONGO_DB).redirectErrorStream(true).start();
         p.waitFor();
         return new String(p.getInputStream().readAllBytes()).trim();
@@ -97,7 +97,7 @@ class SubscriptionFlowIT extends BaseIT {
 
     private int countMdbAllocationsForCluster(String clusterId) throws Exception {
         Process p = new ProcessBuilder("mongosh", "--quiet", "--eval",
-            "db.mdb_allocations.countDocuments({clusterId: '" + clusterId + "'})",
+            "db.mdb_allocations.countDocuments({clusterId: ObjectId('" + clusterId + "')})",
             MONGO_DB).redirectErrorStream(true).start();
         p.waitFor();
         return Integer.parseInt(new String(p.getInputStream().readAllBytes()).trim().replaceAll("[^0-9]", ""));

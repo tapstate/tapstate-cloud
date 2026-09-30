@@ -519,9 +519,9 @@ paths:
 
         Caller: Cluster Server backend SDK (NOT browser).
 
-        Auth: Cluster must present its per-Cluster service identity Secret via
+        Auth: Cluster must present its per-Cluster sdkStaticToken via
           - Header X-Cluster-Identity-Secret (preferred), OR
-          - Header Authorization: Bearer <secret>
+          - Header Authorization: Bearer <sdkStaticToken>
 
         Atomic conditional write in one DB round-trip:
           UPDATE exchange_codes SET consumed_at = NOW()

@@ -4,11 +4,12 @@ import org.springframework.data.mongodb.repository.MongoRepository;
 
 import java.util.List;
 import java.util.Optional;
+import org.bson.types.ObjectId;
 
 /**
  * Spring Data MongoDB repository for JWKS key management.
  */
-public interface JwksKeyRepository extends MongoRepository<JwksKey, String> {
+public interface JwksKeyRepository extends MongoRepository<JwksKey, ObjectId> {
 
     /**
      * Find the most recently created active key.

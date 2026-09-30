@@ -12,6 +12,7 @@ import org.springframework.data.mongodb.core.index.CompoundIndex;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.Instant;
+import org.bson.types.ObjectId;
 
 /**
  * Cluster record — per-user-isolated runtime EC2 + Docker instance.
@@ -31,11 +32,11 @@ import java.time.Instant;
 public class Cluster {
 
     @Id
-    @Schema(description = "Cluster UUID")
-    private String id;
+    @Schema(description = "Cluster ObjectId")
+    private ObjectId id;
 
-    @Schema(description = "Organization this Cluster belongs to (isolation boundary)", example = "org-42c1")
-    private String orgId;
+    @Schema(description = "Organization this Cluster belongs to (isolation boundary)", example = "6475a2b3c1d4e5f6a7b8c9d0")
+    private ObjectId orgId;
 
     @Schema(description = "AWS Region", example = "ap-southeast-1")
     private String region;

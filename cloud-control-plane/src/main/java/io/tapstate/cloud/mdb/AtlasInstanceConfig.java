@@ -12,6 +12,7 @@ import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.Instant;
+import org.bson.types.ObjectId;
 
 /**
  * Admin-configured Atlas instance — a pre-provisioned MongoDB Atlas cluster
@@ -40,8 +41,8 @@ import java.time.Instant;
 public class AtlasInstanceConfig {
 
     @Id
-    @Schema(description = "Config UUID")
-    private String id;
+    @Schema(description = "Config ID")
+    private ObjectId id;
 
     /** Atlas Project ID — the group that owns this cluster. */
     @Schema(description = "Atlas Project ID")

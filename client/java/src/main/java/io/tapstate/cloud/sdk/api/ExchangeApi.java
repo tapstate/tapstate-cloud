@@ -31,7 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.StringJoiner;
 
-@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-29T19:11:22.561011+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
+@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", comments = "Generator version: 7.25.0")
 public class ExchangeApi extends BaseApi {
 
   public ExchangeApi() {
@@ -44,7 +44,7 @@ public class ExchangeApi extends BaseApi {
 
   /**
    * Exchange exchange_code for resolve JWT (back-channel)
-   * Step 2 of the Cloud Console → Cluster Console session handoff (ADR-0125).  Caller: Cluster Server backend SDK (NOT browser).  Auth: Cluster must present its per-Cluster service identity Secret via   - Header X-Cluster-Identity-Secret (preferred), OR   - Header Authorization: Bearer &lt;secret&gt;  Atomic conditional write in one DB round-trip:   UPDATE exchange_codes SET consumed_at &#x3D; NOW()   WHERE code_hash &#x3D; sha256(exchange_code)   AND consumed_at IS NULL   AND expires_at &gt; NOW()   AND cluster_id &#x3D; ?  On success: signs resolve JWT (RS256, 15min) with claims: sub&#x3D;user_email, org_id, cluster_id, scope&#x3D;workload. On failure: returns 401 with domain error code.
+   * Step 2 of the Cloud Console → Cluster Console session handoff (ADR-0125).  Caller: Cluster Server backend SDK (NOT browser).  Auth: Cluster must present its per-Cluster sdkStaticToken via   - Header X-Cluster-Identity-Secret (preferred), OR   - Header Authorization: Bearer &lt;sdkStaticToken&gt;  Atomic conditional write in one DB round-trip:   UPDATE exchange_codes SET consumed_at &#x3D; NOW()   WHERE code_hash &#x3D; sha256(exchange_code)   AND consumed_at IS NULL   AND expires_at &gt; NOW()   AND cluster_id &#x3D; ?  On success: signs resolve JWT (RS256, 15min) with claims: sub&#x3D;user_email, org_id, cluster_id, scope&#x3D;workload. On failure: returns 401 with domain error code.
    * @param exchangeRequest  (required)
    * @param xClusterIdentitySecret  (optional)
    * @param authorization  (optional)
@@ -58,7 +58,7 @@ public class ExchangeApi extends BaseApi {
 
   /**
    * Exchange exchange_code for resolve JWT (back-channel)
-   * Step 2 of the Cloud Console → Cluster Console session handoff (ADR-0125).  Caller: Cluster Server backend SDK (NOT browser).  Auth: Cluster must present its per-Cluster service identity Secret via   - Header X-Cluster-Identity-Secret (preferred), OR   - Header Authorization: Bearer &lt;secret&gt;  Atomic conditional write in one DB round-trip:   UPDATE exchange_codes SET consumed_at &#x3D; NOW()   WHERE code_hash &#x3D; sha256(exchange_code)   AND consumed_at IS NULL   AND expires_at &gt; NOW()   AND cluster_id &#x3D; ?  On success: signs resolve JWT (RS256, 15min) with claims: sub&#x3D;user_email, org_id, cluster_id, scope&#x3D;workload. On failure: returns 401 with domain error code.
+   * Step 2 of the Cloud Console → Cluster Console session handoff (ADR-0125).  Caller: Cluster Server backend SDK (NOT browser).  Auth: Cluster must present its per-Cluster sdkStaticToken via   - Header X-Cluster-Identity-Secret (preferred), OR   - Header Authorization: Bearer &lt;sdkStaticToken&gt;  Atomic conditional write in one DB round-trip:   UPDATE exchange_codes SET consumed_at &#x3D; NOW()   WHERE code_hash &#x3D; sha256(exchange_code)   AND consumed_at IS NULL   AND expires_at &gt; NOW()   AND cluster_id &#x3D; ?  On success: signs resolve JWT (RS256, 15min) with claims: sub&#x3D;user_email, org_id, cluster_id, scope&#x3D;workload. On failure: returns 401 with domain error code.
    * @param exchangeRequest  (required)
    * @param xClusterIdentitySecret  (optional)
    * @param authorization  (optional)

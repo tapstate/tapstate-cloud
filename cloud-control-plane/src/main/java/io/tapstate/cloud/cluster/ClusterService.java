@@ -19,6 +19,7 @@ import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
+import org.bson.types.ObjectId;
 
 /**
  * Cluster service — create, list, retry, status-report, lifecycle transitions.
@@ -71,19 +72,17 @@ public class ClusterService {
      */
     @Transactional
     public Cluster createCluster(String orgId, String region, String name, String specKey, String creatorEmail) {
-        if (!memberRepository.existsByOrgIdAndUserEmail(orgId, creatorEmail)) {
+        if (!memberRepository.existsByOrgIdAndUserEmail(new ObjectId(orgId), creatorEmail)) {
             throw new BusinessException(AppErrorCode.ORG_NOT_MEMBER, 403, orgId);
         }
         regionService.getByCode(region);
-        if (clusterRepository.existsByOrgIdAndRegionAndName(orgId, region, name)) {
+        if (clusterRepository.existsByOrgIdAndRegionAndName(new ObjectId(orgId), region, name)) {
             throw new BusinessException(AppErrorCode.CLUSTER_ALREADY_EXISTS, 409, name, orgId, region);
         }
 
         // ---- Cluster record ----
-        String clusterId = generateId("cluster-");
         Cluster cluster = Cluster.builder()
-            .id(clusterId)
-            .orgId(orgId)
+            .orgId(new ObjectId(orgId))
             .region(region)
             .name(name)
             .specKey(specKey != null ? specKey : "basic")
@@ -97,7 +96,7 @@ public class ClusterService {
             .build();
 
         Cluster saved = clusterRepository.save(cluster);
-        saved.getTags().put("cluster_id", saved.getId());
+        saved.getTags().put("cluster_id", saved.getId().toHexString());
         saved.getTags().put("runtime_id", saved.getRuntimeId());
         saved = clusterRepository.save(saved);
 
@@ -105,7 +104,7 @@ public class ClusterService {
         clusterStateMachineService.transition(saved.getId(),
             ClusterEventType.START_PROVISION, "subscription:" + creatorEmail);
 
-        log.info("Cluster created: {} (sm transition START_PROVISION fired)", saved.getId());
+        log.info("Cluster created: {} (sm transition START_PROVISION fired)", saved.getId().toHexString());
         return saved;
     }
 
@@ -116,9 +115,9 @@ public class ClusterService {
      * succeeds so the Cluster runtime can resolve its Atlas DB credentials via the allocation.
      */
     @Transactional
-    public void updateMdbAllocationId(String clusterId, String allocationId) {
+    public void updateMdbAllocationId(ObjectId clusterId, ObjectId allocationId) {
         clusterRepository.findById(clusterId).ifPresent(cluster -> {
-            cluster.setMdbAllocationId(allocationId);
+            cluster.setMdbAllocationId(allocationId.toHexString());
             clusterRepository.save(cluster);
         });
     }
@@ -126,17 +125,17 @@ public class ClusterService {
     // ========== List / Get ==========
 
     public List<Cluster> listOrgClusters(String orgId, String userEmail) {
-        if (!memberRepository.existsByOrgIdAndUserEmail(orgId, userEmail)) {
+        if (!memberRepository.existsByOrgIdAndUserEmail(new ObjectId(orgId), userEmail)) {
             throw new BusinessException(AppErrorCode.ORG_NOT_MEMBER, 403, orgId);
         }
-        return clusterRepository.findByOrgId(orgId);
+        return clusterRepository.findByOrgId(new ObjectId(orgId));
     }
 
     public Cluster getCluster(String clusterId, String orgId, String userEmail) {
-        if (!memberRepository.existsByOrgIdAndUserEmail(orgId, userEmail)) {
+        if (!memberRepository.existsByOrgIdAndUserEmail(new ObjectId(orgId), userEmail)) {
             throw new BusinessException(AppErrorCode.ORG_NOT_MEMBER, 403, orgId);
         }
-        return clusterRepository.findByIdAndOrgId(clusterId, orgId)
+        return clusterRepository.findByIdAndOrgId(new ObjectId(clusterId), new ObjectId(orgId))
             .orElseThrow(() -> new BusinessException(AppErrorCode.CLUSTER_NOT_FOUND, 404, clusterId));
     }
 
@@ -171,9 +170,9 @@ public class ClusterService {
         cluster.setUpdatedAt(Instant.now());
         cluster = clusterRepository.save(cluster);
 
-        clusterStateMachineService.transition(clusterId, ClusterEventType.RETRY, "gc:" + userEmail);
+        clusterStateMachineService.transition(new ObjectId(clusterId), ClusterEventType.RETRY, "gc:" + userEmail);
 
-        return clusterRepository.findById(clusterId).orElse(cluster);
+        return clusterRepository.findById(new ObjectId(clusterId)).orElse(cluster);
     }
 
     // ========== Cascade termination (called by SubscriptionCancelListener) ==========
@@ -190,7 +189,7 @@ public class ClusterService {
      */
     @Transactional
     public Cluster terminateCluster(String clusterId, String orgId) {
-        Cluster cluster = clusterRepository.findByIdAndOrgId(clusterId, orgId)
+        Cluster cluster = clusterRepository.findByIdAndOrgId(new ObjectId(clusterId), new ObjectId(orgId))
             .orElseThrow(() -> new BusinessException(AppErrorCode.CLUSTER_NOT_FOUND, 404, clusterId));
 
         ClusterState state = cluster.getState();
@@ -205,10 +204,10 @@ public class ClusterService {
             return cluster;
         }
 
-        clusterStateMachineService.transition(clusterId, ClusterEventType.INITIATE_TERMINATION,
+        clusterStateMachineService.transition(new ObjectId(clusterId), ClusterEventType.INITIATE_TERMINATION,
             "subscription-cascade");
 
-        return clusterRepository.findById(clusterId).orElse(cluster);
+        return clusterRepository.findById(new ObjectId(clusterId)).orElse(cluster);
     }
 
     // ========== C2 Status Report — runtime → GC heartbeat + metrics ==========
@@ -222,7 +221,7 @@ public class ClusterService {
      */
     @Transactional
     public void recordStatusReport(String clusterId, String nonce) {
-        Cluster cluster = clusterRepository.findById(clusterId)
+        Cluster cluster = clusterRepository.findById(new ObjectId(clusterId))
             .orElseThrow(() -> new BusinessException(AppErrorCode.CLUSTER_NOT_FOUND, 404, clusterId));
 
         ClusterState prevState = cluster.getState();
@@ -239,7 +238,7 @@ public class ClusterService {
 
         // If previously DEGRADED, fire HEARTBEAT_RECOVERY → state machine moves DEGRADED → READY.
         if (prevState == ClusterState.DEGRADED) {
-            clusterStateMachineService.transition(clusterId, ClusterEventType.HEARTBEAT_RECOVERY, "runtime:c2-heartbeat");
+            clusterStateMachineService.transition(new ObjectId(clusterId), ClusterEventType.HEARTBEAT_RECOVERY, "runtime:c2-heartbeat");
         }
     }
 
@@ -272,7 +271,7 @@ public class ClusterService {
      * cascade (Subscription → CANCELLED → terminate all clusters under that org).
      */
     public List<Cluster> findByOrgId(String orgId) {
-        return clusterRepository.findByOrgId(orgId);
+        return clusterRepository.findByOrgId(new ObjectId(orgId));
     }
 
     private String generateId(String prefix) {

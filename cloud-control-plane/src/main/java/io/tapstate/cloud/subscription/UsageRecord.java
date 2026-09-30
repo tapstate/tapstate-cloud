@@ -10,6 +10,7 @@ import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.Instant;
 import java.util.UUID;
+import org.bson.types.ObjectId;
 
 /**
  * Billing usage record — raw meter data for subscription items.
@@ -34,11 +35,11 @@ public class UsageRecord {
     @Id
     private String id;
 
-    /** Parent subscription item UUID (foreign key to subscription_items.id). */
-    private String subscriptionItemId;
+    /** Parent subscription item ID (foreign key to subscription_items.id). */
+    private ObjectId subscriptionItemId;
 
-    /** Owning Organization UUID (denormalized for fast queries). */
-    private String orgId;
+    /** Owning Organization ID (denormalized for fast queries). */
+    private ObjectId orgId;
 
     /** Subscription item type (denormalized — enum name, e.g. CLUSTER_PIPELINE_RUNTIME). */
     private String itemType;

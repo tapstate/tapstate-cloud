@@ -7,19 +7,20 @@ import org.springframework.stereotype.Repository;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import org.bson.types.ObjectId;
 
 @Repository
-public interface ClusterRepository extends MongoRepository<Cluster, String> {
+public interface ClusterRepository extends MongoRepository<Cluster, ObjectId> {
 
-    List<Cluster> findByOrgId(String orgId);
+    List<Cluster> findByOrgId(ObjectId orgId);
 
-    List<Cluster> findByOrgIdAndRegion(String orgId, String region);
+    List<Cluster> findByOrgIdAndRegion(ObjectId orgId, String region);
 
-    List<Cluster> findByOrgIdAndState(String orgId, ClusterState state);
+    List<Cluster> findByOrgIdAndState(ObjectId orgId, ClusterState state);
 
-    Optional<Cluster> findByIdAndOrgId(String id, String orgId);
+    Optional<Cluster> findByIdAndOrgId(ObjectId id, ObjectId orgId);
 
-    boolean existsByOrgIdAndRegionAndName(String orgId, String region, String name);
+    boolean existsByOrgIdAndRegionAndName(ObjectId orgId, String region, String name);
 
     /**
      * Find READY clusters whose last heartbeat was more than 5 minutes ago.

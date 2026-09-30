@@ -10,6 +10,7 @@ import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.Instant;
+import org.bson.types.ObjectId;
 
 /**
  * One-time exchange code — MongoDB document stores ONLY the SHA-256 hash,
@@ -28,7 +29,7 @@ import java.time.Instant;
 public class ExchangeCode {
 
     @Id
-    private String id;
+    private ObjectId id;
 
     /** SHA-256 hex digest of the raw exchange code — the raw value NEVER enters the DB. */
     @Indexed(unique = true)
@@ -37,14 +38,14 @@ public class ExchangeCode {
     /** User who requested the Cluster Console handoff (from valid Cloud session). */
     private String userEmail;
 
-    /** Stable user ID (UUID) — added to resolve JWT as claim "user_id" (Issue #5 item 1). */
-    private String userId;
+    /** Stable user ID — added to resolve JWT as claim "user_id" (Issue #5 item 1). */
+    private ObjectId userId;
 
     /** Organization the user belongs to. */
-    private String orgId;
+    private ObjectId orgId;
 
     /** Target Cluster — resolution bound to this Cluster's existence and ready state. */
-    private String clusterId;
+    private ObjectId clusterId;
 
     /** Cluster origin the browser will be redirected to (e.g. https://cluster-a.tapstate.io). */
     private String targetOrigin;

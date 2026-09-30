@@ -12,6 +12,7 @@ import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.Instant;
+import org.bson.types.ObjectId;
 
 /**
  * Global Control Plane user — email/password authentication (ADR-0122 D1).
@@ -30,8 +31,8 @@ import java.time.Instant;
 public class User {
 
     @Id
-    @Schema(description = "User UUID")
-    private String id;
+    @Schema(description = "User ID")
+    private ObjectId id;
 
     @Indexed(unique = true)
     @Schema(description = "Email address (unique login identifier)", example = "alice@tapstate.io")

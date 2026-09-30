@@ -194,7 +194,7 @@ public abstract class BaseIT {
                 //   system.indexes — internal MongoDB
                 // After dropping, reset currentCustomers on preserved Atlas instances
                 //   so each IT test starts with a clean capacity count.
-                "const keep = new Set(['sessions','regions','atlas_instance_configs','system.indexes']);" +
+                "const keep = new Set(['sessions','regions','atlas_instance_configs','jwks_keys','system.indexes']);" +
                 "db.getCollectionNames().filter(c => !keep.has(c)).forEach(c => db.getCollection(c).drop());" +
                 "db.atlas_instance_configs.updateMany({}, {$set: {currentCustomers: 0, updatedAt: new Date()}});" +
                 "db.atlas_instance_configs.find().forEach(c => print(' [wipe] Atlas instance ' + c._id + ' capacity reset ' + c.currentCustomers + '/' + c.maxCustomers));",

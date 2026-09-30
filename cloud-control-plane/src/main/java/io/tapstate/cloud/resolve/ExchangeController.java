@@ -24,15 +24,15 @@ import org.springframework.web.bind.annotation.*;
  * <ol>
  *   <li>Browser: GET {base_uri}/auth/exchange?code={exchange_code} → Cluster Server</li>
  *   <li>Cluster Server backend: POST /v1/api/auth/exchange → this endpoint (carrying both
- *       the raw exchange_code AND the Cluster's own service identity Secret)</li>
- *   <li>GC verifies: Secret matches + code unconsumed + unexpired + cluster_id bound
+ *       the raw exchange_code AND the Cluster's own sdkStaticToken)</li>
+ *   <li>GC verifies: sdkStaticToken matches + code unconsumed + unexpired + cluster_id bound
  *       → atomic conditional write consumes code → signs resolve JWT (RS256, 15min)</li>
  *   <li>GC returns JWT to Cluster Server → Cluster Server establishes HttpOnly Cookie
  *       for the browser; JWT never appears in browser traffic (back-channel only).</li>
  * </ol>
  * <p>
- * Security: Cluster service identity Secret is per-Cluster (k3s Secret isolation) —
- * only the owning Cluster Server can redeem its exchange_codes (ADR-0125 D4).
+ * Security: Cluster sdkStaticToken is per-Cluster — only the owning Cluster Server
+ * can redeem its exchange_codes (ADR-0125 D4).
  */
 @RestController
 @RequestMapping("/v1/api/auth")
@@ -47,21 +47,21 @@ public class ExchangeController extends BaseController {
     /**
      * Redeem an exchange_code for a resolve JWT (back-channel only).
      * <p>
-     * Caller must present its per-Cluster service identity Secret via
+     * Caller must present its per-Cluster sdkStaticToken via
      * {@code X-Cluster-Identity-Secret} header (or {@code Authorization: Bearer}
      * — Week 2 accepts both for testing convenience).
      *
      * @param request  exchange_code + cluster_id
-     * @param identitySecret  per-Cluster service identity Secret (header)
+     * @param identitySecret  per-Cluster sdkStaticToken (header)
      */
     @PostMapping("/exchange")
     @Operation(
         summary = "Exchange exchange_code for resolve JWT (back-channel)",
         description = "Step 2 of the Cloud Console → Cluster Console session handoff (ADR-0125).\n\n" +
                       "Caller: Cluster Server backend SDK (NOT browser).\n\n" +
-                      "Auth: Cluster must present its per-Cluster service identity Secret via\n" +
+                      "Auth: Cluster must present its per-Cluster sdkStaticToken via\n" +
                       "  - Header X-Cluster-Identity-Secret (preferred), OR\n" +
-                      "  - Header Authorization: Bearer <secret>\n\n" +
+                      "  - Header Authorization: Bearer <sdkStaticToken>\n\n" +
                       "Atomic conditional write in one DB round-trip:\n" +
                       "  UPDATE exchange_codes SET consumed_at = NOW()\n" +
                       "  WHERE code_hash = sha256(exchange_code)\n" +

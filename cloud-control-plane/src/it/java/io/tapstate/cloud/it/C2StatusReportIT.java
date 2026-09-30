@@ -79,7 +79,7 @@ class C2StatusReportIT extends BaseIT {
 
         // Fetch sdkStaticToken from Mongo — response DTO intentionally hides it
         Process p = new ProcessBuilder("mongosh", "--quiet", "--eval",
-            "db.clusters.findOne({_id: '" + clusterId + "'}, {sdkStaticToken:1}).sdkStaticToken",
+            "db.clusters.findOne({_id: ObjectId('" + clusterId + "')}, {sdkStaticToken:1}).sdkStaticToken",
             MONGO_DB)
             .redirectErrorStream(true).start();
         String token = new String(p.getInputStream().readAllBytes()).trim();

@@ -33,7 +33,7 @@ import java.util.StringJoiner;
   LoginRequest.JSON_PROPERTY_EMAIL,
   LoginRequest.JSON_PROPERTY_PASSWORD
 })
-@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-29T19:11:22.561011+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
+@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", comments = "Generator version: 7.25.0")
 public class LoginRequest {
   public static final String JSON_PROPERTY_EMAIL = "email";
   @jakarta.annotation.Nonnull
