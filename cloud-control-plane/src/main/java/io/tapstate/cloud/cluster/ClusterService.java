@@ -49,6 +49,7 @@ import org.bson.types.ObjectId;
 public class ClusterService {
 
     private final ClusterRepository clusterRepository;
+    private final ClusterStatusReportHistoryRepository historyRepository;
     private final MemberRepository memberRepository;
     private final RegionService regionService;
     private final ClusterStateMachineService clusterStateMachineService;
@@ -216,27 +217,56 @@ public class ClusterService {
      * Accept C2 status report from the runtime SDK.
      * <p>
      * Enforces nonce replay protection (same nonce twice → 409 auth.nonce-replay),
-     * updates heartbeat timestamp, and auto-recovers DEGRADED clusters via the
-     * state-machine HEARTBEAT_RECOVERY event.
+     * updates heartbeat timestamp, stores the full request as an embedded snapshot
+     * on {@link Cluster#getLastStatusReport()}, appends a full history record to the
+     * {@code cluster_status_report_history} time-series collection, and auto-recovers
+     * DEGRADED clusters via the state-machine HEARTBEAT_RECOVERY event.
+     * <p>
+     * Storage dual-write:
+     * <ul>
+     *   <li>{@code Cluster.lastStatusReport} — latest-only embedded document, serves as
+     *       the fleet console's "current status" snapshot</li>
+     *   <li>{@code cluster_status_report_history} — time-series collection, keeps every
+     *       report ever accepted, for trend/diagnostics/audit</li>
+     * </ul>
+     * Both writes are inside the same {@code @Transactional} — MongoDB 5.0+ supports
+     * inserting into time-series collections inside multi-doc transactions.
      */
     @Transactional
-    public void recordStatusReport(String clusterId, String nonce) {
+    public void recordStatusReport(String clusterId, StatusReportRequest request) {
         Cluster cluster = clusterRepository.findById(new ObjectId(clusterId))
             .orElseThrow(() -> new BusinessException(AppErrorCode.CLUSTER_NOT_FOUND, 404, clusterId));
 
         ClusterState prevState = cluster.getState();
+
+        String nonce = request.getNonce();
 
         // Nonce replay guard — Cluster.lastC2Nonce stores the previously accepted nonce
         if (nonce != null && nonce.equals(cluster.getLastC2Nonce())) {
             throw new BusinessException(AppErrorCode.NONCE_REPLAY, 409);
         }
 
-        // Always update heartbeat + nonce (even for DEGRADED recovery)
-        cluster.setLastHeartbeatAt(Instant.now());
+        Instant now = Instant.now();
+
+        // --- 1. Update Cluster document — latest-only snapshot ---
+        cluster.setLastHeartbeatAt(now);
         cluster.setLastC2Nonce(nonce);
+        cluster.setLastStatusReport(request);
         clusterRepository.save(cluster);
 
-        // If previously DEGRADED, fire HEARTBEAT_RECOVERY → state machine moves DEGRADED → READY.
+        // --- 2. Append to time-series history — every report preserved forever ---
+        ClusterStatusReportHistory history = ClusterStatusReportHistory.builder()
+            .clusterId(clusterId)
+            .timestamp(now)
+            .nonce(request.getNonce())
+            .runtimeVersion(request.getRuntimeVersion())
+            .uptimeMs(request.getUptimeMs())
+            .activePipelines(request.getActivePipelines())
+            .lastErrorAt(request.getLastErrorAt())
+            .build();
+        historyRepository.save(history);
+
+        // --- 3. State-machine recovery ---
         if (prevState == ClusterState.DEGRADED) {
             clusterStateMachineService.transition(new ObjectId(clusterId), ClusterEventType.HEARTBEAT_RECOVERY, "runtime:c2-heartbeat");
         }

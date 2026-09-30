@@ -1,5 +1,8 @@
 package io.tapstate.cloud.config;
 
+import com.mongodb.client.model.CreateCollectionOptions;
+import com.mongodb.client.model.TimeSeriesGranularity;
+import com.mongodb.client.model.TimeSeriesOptions;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.ApplicationListener;
@@ -21,6 +24,9 @@ import org.springframework.stereotype.Component;
  *   <li>Idempotently resolves and applies Spring Data index annotations
  *       ({@code @Indexed}, {@code @CompoundIndex}, {@code @TextIndexed})</li>
  *   <li>Ensures every entity's collection exists (create if missing, no-op otherwise)</li>
+ *   <li>Explicitly creates time-series collections with {@code createCollection +
+ *       timeseries} options — these CANNOT be created via plain {@code createCollection}
+ *       and MUST be initialized before any write happens</li>
  * </ol>
  * <p>
  * Spring Data MongoDB auto-creates indexes by default, but explicit application here
@@ -35,7 +41,41 @@ public class MongoInitListener implements ApplicationListener<ApplicationReadyEv
 
     @Override
     public void onApplicationEvent(ApplicationReadyEvent event) {
+        ensureTimeSeriesCollections(event);
         ensureIndexes(event);
+    }
+
+    /**
+     * Create MongoDB time-series collections explicitly.
+     * <p>
+     * These cannot be created via the plain {@code createCollection} call below —
+     * they require {@code db.createCollection(name, { timeseries: {...} })}.
+     * Guarded by {@code collectionExists} to be idempotent on restarts.
+     */
+    private void ensureTimeSeriesCollections(ApplicationReadyEvent event) {
+        MongoTemplate mongoTemplate = event.getApplicationContext().getBean(MongoTemplate.class);
+
+        createTimeSeriesIfMissing(mongoTemplate, "cluster_status_report_history",
+            "timestamp", "clusterId", TimeSeriesGranularity.SECONDS);
+    }
+
+    private void createTimeSeriesIfMissing(MongoTemplate mongoTemplate, String collectionName,
+                                            String timeField, String metaField,
+                                            TimeSeriesGranularity granularity) {
+        if (mongoTemplate.collectionExists(collectionName)) {
+            log.debug("[Mongo Init] time-series collection '{}' already exists — skip", collectionName);
+            return;
+        }
+
+        TimeSeriesOptions tsOptions = new TimeSeriesOptions(timeField)
+            .metaField(metaField)
+            .granularity(granularity);
+
+        CreateCollectionOptions options = new CreateCollectionOptions().timeSeriesOptions(tsOptions);
+
+        mongoTemplate.getDb().createCollection(collectionName, options);
+        log.info("[Mongo Init] Created time-series collection '{}' (timeField={}, metaField={}, granularity={})",
+            collectionName, timeField, metaField, granularity);
     }
 
     private void ensureIndexes(ApplicationReadyEvent event) {
@@ -58,9 +98,9 @@ public class MongoInitListener implements ApplicationListener<ApplicationReadyEv
                     continue;
                 }
 
-                // Ensure collection exists first (idempotent — createCollection is a no-op if present)
-                mongoTemplate.getCollectionName(entity); // triggers auto-collection-name resolution
-                if (!mongoTemplate.collectionExists(entity)) {
+                // Time-series collections are created above — skip plain createCollection here
+                String collectionName = mongoTemplate.getCollectionName(entity);
+                if (!mongoTemplate.collectionExists(collectionName)) {
                     mongoTemplate.createCollection(entity);
                     log.debug("[Mongo Init] Created collection for {}", entity.getSimpleName());
                 }

@@ -31,7 +31,6 @@
     <api.base.url>http://localhost:8080</api.base.url>
     <!-- Local OpenAPI spec path (also checked-in source of truth; overwritten on live download success) -->
     <openapi.input.spec>${project.basedir}/../api/openapi.yaml</openapi.input.spec>
-    <maven.test.skip>true</maven.test.skip>
   </properties>
 
   <dependencies>
