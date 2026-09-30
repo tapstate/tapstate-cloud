@@ -205,7 +205,7 @@ public class ExchangeService {
         // Issue resolve JWT — claims per ADR-0122 D4 + Issue #5 item 1 (user_id)
         String jwtId = UUID.randomUUID().toString();
         Instant jwtExp = now.plus(jwtExpiryMinutes, ChronoUnit.MINUTES);
-        String aud = consumed.getClusterId() + ".api.tapstate.io";
+        String aud = consumed.getClusterId() + ".dev.cloud.tapstate.com";
 
         // Live-read the CURRENT active signing key from MongoDB — rotation-aware:
         // if JwksRotationService rotated since this service bean was built, the new

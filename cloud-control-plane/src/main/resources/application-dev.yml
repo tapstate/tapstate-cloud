@@ -16,7 +16,7 @@ spring:
 tapstate:
   cloud:
     # Dev: issuer points to localhost
-    issuer: http://localhost:8080
+    issuer: https://dev.cloud.tapstate.com
     # JWKS signing key — leave empty for dev (auto-generated in-memory)
     jwks-signing-key: ""
 

@@ -8,7 +8,7 @@ import java.time.Duration;
  */
 public class Example {
 
-    public void example() throws CloudControlPlaneException {
+    public void example() throws CloudControlPlaneException, JwtVerificationException {
         CloudControlPlaneSdk sdk = CloudControlPlaneSdk.builder()
                 .baseUrl("https://dev.cloud.tapstate.com")          // required
                 .issuer("https://dev.cloud.tapstate.com")           // default — GC's signer; change if self-hosted
@@ -16,11 +16,13 @@ public class Example {
                 .sdkStaticToken("f93632c15aca3d5cb090514b02bc71c51a4462ae7718145877ddc0e59efff3a2")
                 .jwksRefreshInterval(Duration.ofMinutes(10))   // default — 10 min (ADR-0125 D6)
                 .build();
-        JwtExchangeResult jwt = sdk.exchangeForJwt("D-OG7J41zMztwzFBlYQTVNjLVJ77RlfaPF-f5XgxsaU");
+        JwtExchangeResult jwt = sdk.exchangeForJwt("br3clq3GNu-pFYcKmtLzB7z9HUqugWtqUnG8K02GDek");
         System.out.println(jwt);
+
+        sdk.verifyJwt(jwt.jwt());
     }
 
-    public static void main(String[] args) throws CloudControlPlaneException {
+    public static void main(String[] args) throws CloudControlPlaneException, JwtVerificationException {
         new Example().example();
     }
 }
