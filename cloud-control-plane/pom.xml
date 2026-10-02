@@ -79,6 +79,19 @@
       <artifactId>spring-statemachine-starter</artifactId>
     </dependency>
 
+    <!-- AWS CloudFormation — Cluster node provisioning (version via AWS SDK BOM) -->
+    <dependency>
+      <groupId>software.amazon.awssdk</groupId>
+      <artifactId>cloudformation</artifactId>
+    </dependency>
+
+    <!-- SSHJ — upload configuration and start services on Cluster nodes -->
+    <dependency>
+      <groupId>com.hierynomus</groupId>
+      <artifactId>sshj</artifactId>
+      <version>${sshj.version}</version>
+    </dependency>
+
     <!-- ShedLock — distributed scheduling lock for JWKS rotation -->
     <dependency>
       <groupId>net.javacrumbs.shedlock</groupId>

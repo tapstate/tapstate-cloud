@@ -78,11 +78,20 @@ public class Cluster {
     @Schema(description = "EC2 instance ID")
     private String ec2InstanceId;
 
-    @Schema(description = "Elastic IP (stable egress for Atlas IP Allow List)")
-    private String elasticIp;
+    @Schema(description = "EC2 node public IPv4 address")
+    private String ec2PublicIp;
 
-    @Schema(description = "Public DNS: {clusterId}.api.tapstate.io")
+    @Schema(description = "Per-Cluster SSH public key (OpenSSH format)")
+    private String sshPublicKey;
+
+    @Schema(description = "Per-Cluster SSH private key, encrypted at rest")
+    private String sshPrivateKeyEnc;
+
+    @Schema(description = "Public DNS: {clusterId}.dev.cloud.tapstate.com")
     private String publicDns;
+
+    @Schema(description = "DNS A record created for the Cluster node")
+    private String dnsRecord;
 
     // ========== SDK status ==========
     @Schema(description = "Last SDK C2 heartbeat timestamp (UTC)")

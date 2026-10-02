@@ -35,7 +35,27 @@ tapstate:
     default-region: ap-southeast-1
     cluster:
       provision:
+        # Mock provisioning must always succeed in the fast IT suite.
         success-rate: 100
+    iac:
+      provider: aws
+      # Mock by default keeps the existing fast IT suite cloud-free; the real
+      # deployment IT launches its own application process with mode=real.
+      mode: ${IAC_MODE:mock}
+      environment: dev
+      aws:
+        instance-type: t3.medium
+        disk-size-gb: 40
+      godaddy:
+        # Credentials are taken from the environment when present; the deploy IT
+        # fails the DNS step when they are missing.
+        api-key: ${GODADDY_API_KEY:}
+        api-secret: ${GODADDY_API_SECRET:}
+        ttl: 600
+      crypto:
+        # Fixed DEVELOPMENT key for the it profile: base64 of bytes 0x00..0x1f.
+        # Never use in production; production injects TAPSTATE_IAC_CRYPTO_KEY.
+        master-key: AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=
 
 # Faster IT startup — less logging noise
 logging:
