@@ -100,6 +100,9 @@ tapstate:
       encryption-key: ${CLOUD_JWKS_ENCRYPTION_KEY:}
     # Session expiry — 7 days idle (ADR-0122 D1)
     session-expiry-days: ${CLOUD_SESSION_EXPIRY_DAYS:7}
+    # Credentialed browser requests are limited to Cloud Console and Cluster origins.
+    cors:
+      allowed-origin-patterns: "${CORS_ALLOWED_ORIGINS:https://cloud.tapstate.io,https://*.cloud.tapstate.io}"
     # Default region for Week 2 (ADR-0124 D1)
     default-region: ${CLOUD_DEFAULT_REGION:ap-southeast-1}
     # AWS credentials from k3s Secret (ADR-0121 D4)
@@ -111,6 +114,25 @@ tapstate:
     atlas:
       admin-api-key: ${ATLAS_ADMIN_API_KEY:}
       admin-api-key-secret: ${ATLAS_ADMIN_API_KEY_SECRET:}
+    # Infrastructure-as-code layer — multi-cloud Cluster provisioning
+    iac:
+      provider: ${IAC_PROVIDER:aws}
+      mode: ${IAC_MODE:real}
+      public-base-url: ${CLOUD_PUBLIC_BASE_URL:https://cloud.tapstate.com}
+      environment: ${IAC_ENVIRONMENT:dev}
+      # Blank provisions a MongoDB sidecar on each node; set for externally managed MongoDB
+      runtime-atlas-uri: ${RUNTIME_ATLAS_URI:}
+      aws:
+        instance-type: ${IAC_AWS_INSTANCE_TYPE:t3.medium}
+        disk-size-gb: ${IAC_AWS_DISK_SIZE_GB:40}
+      godaddy:
+        base-url: ${GODADDY_BASE_URL:https://api.godaddy.com}
+        domain: ${GODADDY_DOMAIN:tapstate.com}
+        api-key: ${GODADDY_API_KEY:}
+        api-secret: ${GODADDY_API_SECRET:}
+        ttl: ${GODADDY_TTL:600}
+      crypto:
+        master-key: ${TAPSTATE_IAC_CRYPTO_KEY:}
 
 # ========== Logging ==========
 logging:
