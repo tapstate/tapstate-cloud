@@ -47,7 +47,7 @@ config:
   sessionExpiryDays: "7"
   defaultRegion: ap-southeast-1
   awsRegion: ap-southeast-1
-  corsAllowedOrigins: "https://cloud.tapstate.io,http://localhost:3000"
+  corsAllowedOrigins: "https://cloud.tapstate.io,https://*.cloud.tapstate.io"
 
 # ========== Kubernetes resources ==========
 serviceAccount:
