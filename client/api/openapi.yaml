@@ -1075,10 +1075,10 @@ components:
           description: Pipeline Runtime ID (EC2 instance identifier)
         publicDns:
           type: string
-          description: Public DNS name (Route53 alias) for Cluster Console
-        elasticIp:
+          description: Public DNS name for Cluster Console
+        ec2PublicIp:
           type: string
-          description: Elastic IP — used for Atlas allowlist
+          description: EC2 node public IPv4 address
         lastHeartbeatAt:
           type: string
           description: Last C2 heartbeat timestamp (ISO-8601 UTC)

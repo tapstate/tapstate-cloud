@@ -39,7 +39,7 @@ import java.util.StringJoiner;
   ClusterResponse.JSON_PROPERTY_PROVISION_ERROR_CODE,
   ClusterResponse.JSON_PROPERTY_RUNTIME_ID,
   ClusterResponse.JSON_PROPERTY_PUBLIC_DNS,
-  ClusterResponse.JSON_PROPERTY_ELASTIC_IP,
+  ClusterResponse.JSON_PROPERTY_EC2_PUBLIC_IP,
   ClusterResponse.JSON_PROPERTY_LAST_HEARTBEAT_AT,
   ClusterResponse.JSON_PROPERTY_CREATED_AT,
   ClusterResponse.JSON_PROPERTY_READY_AT
@@ -170,9 +170,9 @@ public class ClusterResponse {
   @jakarta.annotation.Nullable
   private String publicDns;
 
-  public static final String JSON_PROPERTY_ELASTIC_IP = "elasticIp";
+  public static final String JSON_PROPERTY_EC2_PUBLIC_IP = "ec2PublicIp";
   @jakarta.annotation.Nullable
-  private String elasticIp;
+  private String ec2PublicIp;
 
   public static final String JSON_PROPERTY_LAST_HEARTBEAT_AT = "lastHeartbeatAt";
   @jakarta.annotation.Nullable
@@ -396,7 +396,7 @@ public class ClusterResponse {
   }
 
   /**
-   * Public DNS name (Route53 alias) for Cluster Console
+   * Public DNS name for Cluster Console
    * @return publicDns
    */
   @jakarta.annotation.Nullable
@@ -414,29 +414,29 @@ public class ClusterResponse {
     this.publicDns = publicDns;
   }
 
-  public ClusterResponse elasticIp(@jakarta.annotation.Nullable String elasticIp) {
+  public ClusterResponse ec2PublicIp(@jakarta.annotation.Nullable String ec2PublicIp) {
     
-    this.elasticIp = elasticIp;
+    this.ec2PublicIp = ec2PublicIp;
     return this;
   }
 
   /**
-   * Elastic IP — used for Atlas allowlist
-   * @return elasticIp
+   * EC2 node public IPv4 address
+   * @return ec2PublicIp
    */
   @jakarta.annotation.Nullable
-  @JsonProperty(value = JSON_PROPERTY_ELASTIC_IP, required = false)
+  @JsonProperty(value = JSON_PROPERTY_EC2_PUBLIC_IP, required = false)
   @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
 
-  public String getElasticIp() {
-    return elasticIp;
+  public String getEc2PublicIp() {
+    return ec2PublicIp;
   }
 
 
-  @JsonProperty(value = JSON_PROPERTY_ELASTIC_IP, required = false)
+  @JsonProperty(value = JSON_PROPERTY_EC2_PUBLIC_IP, required = false)
   @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
-  public void setElasticIp(@jakarta.annotation.Nullable String elasticIp) {
-    this.elasticIp = elasticIp;
+  public void setEc2PublicIp(@jakarta.annotation.Nullable String ec2PublicIp) {
+    this.ec2PublicIp = ec2PublicIp;
   }
 
   public ClusterResponse lastHeartbeatAt(@jakarta.annotation.Nullable String lastHeartbeatAt) {
@@ -533,7 +533,7 @@ public class ClusterResponse {
         Objects.equals(this.provisionErrorCode, clusterResponse.provisionErrorCode) &&
         Objects.equals(this.runtimeId, clusterResponse.runtimeId) &&
         Objects.equals(this.publicDns, clusterResponse.publicDns) &&
-        Objects.equals(this.elasticIp, clusterResponse.elasticIp) &&
+        Objects.equals(this.ec2PublicIp, clusterResponse.ec2PublicIp) &&
         Objects.equals(this.lastHeartbeatAt, clusterResponse.lastHeartbeatAt) &&
         Objects.equals(this.createdAt, clusterResponse.createdAt) &&
         Objects.equals(this.readyAt, clusterResponse.readyAt);
@@ -541,7 +541,7 @@ public class ClusterResponse {
 
   @Override
   public int hashCode() {
-    return Objects.hash(id, orgId, region, name, specKey, state, provisionErrorCode, runtimeId, publicDns, elasticIp, lastHeartbeatAt, createdAt, readyAt);
+    return Objects.hash(id, orgId, region, name, specKey, state, provisionErrorCode, runtimeId, publicDns, ec2PublicIp, lastHeartbeatAt, createdAt, readyAt);
   }
 
   @Override
@@ -557,7 +557,7 @@ public class ClusterResponse {
     sb.append("    provisionErrorCode: ").append(toIndentedString(provisionErrorCode)).append("\n");
     sb.append("    runtimeId: ").append(toIndentedString(runtimeId)).append("\n");
     sb.append("    publicDns: ").append(toIndentedString(publicDns)).append("\n");
-    sb.append("    elasticIp: ").append(toIndentedString(elasticIp)).append("\n");
+    sb.append("    ec2PublicIp: ").append(toIndentedString(ec2PublicIp)).append("\n");
     sb.append("    lastHeartbeatAt: ").append(toIndentedString(lastHeartbeatAt)).append("\n");
     sb.append("    createdAt: ").append(toIndentedString(createdAt)).append("\n");
     sb.append("    readyAt: ").append(toIndentedString(readyAt)).append("\n");
@@ -695,10 +695,10 @@ public class ClusterResponse {
       }
     }
 
-    // add `elasticIp` to the URL query string
-    if (getElasticIp() != null) {
+    // add `ec2PublicIp` to the URL query string
+    if (getEc2PublicIp() != null) {
       try {
-        joiner.add(String.format(java.util.Locale.ROOT, "%selasticIp%s=%s", prefix, suffix, URLEncoder.encode(String.valueOf(getElasticIp()), "UTF-8").replaceAll("\\+", "%20")));
+        joiner.add(String.format(java.util.Locale.ROOT, "%sec2PublicIp%s=%s", prefix, suffix, URLEncoder.encode(String.valueOf(getEc2PublicIp()), "UTF-8").replaceAll("\\+", "%20")));
       } catch (UnsupportedEncodingException e) {
         // Should never happen, UTF-8 is always supported
         throw new RuntimeException(e);

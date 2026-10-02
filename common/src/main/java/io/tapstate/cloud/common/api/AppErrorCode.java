@@ -32,6 +32,15 @@ public enum AppErrorCode implements ErrorCode {
     CLUSTER_CANCEL_NOT_ALLOWED("cluster.cancel-not-allowed", "Cluster cannot be cancelled while in state {0}"),
     CLUSTER_PROVISION_FAILED("cluster.provision-failed", "Cluster provisioning {0}"),
 
+    // ---------- Infrastructure as Code ----------
+    IAC_COMPUTE_PROVISION_FAILED("iac.compute-provision-failed", "Compute provisioning failed: {0}"),
+    IAC_COMPUTE_TERMINATE_FAILED("iac.compute-terminate-failed", "Compute termination failed: {0}"),
+    IAC_DNS_PROVIDER_FAILED("iac.dns-provider-failed", "DNS operation failed: {0}"),
+    IAC_DNS_PROVIDER_UNAUTHORIZED("iac.dns-provider-unauthorized", "DNS provider credentials missing or rejected: {0}"),
+    IAC_SSH_COMMAND_FAILED("iac.ssh-command-failed", "SSH operation failed: {0}"),
+    IAC_HEALTH_CHECK_FAILED("iac.health-check-failed", "Cluster endpoint health check failed: {0}"),
+    IAC_CRYPTO_KEY_MISSING("iac.crypto-key-missing", "SSH private-key master key is missing or invalid: {0}"),
+
     // ---------- Region ----------
     REGION_NOT_FOUND("region.not-found", "Region {0} is not available"),
 

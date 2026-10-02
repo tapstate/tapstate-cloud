@@ -167,7 +167,7 @@ class SubscriptionFlowIT extends BaseIT {
         ClusterResponse c = clustersApi.getCluster(orgId, clusterId).getData();
         assertNotNull(c.getRuntimeId());
         assertNotNull(c.getPublicDns());
-        assertNotNull(c.getElasticIp());
+        assertNotNull(c.getEc2PublicIp());
     }
 
     // ========== T3 — Second POST adds second Cluster + MDB ==========
