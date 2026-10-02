@@ -22,7 +22,7 @@ image:
 config:
   springProfilesActive: prod
   jwtIssuer: https://cloud.tapstate.io
-  corsAllowedOrigins: "https://cloud.tapstate.io"
+  corsAllowedOrigins: "https://cloud.tapstate.io,https://*.cloud.tapstate.io"
 
 service:
   type: NodePort
