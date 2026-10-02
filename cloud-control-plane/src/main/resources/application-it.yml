@@ -47,8 +47,9 @@ tapstate:
         instance-type: t3.medium
         disk-size-gb: 40
       godaddy:
-        # Credentials are taken from the environment when present; the deploy IT
-        # fails the DNS step when they are missing.
+        # api-key accepts a Personal Access Token (gd_pat_…) sent as Bearer, or
+        # a classic key paired with api-secret. The deploy IT fails the DNS step
+        # when credentials are missing.
         api-key: ${GODADDY_API_KEY:}
         api-secret: ${GODADDY_API_SECRET:}
         ttl: 600

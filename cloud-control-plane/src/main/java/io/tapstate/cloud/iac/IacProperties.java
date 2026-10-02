@@ -24,14 +24,14 @@ public class IacProperties {
     /** Public base URL of this control plane, handed to Cluster runtimes. */
     private String publicBaseUrl = "https://cloud.tapstate.com";
 
-    /**
-     * Fixed egress CIDR permitted to reach node port 22. Blank means the public IP
-     * of the control plane host is discovered at provision time.
-     */
-    private String sshSourceCidr = "";
-
     /** DNS environment suffix: {@code dev} produces {@code <id>.dev.cloud.<domain>}. */
     private String environment = "dev";
+
+    /**
+     * MongoDB connection URI handed to the Cluster runtime. Blank provisions a
+     * dedicated MongoDB sidecar container on the node instead.
+     */
+    private String runtimeAtlasUri = "";
 
     /** AWS-specific settings. */
     private Aws aws = new Aws();
@@ -66,20 +66,20 @@ public class IacProperties {
         this.publicBaseUrl = publicBaseUrl;
     }
 
-    public String getSshSourceCidr() {
-        return sshSourceCidr;
-    }
-
-    public void setSshSourceCidr(String sshSourceCidr) {
-        this.sshSourceCidr = sshSourceCidr;
-    }
-
     public String getEnvironment() {
         return environment;
     }
 
     public void setEnvironment(String environment) {
         this.environment = environment;
+    }
+
+    public String getRuntimeAtlasUri() {
+        return runtimeAtlasUri;
+    }
+
+    public void setRuntimeAtlasUri(String runtimeAtlasUri) {
+        this.runtimeAtlasUri = runtimeAtlasUri;
     }
 
     public Aws getAws() {
@@ -115,6 +115,12 @@ public class IacProperties {
         /** Root disk size in GB. */
         private int diskSizeGb = 40;
 
+        /** Explicit VPC id; when empty the region default VPC is resolved. */
+        private String vpcId = "";
+
+        /** Explicit subnet id; when empty a public subnet of the VPC is resolved. */
+        private String subnetId = "";
+
         public String getInstanceType() {
             return instanceType;
         }
@@ -129,6 +135,22 @@ public class IacProperties {
 
         public void setDiskSizeGb(int diskSizeGb) {
             this.diskSizeGb = diskSizeGb;
+        }
+
+        public String getVpcId() {
+            return vpcId;
+        }
+
+        public void setVpcId(String vpcId) {
+            this.vpcId = vpcId;
+        }
+
+        public String getSubnetId() {
+            return subnetId;
+        }
+
+        public void setSubnetId(String subnetId) {
+            this.subnetId = subnetId;
         }
     }
 

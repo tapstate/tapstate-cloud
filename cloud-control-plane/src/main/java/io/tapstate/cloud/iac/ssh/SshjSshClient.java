@@ -16,7 +16,10 @@ import java.nio.charset.StandardCharsets;
 import java.security.KeyFactory;
 import java.security.KeyPair;
 import java.security.PrivateKey;
+import java.security.PublicKey;
+import java.security.interfaces.RSAPrivateCrtKey;
 import java.security.spec.PKCS8EncodedKeySpec;
+import java.security.spec.RSAPublicKeySpec;
 import java.time.Duration;
 import java.util.Base64;
 import java.util.concurrent.TimeUnit;
@@ -33,11 +36,15 @@ public class SshjSshClient implements SshClient {
 
     @Override
     public SshSession connect(String host, int port, String user, String privateKeyPem,
-                               int connectTimeoutMs) throws IOException {
+                               int connectTimeoutMs, String proxyHost, int proxyPort)
+        throws IOException {
         SSHClient ssh = new SSHClient();
         ssh.addHostKeyVerifier(new PromiscuousVerifier());
         ssh.setConnectTimeout(connectTimeoutMs);
         ssh.setTimeout(connectTimeoutMs);
+        if (proxyHost != null && !proxyHost.isBlank()) {
+            ssh.setSocketFactory(new HttpConnectSocketFactory(proxyHost, proxyPort));
+        }
         try {
             ssh.connect(host, port);
             KeyPair keyPair = parseRsaKeyPair(privateKeyPem);
@@ -57,9 +64,16 @@ public class SshjSshClient implements SshClient {
                 .replace("-----END PRIVATE KEY-----", "")
                 .replaceAll("\\s", "");
             byte[] der = Base64.getDecoder().decode(body);
-            PrivateKey privateKey = KeyFactory.getInstance("RSA")
-                .generatePrivate(new PKCS8EncodedKeySpec(der));
-            return new KeyPair(null, privateKey);
+            KeyFactory keyFactory = KeyFactory.getInstance("RSA");
+            PrivateKey privateKey = keyFactory.generatePrivate(new PKCS8EncodedKeySpec(der));
+
+            // SSHJ's KeyPairWrapper also inspects the public key; derive it from
+            // the CRT private key rather than carrying it separately.
+            RSAPrivateCrtKey rsaPrivateKey = (RSAPrivateCrtKey) privateKey;
+            PublicKey publicKey = keyFactory.generatePublic(
+                new RSAPublicKeySpec(rsaPrivateKey.getModulus(),
+                    rsaPrivateKey.getPublicExponent()));
+            return new KeyPair(publicKey, privateKey);
         } catch (Exception e) {
             throw new IOException("Failed to parse PKCS#8 private key PEM", e);
         }

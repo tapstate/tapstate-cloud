@@ -24,14 +24,16 @@ Parameters:
   SshPublicKey:
     Type: String
     Description: OpenSSH public key injected into the ubuntu user authorized_keys
-  SshCidr:
-    Type: String
-    Description: Source CIDR allowed to connect to port 22
-    AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})'
   AmiId:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
     Default: /aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id
     Description: Ubuntu 24.04 LTS amd64 EBS-gp3 AMI, resolved per region
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC containing the node; security groups cannot declare egress without it
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: Subnet to launch the node in (a public subnet with an internet route)
 
 Resources:
 
@@ -39,11 +41,10 @@ Resources:
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupDescription: Tapstate Cluster node firewall
+      VpcId: !Ref VpcId
+      # Port-22 ingress rules are attached after stack creation through the EC2
+      # API, since their count and values vary with the control-plane egress.
       SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 22
-          ToPort: 22
-          CidrIp: !Ref SshCidr
         - IpProtocol: tcp
           FromPort: 80
           ToPort: 80
@@ -69,6 +70,7 @@ Resources:
       NetworkInterfaces:
         - DeviceIndex: '0'
           AssociatePublicIpAddress: true
+          SubnetId: !Ref SubnetId
           GroupSet:
             - !Ref ClusterSecurityGroup
       BlockDeviceMappings:

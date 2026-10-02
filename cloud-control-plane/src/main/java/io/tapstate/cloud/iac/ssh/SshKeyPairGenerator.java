@@ -67,12 +67,19 @@ public class SshKeyPairGenerator {
         out.write(bytes);
     }
 
-    /** Write a positive big integer as an SSH wire "mpint" (strip leading zero, pad sign bit). */
+    /**
+     * Write a positive big integer as an SSH wire "mpint". BigInteger's encoding
+     * already carries the sign-padding zero when the high bit is set; keep that
+     * zero (a stripped one would make the peer parse a negative number), and only
+     * remove redundant extra leading zeros.
+     */
     private static void writeBigInteger(ByteArrayOutputStream out, java.math.BigInteger value)
             throws java.io.IOException {
         byte[] bytes = value.toByteArray();
         int start = 0;
-        while (start < bytes.length - 1 && bytes[start] == 0) {
+        while (start < bytes.length - 1
+            && bytes[start] == 0
+            && (bytes[start + 1] & 0x80) == 0) {
             start++;
         }
         int length = bytes.length - start;

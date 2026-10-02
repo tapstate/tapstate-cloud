@@ -42,9 +42,19 @@ import static org.junit.jupiter.api.Assertions.*;
 @DisplayName("AwsClusterDeployIT — real AWS EC2 + GoDaddy end-to-end")
 class AwsClusterDeployIT extends BaseIT {
 
-    private static final String REGION = "ap-east-1";
+    // Region seeded in the IT database; it also has a default VPC for CloudFormation.
+    private static final String REGION = "ap-southeast-1";
     private static final String STACK_NAME_PREFIX = "tapstate-cluster-";
     private static final int REAL_APP_PORT = 8082;
+
+    /**
+     * Outbound proxy used when direct HTTPS to GoDaddy is blocked. Override with
+     * {@code -Diac.proxyHost=… -Diac.proxyPort=…}; set host to {@code none} to disable.
+     */
+    private static final String PROXY_HOST =
+        System.getProperty("iac.proxyHost", "127.0.0.1");
+    private static final String PROXY_PORT =
+        System.getProperty("iac.proxyPort", "1235");
 
     /** Wait up to 20 minutes for provisioning (60 × 20s). */
     private static final int READY_ATTEMPTS = 60;
@@ -71,13 +81,17 @@ class AwsClusterDeployIT extends BaseIT {
 
         String javaBinary = System.getProperty("java.home") + File.separator + "bin"
             + File.separator + "java";
-        File appLog = new File(moduleDir, "target/real-app.log");
-        ProcessBuilder builder = new ProcessBuilder(
+
+        java.util.List<String> command = new java.util.ArrayList<>(java.util.List.of(
             javaBinary,
             "-Dspring.profiles.active=it",
             "-Dserver.port=" + REAL_APP_PORT,
-            "-Dtapstate.cloud.iac.mode=real",
-            "-jar", jar.getPath())
+            "-Dtapstate.cloud.iac.mode=real"));
+        addProxyArgs(command);
+        command.addAll(java.util.List.of("-jar", jar.getPath()));
+
+        File appLog = new File(moduleDir, "target/real-app.log");
+        ProcessBuilder builder = new ProcessBuilder(command)
             .directory(new File(moduleDir))
             .redirectErrorStream(true)
             .redirectOutput(appLog);
@@ -99,6 +113,22 @@ class AwsClusterDeployIT extends BaseIT {
                 realAppProcess.destroyForcibly();
             }
         }
+    }
+
+    /**
+     * Append JVM proxy arguments when a proxy is configured. localhost bypasses
+     * the proxy; checkip.amazonaws.com must go through it so the discovered SSH
+     * source CIDR matches the proxy egress used to tunnel the SSH connections.
+     */
+    private static void addProxyArgs(java.util.List<String> command) {
+        if ("none".equalsIgnoreCase(PROXY_HOST)) {
+            return;
+        }
+        command.add("-Dhttp.proxyHost=" + PROXY_HOST);
+        command.add("-Dhttp.proxyPort=" + PROXY_PORT);
+        command.add("-Dhttps.proxyHost=" + PROXY_HOST);
+        command.add("-Dhttps.proxyPort=" + PROXY_PORT);
+        command.add("-Dhttp.nonProxyHosts=localhost|127.0.0.1");
     }
 
     /** Poll the real application health endpoint until it is serving. */
@@ -166,16 +196,19 @@ class AwsClusterDeployIT extends BaseIT {
         assertTrue(resolved, "Domain " + domain + " must resolve to " + publicIp);
 
         // ---------- 3. HTTPS endpoint answers through Nginx + TLS ----------
-        HttpClient https = HttpClient.newBuilder()
+        HttpClient.Builder httpsBuilder = HttpClient.newBuilder()
             .followRedirects(HttpClient.Redirect.NORMAL)
-            .connectTimeout(Duration.ofSeconds(15))
-            .build();
-        HttpResponse<String> health = https.send(
-            HttpRequest.newBuilder(URI.create("https://" + domain + "/health"))
+            .connectTimeout(Duration.ofSeconds(15));
+        if (!"none".equalsIgnoreCase(PROXY_HOST)) {
+            httpsBuilder.proxy(java.net.ProxySelector.of(
+                new java.net.InetSocketAddress(PROXY_HOST, Integer.parseInt(PROXY_PORT))));
+        }
+        HttpResponse<String> health = httpsBuilder.build().send(
+            HttpRequest.newBuilder(URI.create("https://" + domain + "/healthz"))
                 .timeout(Duration.ofSeconds(20)).GET().build(),
             HttpResponse.BodyHandlers.ofString());
         assertEquals(200, health.statusCode(),
-            "HTTPS /health must answer 200, got: " + health.body());
+            "HTTPS /healthz must answer 200, got: " + health.body());
 
         // ---------- 4. Cancel → TERMINATED ----------
         subscriptionApi.cancelSubscription(orgId);
@@ -217,12 +250,25 @@ class AwsClusterDeployIT extends BaseIT {
 
         String key = System.getenv("GODADDY_API_KEY");
         String secret = System.getenv("GODADDY_API_SECRET");
-        if (key != null && secret != null) {
+        if (key != null) {
             try {
-                Process dnsDelete = new ProcessBuilder("curl", "-sf", "-X", "DELETE",
-                    "https://api.godaddy.com/v1/domains/tapstate.com/records/A/"
-                        + clusterId + ".dev.cloud",
-                    "-H", "authorization: sso-key " + key + ":" + secret)
+                String auth = key.startsWith("gd_pat_")
+                    ? "Bearer " + key
+                    : "sso-key " + key + ":" + secret;
+                java.util.List<String> dnsDeleteCmd = new java.util.ArrayList<>();
+                dnsDeleteCmd.add("curl");
+                dnsDeleteCmd.add("-sf");
+                if (!"none".equalsIgnoreCase(PROXY_HOST)) {
+                    dnsDeleteCmd.add("-x");
+                    dnsDeleteCmd.add("http://" + PROXY_HOST + ":" + PROXY_PORT);
+                }
+                dnsDeleteCmd.add("-X");
+                dnsDeleteCmd.add("DELETE");
+                dnsDeleteCmd.add("https://api.godaddy.com/v1/domains/tapstate.com/records/A/"
+                    + clusterId + ".dev.cloud");
+                dnsDeleteCmd.add("-H");
+                dnsDeleteCmd.add("authorization: " + auth);
+                Process dnsDelete = new ProcessBuilder(dnsDeleteCmd)
                     .redirectErrorStream(true).start();
                 dnsDelete.waitFor(30, java.util.concurrent.TimeUnit.SECONDS);
             } catch (Exception ignored) {

@@ -116,8 +116,9 @@ tapstate:
       provider: ${IAC_PROVIDER:aws}
       mode: ${IAC_MODE:real}
       public-base-url: ${CLOUD_PUBLIC_BASE_URL:https://cloud.tapstate.com}
-      ssh-source-cidr: ${IAC_SSH_SOURCE_CIDR:}
       environment: ${IAC_ENVIRONMENT:dev}
+      # Blank provisions a MongoDB sidecar on each node; set for externally managed MongoDB
+      runtime-atlas-uri: ${RUNTIME_ATLAS_URI:}
       aws:
         instance-type: ${IAC_AWS_INSTANCE_TYPE:t3.medium}
         disk-size-gb: ${IAC_AWS_DISK_SIZE_GB:40}

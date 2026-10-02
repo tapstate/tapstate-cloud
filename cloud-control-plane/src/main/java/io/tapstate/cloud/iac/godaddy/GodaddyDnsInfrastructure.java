@@ -26,6 +26,7 @@ import java.time.Duration;
 public class GodaddyDnsInfrastructure implements DnsInfrastructure {
 
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(20);
+    private static final String PAT_PREFIX = "gd_pat_";
 
     private final IacProperties properties;
     private final HttpClient http;
@@ -104,9 +105,24 @@ public class GodaddyDnsInfrastructure implements DnsInfrastructure {
         return HttpRequest.newBuilder()
             .uri(URI.create(config.getBaseUrl() + path))
             .timeout(REQUEST_TIMEOUT)
-            .header("Authorization",
-                "sso-key " + config.getApiKey() + ":" + config.getApiSecret())
+            .header("Authorization", authorizationHeader(config))
             .header("Accept", "application/json");
+    }
+
+    /**
+     * Build the Authorization header. Personal Access Tokens (prefix {@code gd_pat_})
+     * are sent as Bearer tokens; classic credentials use the legacy
+     * {@code sso-key key:secret} scheme.
+     */
+    private static String authorizationHeader(IacProperties.Godaddy config) {
+        if (isPat(config.getApiKey())) {
+            return "Bearer " + config.getApiKey();
+        }
+        return "sso-key " + config.getApiKey() + ":" + config.getApiSecret();
+    }
+
+    private static boolean isPat(String apiKey) {
+        return apiKey != null && apiKey.startsWith(PAT_PREFIX);
     }
 
     /** Build the records endpoint path. */
@@ -125,10 +141,16 @@ public class GodaddyDnsInfrastructure implements DnsInfrastructure {
     }
 
     private static void requireCredentials(IacProperties.Godaddy config) {
-        if (config.getApiKey() == null || config.getApiKey().isBlank()
-            || config.getApiSecret() == null || config.getApiSecret().isBlank()) {
+        if (config.getApiKey() == null || config.getApiKey().isBlank()) {
             throw new IacException(AppErrorCode.IAC_DNS_PROVIDER_UNAUTHORIZED,
                 "GoDaddy API credentials are not configured");
+        }
+        // A Personal Access Token carries the credential in a single value; a
+        // classic key requires its paired secret.
+        if (!isPat(config.getApiKey())
+            && (config.getApiSecret() == null || config.getApiSecret().isBlank())) {
+            throw new IacException(AppErrorCode.IAC_DNS_PROVIDER_UNAUTHORIZED,
+                "GoDaddy API secret is not configured");
         }
     }
 

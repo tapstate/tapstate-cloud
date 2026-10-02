@@ -3,7 +3,6 @@ package io.tapstate.cloud.iac.aws;
 import io.tapstate.cloud.iac.CloudProvider;
 import io.tapstate.cloud.iac.ComputeInfrastructure;
 import io.tapstate.cloud.iac.IacException;
-import io.tapstate.cloud.iac.model.IngressRule;
 import io.tapstate.cloud.iac.model.NodeInstance;
 import io.tapstate.cloud.iac.model.NodeSpec;
 import io.tapstate.cloud.common.api.AppErrorCode;
@@ -23,6 +22,11 @@ import software.amazon.awssdk.services.cloudformation.model.Output;
 import software.amazon.awssdk.services.cloudformation.model.Parameter;
 import software.amazon.awssdk.services.cloudformation.model.Stack;
 import software.amazon.awssdk.services.cloudformation.model.StackStatus;
+import software.amazon.awssdk.services.ec2.Ec2Client;
+import software.amazon.awssdk.services.ec2.model.DescribeSubnetsResponse;
+import software.amazon.awssdk.services.ec2.model.DescribeVpcsResponse;
+import software.amazon.awssdk.services.ec2.model.Subnet;
+import software.amazon.awssdk.services.ec2.model.Vpc;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -30,7 +34,6 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -63,6 +66,7 @@ public class AwsComputeInfrastructure implements ComputeInfrastructure {
     private final String accessKeyId;
     private final String secretAccessKey;
     private final Map<String, CloudFormationClient> clientsByRegion = new ConcurrentHashMap<>();
+    private final Map<String, Ec2Client> ec2ClientsByRegion = new ConcurrentHashMap<>();
 
     public AwsComputeInfrastructure(
         @Value("${tapstate.cloud.aws.access-key-id:}") String accessKeyId,
@@ -75,9 +79,9 @@ public class AwsComputeInfrastructure implements ComputeInfrastructure {
     public NodeInstance provision(NodeSpec spec) {
         String stackName = stackName(spec.clusterId());
         CloudFormationClient cf = clientFor(spec.region());
+        Network network = resolveNetwork(spec);
 
         try {
-            String sshCidr = sshCidr(spec);
             cf.createStack(b -> b
                 .stackName(stackName)
                 .templateBody(loadTemplate())
@@ -86,8 +90,10 @@ public class AwsComputeInfrastructure implements ComputeInfrastructure {
                     cfParameter("InstanceType", spec.instanceType()),
                     cfParameter("DiskSize", String.valueOf(spec.diskSizeGb())),
                     cfParameter("SshPublicKey", spec.sshPublicKey()),
-                    cfParameter("SshCidr", sshCidr)));
-            log.info("[AwsIaC] stack create requested stack={} region={}", stackName, spec.region());
+                    cfParameter("VpcId", network.vpcId()),
+                    cfParameter("SubnetId", network.subnetId())));
+            log.info("[AwsIaC] stack create requested stack={} region={} vpc={} subnet={}",
+                stackName, spec.region(), network.vpcId(), network.subnetId());
         } catch (CloudFormationException e) {
             throw new IacException(AppErrorCode.IAC_COMPUTE_PROVISION_FAILED, e, awsMessage(e));
         }
@@ -96,6 +102,8 @@ public class AwsComputeInfrastructure implements ComputeInfrastructure {
             STACK_CREATE_TIMEOUT, AppErrorCode.IAC_COMPUTE_PROVISION_FAILED);
 
         Map<String, String> outputs = mapOutputs(stack);
+        openTemporarySshIngress(ec2ClientFor(spec.region()), outputs.get("SecurityGroupId"));
+
         String instanceId = outputs.get("InstanceId");
         String publicIp = outputs.get("PublicIp");
         String privateIp = outputs.get("PrivateIp");
@@ -197,6 +205,70 @@ public class AwsComputeInfrastructure implements ComputeInfrastructure {
         return status == 400 && message != null && message.contains("does not exist");
     }
 
+    // ========== Network resolution ==========
+
+    /** Resolved VPC and subnet for a node. */
+    private record Network(String vpcId, String subnetId) {
+    }
+
+    /**
+     * Resolve the target VPC and subnet. Explicit values from {@link NodeSpec} win;
+     * otherwise the region default VPC and one of its public subnets are discovered.
+     */
+    private Network resolveNetwork(NodeSpec spec) {
+        Ec2Client ec2 = ec2ClientFor(spec.region());
+        try {
+            String vpcId = spec.vpcId();
+            if (vpcId == null || vpcId.isBlank()) {
+                DescribeVpcsResponse vpcs = ec2.describeVpcs(b -> b
+                    .filters(software.amazon.awssdk.services.ec2.model.Filter.builder()
+                        .name("isDefault").values("true").build()));
+                Vpc defaultVpc = vpcs.vpcs().stream().findFirst()
+                    .orElseThrow(() -> new IacException(AppErrorCode.IAC_COMPUTE_PROVISION_FAILED,
+                        "No default VPC in region " + spec.region()
+                            + "; configure tapstate.cloud.iac.aws.vpc-id"));
+                vpcId = defaultVpc.vpcId();
+            }
+
+            String subnetId = spec.subnetId();
+            if (subnetId == null || subnetId.isBlank()) {
+                final String finalVpcId = vpcId;
+                DescribeSubnetsResponse subnets = ec2.describeSubnets(b -> b
+                    .filters(
+                        software.amazon.awssdk.services.ec2.model.Filter.builder()
+                            .name("vpc-id").values(finalVpcId).build(),
+                        software.amazon.awssdk.services.ec2.model.Filter.builder()
+                            .name("map-public-ip-on-launch").values("true").build()));
+                Subnet selected = subnets.subnets().stream()
+                    .skip(new java.security.SecureRandom().nextInt(Math.max(1, subnets.subnets().size())))
+                    .findFirst()
+                    .orElseThrow(() -> new IacException(AppErrorCode.IAC_COMPUTE_PROVISION_FAILED,
+                        "No public subnet in VPC " + finalVpcId
+                            + "; configure tapstate.cloud.iac.aws.subnet-id"));
+                subnetId = selected.subnetId();
+            }
+
+            return new Network(vpcId, subnetId);
+        } catch (software.amazon.awssdk.services.ec2.model.Ec2Exception e) {
+            throw new IacException(AppErrorCode.IAC_COMPUTE_PROVISION_FAILED, e,
+                "network resolution failed: " + e.getMessage());
+        }
+    }
+
+    /** Build or reuse the regional EC2 client. */
+    private Ec2Client ec2ClientFor(String region) {
+        return ec2ClientsByRegion.computeIfAbsent(region, key -> {
+            var builder = Ec2Client.builder()
+                .region(Region.of(key))
+                .overrideConfiguration(c -> c.apiCallAttemptTimeout(Duration.ofSeconds(30)));
+            if (accessKeyId != null && !accessKeyId.isBlank()) {
+                builder.credentialsProvider(StaticCredentialsProvider.create(
+                    AwsBasicCredentials.create(accessKeyId, secretAccessKey)));
+            }
+            return builder.build();
+        });
+    }
+
     // ========== Helpers ==========
 
     /** Build or reuse the regional CloudFormation client. */
@@ -221,15 +293,70 @@ public class AwsComputeInfrastructure implements ComputeInfrastructure {
         return Parameter.builder().parameterKey(key).parameterValue(value).build();
     }
 
-    /** Extract the SSH source CIDR from the generic ingress rules. */
-    private static String sshCidr(NodeSpec spec) {
-        Optional<String> cidr = spec.ingressRules().stream()
-            .filter(rule -> "tcp".equalsIgnoreCase(rule.protocol())
-                && rule.fromPort() == 22 && rule.toPort() == 22)
-            .map(IngressRule::cidr)
-            .findFirst();
-        return cidr.orElseThrow(() -> new IacException(AppErrorCode.IAC_COMPUTE_PROVISION_FAILED,
-            "NodeSpec must provide a port-22 ingress CIDR"));
+    /** Temporarily allow port 22 from any source while the egress is unknown. */
+    private static void openTemporarySshIngress(Ec2Client ec2, String securityGroupId) {
+        try {
+            ec2.authorizeSecurityGroupIngress(b -> b
+                .groupId(securityGroupId)
+                .ipPermissions(sshPermission(
+                    List.of(software.amazon.awssdk.services.ec2.model.IpRange.builder()
+                        .cidrIp("0.0.0.0/0").build()))));
+            log.info("[AwsIaC] temporary SSH ingress opened sg={}", securityGroupId);
+        } catch (software.amazon.awssdk.services.ec2.model.Ec2Exception e) {
+            throw new IacException(AppErrorCode.IAC_COMPUTE_PROVISION_FAILED, e,
+                "failed to open temporary SSH ingress: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public void restrictSshIngress(String region, String clusterId, List<String> cidrs) {
+        CloudFormationClient cf = clientFor(region);
+        Ec2Client ec2 = ec2ClientFor(region);
+        String securityGroupId = securityGroupId(cf, stackName(clusterId));
+
+        try {
+            // Authorize the narrow rules first so a revocation hiccup cannot lock
+            // the control plane out of a node still being provisioned.
+            List<software.amazon.awssdk.services.ec2.model.IpRange> ranges = cidrs.stream()
+                .map(cidr -> software.amazon.awssdk.services.ec2.model.IpRange.builder()
+                    .cidrIp(cidr).build())
+                .toList();
+            ec2.authorizeSecurityGroupIngress(b -> b
+                .groupId(securityGroupId)
+                .ipPermissions(sshPermission(ranges)));
+
+            ec2.revokeSecurityGroupIngress(b -> b
+                .groupId(securityGroupId)
+                .ipPermissions(sshPermission(
+                    List.of(software.amazon.awssdk.services.ec2.model.IpRange.builder()
+                        .cidrIp("0.0.0.0/0").build()))));
+            log.info("[AwsIaC] SSH ingress restricted sg={} cidrs={}", securityGroupId, cidrs);
+        } catch (software.amazon.awssdk.services.ec2.model.Ec2Exception e) {
+            throw new IacException(AppErrorCode.IAC_COMPUTE_PROVISION_FAILED, e,
+                "failed to restrict SSH ingress: " + e.getMessage());
+        }
+    }
+
+    /** Build the single port-22 permission carrying the given ranges. */
+    private static software.amazon.awssdk.services.ec2.model.IpPermission sshPermission(
+        List<software.amazon.awssdk.services.ec2.model.IpRange> ranges) {
+        return software.amazon.awssdk.services.ec2.model.IpPermission.builder()
+            .ipProtocol("tcp")
+            .fromPort(22)
+            .toPort(22)
+            .ipRanges(ranges)
+            .build();
+    }
+
+    /** Resolve the node security group id from the stack resources. */
+    private static String securityGroupId(CloudFormationClient cf, String stackName) {
+        return cf.describeStackResources(b -> b.stackName(stackName))
+            .stackResources().stream()
+            .filter(resource -> "ClusterSecurityGroup".equals(resource.logicalResourceId()))
+            .map(software.amazon.awssdk.services.cloudformation.model.StackResource::physicalResourceId)
+            .findFirst()
+            .orElseThrow(() -> new IacException(AppErrorCode.IAC_COMPUTE_PROVISION_FAILED,
+                "stack has no ClusterSecurityGroup: " + stackName));
     }
 
     private static Map<String, String> mapOutputs(Stack stack) {

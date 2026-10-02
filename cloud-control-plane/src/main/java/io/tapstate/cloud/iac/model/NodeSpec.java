@@ -18,6 +18,8 @@ import java.util.Map;
  * @param sshPublicKey OpenSSH-encoded public key injected into the node
  * @param ingressRules inbound firewall rules to attach to the node
  * @param tags         identity tags applied to every created resource
+ * @param vpcId        network (VPC) identifier, or null for the provider default
+ * @param subnetId     subnet identifier to launch the node in, or null for provider default
  */
 public record NodeSpec(
     String clusterId,
@@ -26,7 +28,9 @@ public record NodeSpec(
     int diskSizeGb,
     String sshPublicKey,
     List<IngressRule> ingressRules,
-    Map<String, String> tags
+    Map<String, String> tags,
+    String vpcId,
+    String subnetId
 ) {
 
     /**

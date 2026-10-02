@@ -17,6 +17,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.ProxySelector;
 import java.net.URI;
 import java.io.IOException;
 import java.net.http.HttpClient;
@@ -101,6 +103,7 @@ public class ClusterProvisioningService {
         boolean dnsCreated = false;
         String domain = clusterDomain(clusterId);
         String privateKeyPem = null;
+        ProxyConfig proxy = resolveProxy();
 
         try {
             log.info("[IaC] provision start cluster={} region={} domain={}",
@@ -114,10 +117,8 @@ public class ClusterProvisioningService {
             cluster.setSshPrivateKeyEnc(encryptedKey);
             persist(cluster);
 
-            // 2. Resolve the control-plane egress allowed to reach port 22.
-            String sshCidr = resolveSshSourceCidr();
-
-            // 3. Create the node and its supporting resources.
+            // 2. Create the node; port 22 is open to any source only until the
+            // real control-plane egress ranges have been observed and narrowed.
             NodeSpec spec = new NodeSpec(
                 clusterId,
                 cluster.getRegion(),
@@ -125,12 +126,13 @@ public class ClusterProvisioningService {
                 properties.getAws().getDiskSizeGb(),
                 generated.openSshPublicKey(),
                 List.of(
-                    IngressRule.of("tcp", SSH_PORT, sshCidr),
                     IngressRule.of("tcp", 80, "0.0.0.0/0"),
                     IngressRule.of("tcp", 443, "0.0.0.0/0")),
                 Map.of(
                     "io.tapstate/cluster-id", clusterId,
-                    "io.tapstate/org-id", cluster.getOrgId().toHexString()));
+                    "io.tapstate/org-id", cluster.getOrgId().toHexString()),
+                properties.getAws().getVpcId(),
+                properties.getAws().getSubnetId());
 
             NodeInstance node = compute.provision(spec);
             stackCreated = true;
@@ -140,8 +142,10 @@ public class ClusterProvisioningService {
             persist(cluster);
             log.info("[IaC] node ready cluster={} ip={}", clusterId, node.publicIp());
 
-            // 4. Wait for the node to accept SSH (userData installs finish late).
-            waitForSsh(node.publicIp(), privateKeyPem);
+            // 4. Wait for the node to accept SSH and collect the real control-plane
+            // egress ranges as observed on the wire, then narrow the firewall.
+            List<String> sshCidrs = waitForSsh(node.publicIp(), privateKeyPem, proxy);
+            compute.restrictSshIngress(cluster.getRegion(), clusterId, sshCidrs);
 
             // 5. Publish the DNS name before pushing service configuration.
             dns.upsertARecord(domain, node.publicIp());
@@ -152,11 +156,12 @@ public class ClusterProvisioningService {
 
             // 6. Connect and start the runtime stack.
             try (SshSession session = sshClient.connect(node.publicIp(), SSH_PORT, SSH_USER,
-                privateKeyPem, SSH_SESSION_TIMEOUT_MS)) {
+                privateKeyPem, SSH_SESSION_TIMEOUT_MS, proxyHost(proxy), proxyPort(proxy))) {
                 prepareRemoteDirs(session);
 
                 session.uploadFile("/tmp/docker-compose.yml",
-                    configs.dockerComposeYaml(cluster, properties.getPublicBaseUrl())
+                    configs.dockerComposeYaml(cluster, properties.getPublicBaseUrl(),
+                        properties.getRuntimeAtlasUri())
                         .getBytes(StandardCharsets.UTF_8));
                 remoteExec(session,
                     "sudo mv /tmp/docker-compose.yml " + ClusterRuntimeConfigs.REMOTE_COMPOSE_PATH
@@ -168,7 +173,14 @@ public class ClusterProvisioningService {
                     "cd /opt/tapstate-runtime && sudo docker compose up -d", COMPOSE_TIMEOUT);
                 log.info("[IaC] runtime stack started cluster={}", clusterId);
 
-                // 7. Install the Nginx site configuration.
+                // 7. Install the Nginx http tuning drop-in and site configuration.
+                session.uploadFile("/tmp/00-tapstate-http.conf",
+                    configs.nginxHttpConf().getBytes(StandardCharsets.UTF_8));
+                remoteExec(session,
+                    "sudo mv /tmp/00-tapstate-http.conf "
+                        + ClusterRuntimeConfigs.REMOTE_NGINX_HTTP_CONF_PATH,
+                    Duration.ofSeconds(30));
+
                 session.uploadFile("/tmp/tapstate-cluster.conf",
                     configs.nginxConf(domain).getBytes(StandardCharsets.UTF_8));
                 remoteExec(session,
@@ -184,7 +196,7 @@ public class ClusterProvisioningService {
 
             // 9. Obtain the TLS certificate; certbot rewrites the Nginx site for 443.
             try (SshSession session = sshClient.connect(node.publicIp(), SSH_PORT, SSH_USER,
-                privateKeyPem, SSH_SESSION_TIMEOUT_MS)) {
+                privateKeyPem, SSH_SESSION_TIMEOUT_MS, proxyHost(proxy), proxyPort(proxy))) {
                 remoteExec(session,
                     "sudo certbot --nginx -d " + domain
                         + " --agree-tos --email " + CERTBOT_EMAIL
@@ -196,7 +208,7 @@ public class ClusterProvisioningService {
             log.info("[IaC] TLS certificate issued cluster={}", clusterId);
 
             // 10. Verify the public endpoint end to end.
-            waitForHealthy(domain);
+            waitForHealthy(domain, proxy);
 
             log.info("[IaC] provision complete cluster={}", clusterId);
             return ProvisionResult.ok();
@@ -254,37 +266,63 @@ public class ClusterProvisioningService {
         return clusterId + ".dev.cloud." + rootDomain;
     }
 
-    /** Resolve the CIDR allowed for port 22, discovering the public IP when unset. */
-    private String resolveSshSourceCidr() {
-        String configured = properties.getSshSourceCidr();
-        if (configured != null && !configured.isBlank()) {
-            return configured;
+    /**
+     * Resolve the HTTP proxy the JVM is configured to use, if any. SSH tunnels and
+     * IP discovery must use the same egress so the discovered CIDR matches the
+     * actual SSH source address.
+     */
+    private static ProxyConfig resolveProxy() {
+        String host = System.getProperty("https.proxyHost", System.getProperty("http.proxyHost"));
+        if (host == null || host.isBlank()) {
+            return null;
         }
-        try {
-            HttpClient client = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(10))
-                .build();
-            HttpResponse<String> response = client.send(
-                HttpRequest.newBuilder(URI.create("https://checkip.amazonaws.com")).GET().build(),
-                HttpResponse.BodyHandlers.ofString());
-            String ip = response.body().trim();
-            return ip + "/32";
-        } catch (Exception e) {
-            throw new IacException(AppErrorCode.IAC_COMPUTE_PROVISION_FAILED, e,
-                "cannot discover control-plane public IP for SSH whitelist");
-        }
+        String port = System.getProperty("https.proxyPort",
+            System.getProperty("http.proxyPort", "8080"));
+        return new ProxyConfig(host, Integer.parseInt(port.trim()));
     }
 
-    /** Retry SSH connections until the node accepts the key or the timeout elapses. */
-    private void waitForSsh(String host, String privateKeyPem) {
+    private static String proxyHost(ProxyConfig proxy) {
+        return proxy != null ? proxy.host() : null;
+    }
+
+    private static int proxyPort(ProxyConfig proxy) {
+        return proxy != null ? proxy.port() : 0;
+    }
+
+    /**
+     * Number of successful probes collected before narrowing the firewall. A
+     * rotating proxy may assign a different egress per connection, so several
+     * rapid successes are observed; a single-egress network simply repeats one.
+     */
+    private static final int SSH_PROBE_SUCCESSES = 6;
+
+    /**
+     * Wait for the node to accept SSH and collect the distinct control-plane
+     * source addresses, as observed on the wire, over several rapid probes.
+     *
+     * @return the observed source CIDRs, one per distinct egress address
+     */
+    private List<String> waitForSsh(String host, String privateKeyPem, ProxyConfig proxy) {
         long deadline = System.nanoTime() + SSH_WAIT_TIMEOUT.toNanos();
+        java.util.LinkedHashSet<String> observed = new java.util.LinkedHashSet<>();
+        int successes = 0;
         IOException last = null;
         while (System.nanoTime() < deadline) {
             try (SshSession session = sshClient.connect(host, SSH_PORT, SSH_USER,
-                privateKeyPem, POLL_INTERVAL_MS)) {
-                CommandResult result = session.exec("echo ready", Duration.ofSeconds(15));
+                privateKeyPem, POLL_INTERVAL_MS, proxyHost(proxy), proxyPort(proxy))) {
+                CommandResult result = session.exec(
+                    "echo ready; echo \"$SSH_CONNECTION\"", Duration.ofSeconds(15));
                 if (result.succeeded()) {
-                    return;
+                    successes++;
+                    String clientIp = parseSshClientIp(result.stdout());
+                    if (clientIp != null) {
+                        observed.add(clientIp + "/32");
+                    }
+                    if (successes >= SSH_PROBE_SUCCESSES) {
+                        return List.copyOf(observed);
+                    }
+                    // Probe again immediately — spacing would only slow discovery.
+                    continue;
                 }
                 last = new IOException("probe exited " + result.exitCode());
             } catch (IOException e) {
@@ -292,8 +330,23 @@ public class ClusterProvisioningService {
             }
             sleep(POLL_INTERVAL_MS);
         }
+        if (!observed.isEmpty()) {
+            return List.copyOf(observed);
+        }
         throw new IacException(AppErrorCode.IAC_SSH_COMMAND_FAILED,
             "SSH unreachable after " + SSH_WAIT_TIMEOUT + ": " + safeMessage(last));
+    }
+
+    /** Extract the client IPv4 from the second whitespace-separated SSH_CONNECTION line. */
+    private static String parseSshClientIp(String stdout) {
+        String[] lines = stdout.split("\\R");
+        for (String line : lines) {
+            String[] parts = line.trim().split("\\s+");
+            if (parts.length == 4 && parts[0].matches("\\d{1,3}(\\.\\d{1,3}){3}")) {
+                return parts[0];
+            }
+        }
+        return null;
     }
 
     /** Wait until the domain resolves to the expected address. */
@@ -318,17 +371,21 @@ public class ClusterProvisioningService {
     }
 
     /** Poll the HTTPS endpoint until it answers 200 or the timeout elapses. */
-    private void waitForHealthy(String domain) {
-        HttpClient client = HttpClient.newBuilder()
+    private void waitForHealthy(String domain, ProxyConfig proxy) {
+        HttpClient.Builder builder = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
-            .followRedirects(HttpClient.Redirect.NORMAL)
-            .build();
+            .followRedirects(HttpClient.Redirect.NORMAL);
+        if (proxy != null) {
+            builder.proxy(ProxySelector.of(
+                new InetSocketAddress(proxy.host(), proxy.port())));
+        }
+        HttpClient client = builder.build();
         long deadline = System.nanoTime() + HEALTH_TIMEOUT.toNanos();
         String lastError = "no attempt made";
         while (System.nanoTime() < deadline) {
             try {
                 HttpResponse<String> response = client.send(
-                    HttpRequest.newBuilder(URI.create("https://" + domain + "/health"))
+                    HttpRequest.newBuilder(URI.create("https://" + domain + "/healthz"))
                         .timeout(Duration.ofSeconds(15))
                         .GET().build(),
                     HttpResponse.BodyHandlers.ofString());
@@ -437,6 +494,15 @@ public class ClusterProvisioningService {
         }
         String trimmed = value.trim();
         return trimmed.length() > 500 ? trimmed.substring(0, 500) : trimmed;
+    }
+
+    /**
+     * HTTP proxy configuration resolved from the JVM network properties.
+     *
+     * @param host proxy host
+     * @param port proxy port
+     */
+    private record ProxyConfig(String host, int port) {
     }
 
     /**

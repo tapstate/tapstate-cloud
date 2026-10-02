@@ -13,9 +13,12 @@ public interface SshClient {
      * @param user             login user
      * @param privateKeyPem    PKCS#8 PEM-encoded private key
      * @param connectTimeoutMs per-connection timeout in milliseconds
+     * @param proxyHost        HTTP CONNECT proxy host, or {@code null} for a direct connection
+     * @param proxyPort        HTTP CONNECT proxy port, ignored when proxyHost is null
      * @return an open, authenticated session
      * @throws java.io.IOException when connecting or authenticating fails
      */
     SshSession connect(String host, int port, String user, String privateKeyPem,
-                       int connectTimeoutMs) throws java.io.IOException;
+                       int connectTimeoutMs, String proxyHost, int proxyPort)
+        throws java.io.IOException;
 }
