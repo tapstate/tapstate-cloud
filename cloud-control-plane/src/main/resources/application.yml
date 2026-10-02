@@ -85,7 +85,7 @@ knife4j:
 tapstate:
   cloud:
     # Global Control Plane issuer for resolve JWT (ADR-0122 D4)
-    issuer: ${CLOUD_JWT_ISSUER:https://cloud.tapstate.io}
+    issuer: ${CLOUD_JWT_ISSUER:http://localhost:8080}
     # Resolve JWT expiry in minutes
     resolve-jwt-expiry-minutes: ${CLOUD_RESOLVE_JWT_EXPIRY_MINUTES:15}
     # JWKS signing key — MUST come from k3s Secret (ADR-0121 D4)

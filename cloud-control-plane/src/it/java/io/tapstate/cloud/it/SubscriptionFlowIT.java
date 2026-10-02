@@ -133,7 +133,7 @@ class SubscriptionFlowIT extends BaseIT {
         JsonNode alloc = getMdbAllocationForCluster(clusterId);
         assertFalse(alloc.isNull() || alloc.isEmpty(), "MdbAllocation should exist");
         assertNotNull(alloc.path("_id").asText(null));
-        assertNotNull(alloc.path("atlasInstanceId").asText(null));
+        assertNotNull(alloc.path("mdbClusterId").asText(null));
         assertNotNull(alloc.path("databaseName").asText(null));
         assertNotNull(alloc.path("dbUsername").asText(null));
         assertNotNull(alloc.path("dbPassword").asText(null));

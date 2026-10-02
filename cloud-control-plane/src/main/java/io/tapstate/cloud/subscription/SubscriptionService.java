@@ -124,7 +124,7 @@ public class SubscriptionService {
             allocation.getId().toHexString(), cluster.getId().toHexString(), subscriptionId.toHexString());
 
         // Link allocation ID to Cluster so the Cluster runtime can find its Atlas DB credentials
-        cluster.setMdbAllocationId(allocation.getId().toHexString());
+        cluster.setMdbAllocationId(allocation.getId());
         // Note: we need to save cluster — but ClusterService.createCluster already owns the save.
         // We do a lightweight update here (only setting mdbAllocationId).
         // Actually, let's use the repo directly since it's a simple add-on.

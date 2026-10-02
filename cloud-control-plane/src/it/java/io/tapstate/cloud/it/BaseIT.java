@@ -190,19 +190,19 @@ public abstract class BaseIT {
                 // Drop business collections but preserve:
                 //   sessions — Spring Session store
                 //   regions — seeded once by RegionSeeder on app startup
-                //   atlas_instance_configs — seeded once by AtlasInstanceConfigSeeder
+                //   mdb_clusters + atlas_configs — seeded by MdbClusterSeeder / AtlasConfigSeeder
                 //   cluster_status_report_history — time-series collection, must NOT be dropped
                 //       (MongoInitListener only creates it on app startup — a drop would
                 //       silently recreate it as a plain collection on next insert)
                 //   system.indexes — internal MongoDB
-                // After dropping, reset currentCustomers on preserved Atlas instances
+                // After dropping, reset currentAllocations on preserved MdbClusters
                 //   so each IT test starts with a clean capacity count.
-                "const keep = new Set(['sessions','regions','atlas_instance_configs','jwks_keys'," +
+                "const keep = new Set(['sessions','regions','mdb_clusters','atlas_configs','jwks_keys'," +
                 "'cluster_status_report_history','system.indexes']);" +
                 "db.getCollectionNames().filter(c => !keep.has(c)).forEach(c => db.getCollection(c).drop());" +
-                "db.atlas_instance_configs.updateMany({}, {$set: {currentCustomers: 0, updatedAt: new Date()}});" +
+                "db.mdb_clusters.updateMany({}, {$set: {currentAllocations: 0, updatedAt: new Date()}});" +
                 "db.cluster_status_report_history.deleteMany({});" +
-                "db.atlas_instance_configs.find().forEach(c => print(' [wipe] Atlas instance ' + c._id + ' capacity reset ' + c.currentCustomers + '/' + c.maxCustomers));",
+                "db.mdb_clusters.find().forEach(c => print(' [wipe] MdbCluster ' + c._id + ' capacity reset ' + c.currentAllocations + '/' + c.maxAllocations));",
                 MONGO_DB)
                 .redirectErrorStream(true)
                 .start();

@@ -99,8 +99,8 @@ public class Cluster {
 
     // ========== Atlas MDB allocation — populated at Cluster create time ==========
 
-    @Schema(description = "ID of the MdbAllocation record for this Cluster's per-customer Atlas database")
-    private String mdbAllocationId;
+    @Schema(description = "FK to MdbAllocation — this Cluster's per-customer Atlas database allocation")
+    private ObjectId mdbAllocationId;
 
     // ========== Timestamps ==========
     @CreatedDate

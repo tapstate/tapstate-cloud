@@ -118,7 +118,7 @@ public class ClusterService {
     @Transactional
     public void updateMdbAllocationId(ObjectId clusterId, ObjectId allocationId) {
         clusterRepository.findById(clusterId).ifPresent(cluster -> {
-            cluster.setMdbAllocationId(allocationId.toHexString());
+            cluster.setMdbAllocationId(allocationId);
             clusterRepository.save(cluster);
         });
     }

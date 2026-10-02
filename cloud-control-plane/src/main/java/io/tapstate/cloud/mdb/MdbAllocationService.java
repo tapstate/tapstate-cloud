@@ -6,29 +6,30 @@ import io.tapstate.cloud.mdb.fsm.MdbAllocationEventType;
 import io.tapstate.cloud.mdb.fsm.MdbAllocationStateMachineService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.bson.types.ObjectId;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.security.SecureRandom;
 import java.time.Instant;
-import java.util.HexFormat;
-import org.bson.types.ObjectId;
 
 /**
  * MDB allocation orchestration service — high-level idempotent API for
- * per-customer Atlas database provisioning and reclamation.
+ * per-Cluster Atlas database provisioning and reclamation.
  * <p>
- * This is the layer that SubscriptionService calls into — it owns:
+ * This is the layer that SubscriptionService calls into. It owns:
  * <ul>
- *   <li>Allocating an Atlas instance slot via {@link AtlasMdbService}</li>
- *   <li>Creating / reusing {@link MdbAllocation} records with full idempotency</li>
- *   <li>Driving the allocation state machine ({@link MdbAllocationStateMachineService})</li>
+ *   <li>Picking an MdbCluster slot via {@link AtlasMdbService#createMdb}</li>
+ *   <li>Persisting {@link MdbAllocation} with all three db names + dbUser credentials</li>
+ *   <li>Driving the async provisioning state machine</li>
  *   <li>Reclaiming allocation resources on subscription cancel (also idempotent)</li>
  * </ul>
- * Idempotency contract: calling {@link #allocateMdb} multiple times for the same
- * (subscriptionId, clusterId) is safe — each pending step (instance slot reservation,
- * database creation, user creation) is checked before execution so retries after
- * partial failure converge correctly.
+ * Idempotency: calling {@link #allocateMdb} multiple times for the same
+ * {@code clusterId} is safe — existing allocation is returned (or advanced if
+ * still PENDING). Each intermediate step (slot reservation, db user creation)
+ * is checked before execution.
+ * <p>
+ * PO decisions incorporated — see {@link AtlasMdbService} doc for the full list.
  */
 @Service
 @RequiredArgsConstructor
@@ -44,31 +45,25 @@ public class MdbAllocationService {
     // ========== allocateMdb ==========
 
     /**
-     * Allocate an Atlas database for a new Cluster.
-     * <p>
-     * Fully idempotent — if an allocation already exists for this clusterId,
-     * return it as-is (or advance it if still in PROVISIONING_PENDING).
-     * <p>
-     * Lifecycle:
-     * <ol>
-     *   <li>Check if allocation already exists (clusterId unique index handles this in DB too)</li>
-     *   <li>Pick Atlas instance slot via {@link AtlasMdbService#createMdb}</li>
-     *   <li>Persist allocation record with PROVISIONING_PENDING state</li>
-     *   <li>Fire {@link MdbAllocationEventType#START_PROVISION} — state machine
-     *       handles the async Atlas API calls (createDatabase + createDatabaseUser)</li>
-     * </ol>
+     * Allocate an Atlas database for a new Cluster. Fully idempotent — returns
+     * existing allocation if one already exists for this clusterId.
      *
-     * @return the allocation record (state PROVISIONING_PENDING immediately,
-     *         transitions to PROVISIONING asynchronously)
+     * @param orgId         owning organization
+     * @param clusterId     Cluster ObjectId (hex string accepted)
+     * @param region        AWS region
+     * @param subscriptionId Subscription ObjectId (hex string accepted) — main lifecycle link
+     * @return allocation record (state PROVISIONING_PENDING immediately,
+     *         transitions to PROVISIONING / READY asynchronously)
      */
     @Transactional
     public MdbAllocation allocateMdb(String orgId, String clusterId, String region, String subscriptionId) {
+        ObjectId clusterObjId = new ObjectId(clusterId);
+
         // Idempotency: check if allocation already exists for this cluster
-        MdbAllocation existing = allocationRepo.findByClusterId(new ObjectId(clusterId)).orElse(null);
+        MdbAllocation existing = allocationRepo.findByClusterId(clusterObjId).orElse(null);
         if (existing != null) {
             switch (existing.getStatus()) {
                 case PROVISIONING_PENDING -> {
-                    // Was created but state machine event never fired — fire now
                     log.info("[MdbAllocationService] allocateMdb retry: allocation {} still PENDING, firing START_PROVISION",
                         existing.getId());
                     mdbSmService.transition(existing.getId(), MdbAllocationEventType.START_PROVISION,
@@ -76,58 +71,56 @@ public class MdbAllocationService {
                     return allocationRepo.findById(existing.getId()).orElse(existing);
                 }
                 case PROVISIONING, READY -> {
-                    // Already allocated or in progress — return as-is
                     log.info("[MdbAllocationService] allocateMdb idempotent: allocation {} already exists (status={})",
                         existing.getId(), existing.getStatus());
                     return existing;
                 }
                 case PROVISIONING_FAILED -> {
-                    // Previous attempt failed — let caller decide whether to retry
-                    // Return the failed record; caller can check status
                     log.warn("[MdbAllocationService] allocateMdb: allocation {} in PROVISIONING_FAILED — caller must decide retry",
                         existing.getId());
                     return existing;
                 }
                 case DELETING, DELETED -> {
-                    // Previously reclaimed — this shouldn't happen for an active subscription
-                    // unless it's a reactivate-after-cancel scenario; for now, reject
                     throw new BusinessException(AppErrorCode.BAD_REQUEST, 400,
                         "Allocation " + existing.getId() + " is already deleted; cannot re-allocate for same cluster");
                 }
             }
         }
 
-        // === Step 1: Pick Atlas instance slot ===
-        AtlasInstanceConfig instance;
+        // === Step 1: Pick MdbCluster slot ===
+        MdbCluster cluster;
         try {
-            instance = atlasMdbService.createMdb(orgId, clusterId, region);
+            cluster = atlasMdbService.createMdb(orgId, clusterId, region);
         } catch (MdbException e) {
-            log.error("[MdbAllocationService] No Atlas instance available for region={}, cluster={}", region, clusterId);
-            throw new BusinessException(AppErrorCode.CLUSTER_PROVISION_FAILED, 503, "No Atlas capacity for region " + region);
+            log.error("[MdbAllocationService] No MdbCluster capacity for region={}, cluster={}", region, clusterId);
+            throw new BusinessException(AppErrorCode.CLUSTER_PROVISION_FAILED, 503,
+                "No Atlas capacity for region " + region);
         }
 
         // === Step 2: Generate per-allocation credentials ===
         String databaseName = atlasMdbService.generateDatabaseName(clusterId);
+        String operatorDbName = atlasMdbService.generateOperatorDbName(databaseName);
+        String viewsDbName = atlasMdbService.generateViewsDbName(databaseName);
         String dbUsername = atlasMdbService.generateDatabaseUsername(databaseName);
         String dbPassword = atlasMdbService.generateDatabasePassword();
 
         // === Step 3: Persist allocation record ===
         MdbAllocation allocation = MdbAllocation.builder()
             .orgId(new ObjectId(orgId))
-            .clusterId(new ObjectId(clusterId))
-            .atlasInstanceId(instance.getId())
-            .atlasProjectId(instance.getAtlasProjectId())
-            .atlasClusterName(instance.getAtlasClusterName())
+            .subscriptionId(new ObjectId(subscriptionId))
+            .clusterId(clusterObjId)
+            .mdbClusterId(cluster.getId())
             .databaseName(databaseName)
+            .operatorDbName(operatorDbName)
+            .viewsDbName(viewsDbName)
             .dbUsername(dbUsername)
             .dbPassword(dbPassword)
-            .subscriptionId(new ObjectId(subscriptionId))
             .status(MdbAllocationStatus.PROVISIONING_PENDING)
             .build();
 
         MdbAllocation saved = allocationRepo.save(allocation);
-        log.info("[MdbAllocationService] Allocation created: instance={}, db={}, user={}, cluster={}",
-            instance.getId(), databaseName, dbUsername, clusterId);
+        log.info("[MdbAllocationService] Allocation created: mdbCluster={}, db={}, operatorDb={}, viewsDb={}, user={}, cluster={}",
+            cluster.getId(), databaseName, operatorDbName, viewsDbName, dbUsername, clusterId);
 
         // === Step 4: Fire state machine → async Atlas provisioning ===
         mdbSmService.transition(saved.getId(), MdbAllocationEventType.START_PROVISION,
@@ -139,14 +132,10 @@ public class MdbAllocationService {
     // ========== reclaimMdb ==========
 
     /**
-     * Reclaim (release) the Atlas database for a Cluster.
-     * <p>
-     * Idempotent — already-deleted or already-deleting allocations return
-     * immediately without error. PROVISIONING_FAILED allocations are also
-     * safe to reclaim (no resources to clean up, just mark DELETED).
-     * <p>
-     * Lifecycle: fires {@link MdbAllocationEventType#INITIATE_RECLAIM} →
-     * state machine handles async Atlas dropUser + dropDatabase.
+     * Reclaim (release) the Atlas databases for a Cluster. Idempotent —
+     * already-deleted / already-deleting allocations return immediately.
+     *
+     * @param clusterId Cluster ObjectId
      */
     @Transactional
     public void reclaimMdb(ObjectId clusterId) {
@@ -158,13 +147,11 @@ public class MdbAllocationService {
 
         switch (allocation.getStatus()) {
             case DELETING, DELETED -> {
-                // Already reclaiming or reclaimed — idempotent no-op
                 log.info("[MdbAllocationService] reclaimMdb: allocation {} already in status={} — idempotent",
                     allocation.getId(), allocation.getStatus());
                 return;
             }
             case PROVISIONING_PENDING, PROVISIONING, READY -> {
-                // Fire INITIATE_RECLAIM → state machine handles async teardown
                 mdbSmService.transition(allocation.getId(), MdbAllocationEventType.INITIATE_RECLAIM,
                     "subscription:reclaim");
                 log.info("[MdbAllocationService] reclaimMdb: allocation {} transitioning to DELETING", allocation.getId());
@@ -178,13 +165,5 @@ public class MdbAllocationService {
                 log.info("[MdbAllocationService] reclaimMdb: failed allocation {} — marked DELETED directly", allocation.getId());
             }
         }
-    }
-
-    // ========== Helpers ==========
-
-    private String generateId(String prefix) {
-        byte[] bytes = new byte[8];
-        secureRandom.nextBytes(bytes);
-        return prefix + HexFormat.of().formatHex(bytes);
     }
 }
