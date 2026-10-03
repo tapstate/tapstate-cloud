@@ -121,25 +121,42 @@ public class MdbAllocation {
      * Takes the clean shared-cluster connection string + injects our dbUser/dbPassword
      * + main database name + {@code authSource=admin} (Atlas default).
      * <p>
-     * Example output:
+     * Supports both Atlas URI flavors:
      * <pre>
-     * mongodb+srv://owner_mdb_6475a2b3c1d4e5f6a7b8c9d1:p***@tapstate-shared.mongodb.net/mdb_6475a2b3c1d4e5f6a7b8c9d1?authSource=admin
+     *   mongodb+srv://host                       → mongodb+srv://user:pass@host/db?authSource=admin
+     *   mongodb://host1:27017,host2:27017[/...]  → mongodb://user:pass@host1:27017,host2:27017/db?authSource=admin
      * </pre>
+     * Any credentials or options embedded in the input are replaced: the runtime
+     * authenticates exclusively as this allocation's dbUser against the main db.
      *
      * @param instanceConnectionString clean URI from MdbCluster (no credentials embedded)
      */
     public String buildRuntimeConnectionString(String instanceConnectionString) {
         if (instanceConnectionString == null) return null;
-        // Strip any embedded user:password → inject our own
-        String stripped = instanceConnectionString.replaceFirst("mongodb\\+srv://[^/@]*@", "mongodb+srv://");
-        String userPart = "mongodb+srv://" + dbUsername + ":" + dbPassword + "@";
-        String rest = stripped.substring("mongodb+srv://".length());
-        int q = rest.indexOf('?');
-        if (q > 0) {
-            rest = rest.substring(0, q) + "/" + databaseName + "?authSource=admin&" + rest.substring(q + 1);
-        } else {
-            rest = rest + "/" + databaseName + "?authSource=admin";
+
+        int schemeEnd = instanceConnectionString.indexOf("://");
+        if (schemeEnd < 0) {
+            throw new IllegalArgumentException(
+                "Invalid MongoDB connection string (no scheme): " + instanceConnectionString);
         }
-        return userPart + rest;
+        String scheme = instanceConnectionString.substring(0, schemeEnd + 3);
+        String authorityAndPath = instanceConnectionString.substring(schemeEnd + 3);
+
+        // Strip any embedded credentials; keep the host list and preserve any
+        // existing options (authSource is always forced to admin).
+        int at = authorityAndPath.indexOf('@');
+        String rest = at >= 0 ? authorityAndPath.substring(at + 1) : authorityAndPath;
+        int question = rest.indexOf('?');
+        String hostAndPath = question >= 0 ? rest.substring(0, question) : rest;
+        String existingOptions = question >= 0 ? rest.substring(question + 1) : "";
+        int slash = hostAndPath.indexOf('/');
+        String hostList = slash >= 0 ? hostAndPath.substring(0, slash) : hostAndPath;
+
+        String options = existingOptions.isBlank()
+            ? "authSource=admin"
+            : "authSource=admin&" + existingOptions;
+
+        return scheme + dbUsername + ":" + dbPassword + "@" + hostList
+            + "/" + databaseName + "?" + options;
     }
 }

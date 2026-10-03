@@ -7,9 +7,11 @@ import io.tapstate.cloud.cluster.ProvisionErrorCode;
 import io.tapstate.cloud.iac.ClusterProvisioningService;
 import io.tapstate.cloud.iac.ClusterProvisioningService.ProvisionResult;
 import io.tapstate.cloud.iac.IacProperties;
+import io.tapstate.cloud.subscription.ClusterReadyEvent;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.statemachine.StateMachine;
 import org.springframework.statemachine.config.StateMachineFactory;
 import org.springframework.statemachine.support.DefaultStateMachineContext;
@@ -49,6 +51,7 @@ public class ClusterStateMachineService {
     private final ClusterRepository clusterRepository;
     private final ClusterProvisioningService clusterProvisioningService;
     private final IacProperties iacProperties;
+    private final ApplicationEventPublisher eventPublisher;
 
     private final SecureRandom secureRandom = new SecureRandom();
 
@@ -60,11 +63,13 @@ public class ClusterStateMachineService {
         StateMachineFactory<ClusterState, ClusterEventType> clusterStateMachineFactory,
         ClusterRepository clusterRepository,
         ClusterProvisioningService clusterProvisioningService,
-        IacProperties iacProperties) {
+        IacProperties iacProperties,
+        ApplicationEventPublisher eventPublisher) {
         this.clusterStateMachineFactory = clusterStateMachineFactory;
         this.clusterRepository = clusterRepository;
         this.clusterProvisioningService = clusterProvisioningService;
         this.iacProperties = iacProperties;
+        this.eventPublisher = eventPublisher;
     }
 
     /**
@@ -101,6 +106,12 @@ public class ClusterStateMachineService {
             clusterRepository.save(cluster);
 
             scheduleAsyncEffects(cluster, prevState, newState, event);
+
+            // Notify the subscription resource-readiness join once the READY
+            // state (and its synchronous fields) are durable.
+            if (newState == ClusterState.READY) {
+                eventPublisher.publishEvent(new ClusterReadyEvent(clusterId));
+            }
 
             log.info("[Cluster FSM] {} cluster {}: {} → {} on event={}",
                 operator, clusterId, prevState, newState, event);

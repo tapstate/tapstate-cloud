@@ -4,8 +4,10 @@ import io.tapstate.cloud.mdb.AtlasMdbService;
 import io.tapstate.cloud.mdb.MdbAllocation;
 import io.tapstate.cloud.mdb.MdbAllocationRepository;
 import io.tapstate.cloud.mdb.MdbAllocationStatus;
+import io.tapstate.cloud.subscription.MdbAllocationReadyEvent;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.statemachine.StateMachine;
 import org.springframework.statemachine.config.StateMachineFactory;
 import org.springframework.statemachine.support.DefaultStateMachineContext;
@@ -23,7 +25,7 @@ import org.bson.types.ObjectId;
  *   <li>PROVISIONING_PENDING → PROVISIONING: delegate async Atlas DB + user creation to {@link AtlasMdbService}</li>
  *   <li>PROVISIONING → READY: mark allocation ready (timestamp)</li>
  *   <li>PROVISIONING → PROVISIONING_FAILED: persist error detail</li>
- *   <li>INITIATE_RECLAIM → DELETING: fire async Atlas DB + user teardown</li>
+ *   <li>INITIATE_RECLAIM → DELETING: fire async Atlas teardown (drop databases, then db user)</li>
  *   <li>DELETING → DELETED: record deletion timestamp</li>
  * </ul>
  */
@@ -34,15 +36,18 @@ public class MdbAllocationStateMachineService {
     private final StateMachineFactory<MdbAllocationStatus, MdbAllocationEventType> mdbAllocationStateMachineFactory;
     private final MdbAllocationRepository allocationRepo;
     private final AtlasMdbService atlasMdbService;
+    private final ApplicationEventPublisher eventPublisher;
 
     public MdbAllocationStateMachineService(
         @Qualifier("mdbAllocationStateMachineFactory")
         StateMachineFactory<MdbAllocationStatus, MdbAllocationEventType> mdbAllocationStateMachineFactory,
         MdbAllocationRepository allocationRepo,
-        AtlasMdbService atlasMdbService) {
+        AtlasMdbService atlasMdbService,
+        ApplicationEventPublisher eventPublisher) {
         this.mdbAllocationStateMachineFactory = mdbAllocationStateMachineFactory;
         this.allocationRepo = allocationRepo;
         this.atlasMdbService = atlasMdbService;
+        this.eventPublisher = eventPublisher;
     }
 
     /**
@@ -76,6 +81,12 @@ public class MdbAllocationStateMachineService {
             applyTransitionEffects(allocation, prevStatus, newStatus, event);
 
             allocationRepo.save(allocation);
+
+            // Notify the subscription resource-readiness join once READY is durable.
+            if (newStatus == MdbAllocationStatus.READY) {
+                eventPublisher.publishEvent(new MdbAllocationReadyEvent(
+                    allocationId, allocation.getClusterId(), allocation.getSubscriptionId()));
+            }
 
             log.info("[MdbAllocation FSM] {} allocation {}: {} → {} on event={}",
                 operator, allocationId, prevStatus, newStatus, event);
@@ -138,8 +149,11 @@ public class MdbAllocationStateMachineService {
         if (from == MdbAllocationStatus.READY && to == MdbAllocationStatus.DELETING) {
             Thread.ofVirtual().start(() -> {
                 try {
-                    atlasMdbService.dropDatabaseUser(allocation);
+                    // Order matters: databases are dropped over a Mongo connection
+                    // authenticated as the per-allocation dbUser, so the user must
+                    // be deleted only AFTER its databases are gone.
                     atlasMdbService.dropDatabase(allocation);
+                    atlasMdbService.dropDatabaseUser(allocation);
                     transition(allocation.getId(), MdbAllocationEventType.RECLAIM_COMPLETE, "system(atlas-reclaim)");
                 } catch (Exception e) {
                     log.warn("[MdbAllocation FSM] Atlas reclaim failed for allocation {}: {}",

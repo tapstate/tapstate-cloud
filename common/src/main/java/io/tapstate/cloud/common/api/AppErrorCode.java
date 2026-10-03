@@ -40,6 +40,7 @@ public enum AppErrorCode implements ErrorCode {
     IAC_SSH_COMMAND_FAILED("iac.ssh-command-failed", "SSH operation failed: {0}"),
     IAC_HEALTH_CHECK_FAILED("iac.health-check-failed", "Cluster endpoint health check failed: {0}"),
     IAC_CRYPTO_KEY_MISSING("iac.crypto-key-missing", "SSH private-key master key is missing or invalid: {0}"),
+    IAC_MDB_NOT_READY("iac.mdb-not-ready", "Allocated MongoDB database is not ready: {0}"),
 
     // ---------- Region ----------
     REGION_NOT_FOUND("region.not-found", "Region {0} is not available"),
