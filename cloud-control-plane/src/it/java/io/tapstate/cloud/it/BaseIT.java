@@ -86,13 +86,17 @@ public abstract class BaseIT {
     static void resolveBaseUrl() {
         String port = System.getProperty("it.server.port", "8081");
         BASE_URL = "http://localhost:" + port;
-        // Install a default CookieManager so HttpClient.newBuilder().cookieHandler(...) works
-        if (java.net.CookieManager.getDefault() == null) {
-            java.net.CookieManager.setDefault(new java.net.CookieManager());
-        }
+        // Deliberately NO CookieHandler/CookieManager: every test manages its
+        // TAPSTATE_CLOUD_SESSION explicitly via the Cookie header. A shared jar
+        // here silently stores Set-Cookie values from other responses — and the
+        // server even issues a fresh session cookie on anonymous 401 responses
+        // (e.g. JwksIT probing a protected endpoint). The JDK client then sends
+        // the jar cookie AHEAD of the explicit one, producing two session
+        // cookies in one request; Spring Session resolves the wrong (anonymous
+        // or another test's) identity and every later protected GET fails with
+        // 403 org.not-member. Keep this client cookie-jar free.
         httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(3))
-            .cookieHandler(java.net.CookieManager.getDefault())
             .build();
     }
 
@@ -185,7 +189,9 @@ public abstract class BaseIT {
                 .uri(URI.create(BASE_URL + path))
                 .GET();
             if (headers != null) headers.forEach(req::header);
-            return httpClient.send(req.build(), HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> resp = httpClient.send(req.build(), HttpResponse.BodyHandlers.ofString());
+            traceResponse("GET", path, resp);
+            return resp;
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -198,10 +204,27 @@ public abstract class BaseIT {
                 .POST(HttpRequest.BodyPublishers.ofString(body))
                 .header("Content-Type", "application/json");
             if (headers != null) headers.forEach(req::header);
-            return httpClient.send(req.build(), HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> resp = httpClient.send(req.build(), HttpResponse.BodyHandlers.ofString());
+            traceResponse("POST", path, resp);
+            return resp;
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
+    }
+
+    /**
+     * Surface non-2xx raw responses in failsafe output. Polling helpers used to
+     * treat every error envelope as "resource not visible yet", which hid the
+     * real cause (401/403/500) behind an assertion timeout. Bodies are capped so
+     * an unexpected HTML error page cannot flood the log.
+     */
+    private static void traceResponse(String method, String path, HttpResponse<String> resp) {
+        if (resp.statusCode() / 100 == 2) return;
+        String body = resp.body() == null ? "" : resp.body();
+        if (body.length() > 300) {
+            body = body.substring(0, 300) + "...";
+        }
+        System.out.println("[it-http] " + method + " " + path + " -> " + resp.statusCode() + " body=" + body);
     }
 
     // ---- MongoDB shell helpers ----
@@ -255,18 +278,24 @@ public abstract class BaseIT {
         //   system.indexes — internal MongoDB
         // After dropping, reset currentAllocations on preserved MdbClusters
         //   so each IT test starts with a clean capacity count.
+        long startedAt = System.currentTimeMillis();
+        System.out.println("[it-wipe] start database=" + MONGO_DB);
         try {
             String output = mongoshEval(
                 "print(' [wipe] database=' + db.getName());" +
                 "const keep = new Set(['sessions','regions','mdb_clusters','atlas_configs','jwks_keys'," +
                 "'cluster_status_report_history','system.indexes']);" +
-                "db.getCollectionNames().filter(c => !keep.has(c)).forEach(c => db.getCollection(c).drop());" +
+                "let dropped = 0;" +
+                "db.getCollectionNames().filter(c => !keep.has(c)).forEach(c => { if (db.getCollection(c).drop()) dropped++; });" +
+                "print(' [wipe] droppedCollections=' + dropped);" +
                 "db.mdb_clusters.updateMany({}, {$set: {currentAllocations: 0, updatedAt: new Date()}});" +
-                "db.cluster_status_report_history.deleteMany({});" +
+                "print(' [wipe] historyRemoved=' + db.cluster_status_report_history.deleteMany({}).deletedCount);" +
                 "db.mdb_clusters.find().forEach(c => print(' [wipe] MdbCluster ' + c._id + ' capacity reset ' + c.currentAllocations + '/' + c.maxAllocations));");
             if (output.toLowerCase().contains("error")) {
                 throw new IllegalStateException("mongosh wipe reported an error:\n" + output.strip());
             }
+            System.out.println("[it-wipe] done database=" + MONGO_DB
+                + " elapsedMs=" + (System.currentTimeMillis() - startedAt) + "\n" + output.strip().indent(2));
         } catch (RuntimeException e) {
             throw e;
         } catch (Exception e) {

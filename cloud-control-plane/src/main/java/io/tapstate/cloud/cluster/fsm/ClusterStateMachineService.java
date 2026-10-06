@@ -212,32 +212,40 @@ public class ClusterStateMachineService {
 
     /** Provision infrastructure on a virtual thread and feed the result back. */
     private void startAsyncProvisioning(ObjectId clusterId) {
+        log.info("[Cluster FSM] scheduling real provisioning for cluster {}", clusterId);
         Thread.ofVirtual().start(() -> {
+            long startedAt = System.currentTimeMillis();
             try {
                 Cluster latest = clusterRepository.findById(clusterId).orElse(null);
                 if (latest == null || latest.getState() != ClusterState.PROVISIONING) {
+                    log.info("[Cluster FSM] real provisioning skipped for cluster {} (state={})",
+                        clusterId, latest == null ? "missing" : latest.getState());
                     return;
                 }
 
                 ProvisionResult result = clusterProvisioningService.provision(latest);
+                log.info("[Cluster FSM] real provisioning finished for cluster {} in {}ms success={}",
+                    clusterId, System.currentTimeMillis() - startedAt, result.success());
                 if (result.success()) {
                     transition(clusterId, ClusterEventType.PROVISION_SUCCESS, "system:iac");
                 } else {
                     transition(clusterId, ClusterEventType.PROVISION_FAIL, "system:iac");
                 }
             } catch (Exception e) {
-                log.error("[Cluster FSM] provisioning error for cluster {}: {}",
-                    clusterId, e.getMessage());
+                log.error("[Cluster FSM] provisioning error for cluster {} after {}ms: {}",
+                    clusterId, System.currentTimeMillis() - startedAt, e.getMessage());
             }
         });
     }
 
     /** Sweep leftovers from the failed attempt, then re-enter provisioning. */
     private void scheduleRetry(ObjectId clusterId) {
+        log.info("[Cluster FSM] scheduling real compensation+retry for cluster {}", clusterId);
         Thread.ofVirtual().start(() -> {
             try {
                 Cluster latest = clusterRepository.findById(clusterId).orElse(null);
                 if (latest == null) {
+                    log.info("[Cluster FSM] real retry skipped, cluster {} no longer exists", clusterId);
                     return;
                 }
                 // Idempotent: a fully compensated attempt has no stack and no DNS.
@@ -252,16 +260,21 @@ public class ClusterStateMachineService {
 
     /** Reclaim cloud resources on a virtual thread. */
     private void startAsyncTermination(ObjectId clusterId) {
+        log.info("[Cluster FSM] scheduling real resource termination for cluster {}", clusterId);
         Thread.ofVirtual().start(() -> {
+            long startedAt = System.currentTimeMillis();
             try {
                 Cluster latest = clusterRepository.findById(clusterId).orElse(null);
                 if (latest == null) {
+                    log.info("[Cluster FSM] resource termination skipped, cluster {} no longer exists", clusterId);
                     return;
                 }
                 clusterProvisioningService.terminate(latest);
+                log.info("[Cluster FSM] resource termination finished for cluster {} in {}ms",
+                    clusterId, System.currentTimeMillis() - startedAt);
             } catch (Exception e) {
-                log.error("[Cluster FSM] resource cleanup failed for cluster {}: {}",
-                    clusterId, e.getMessage());
+                log.error("[Cluster FSM] resource cleanup failed for cluster {} after {}ms: {}",
+                    clusterId, System.currentTimeMillis() - startedAt, e.getMessage());
             }
         });
     }
@@ -270,14 +283,22 @@ public class ClusterStateMachineService {
 
     /** Simulate the provisioning delay, then succeed or fail at the configured rate. */
     private void startAsyncMockProvisioning(ObjectId clusterId) {
+        int delayMs = 2_000 + secureRandom.nextInt(3_000);
+        boolean willSucceed = secureRandom.nextInt(100) < provisionSuccessRate;
+        log.info("[Cluster FSM] scheduling mock provisioning for cluster {} delayMs={} successRate={}%",
+            clusterId, delayMs, provisionSuccessRate);
         Thread.ofVirtual().start(() -> {
             try {
-                TimeUnit.MILLISECONDS.sleep(2_000 + secureRandom.nextInt(3_000));
+                TimeUnit.MILLISECONDS.sleep(delayMs);
                 Cluster latest = clusterRepository.findById(clusterId).orElse(null);
                 if (latest == null || latest.getState() != ClusterState.PROVISIONING) {
+                    log.info("[Cluster FSM] mock provisioning skipped for cluster {} (state={})",
+                        clusterId, latest == null ? "missing" : latest.getState());
                     return;
                 }
-                if (secureRandom.nextInt(100) < provisionSuccessRate) {
+                log.info("[Cluster FSM] mock provisioning completing cluster {} outcome={}",
+                    clusterId, willSucceed ? "PROVISION_SUCCESS" : "PROVISION_FAIL");
+                if (willSucceed) {
                     transition(clusterId, ClusterEventType.PROVISION_SUCCESS, "mock:provision");
                 } else {
                     transition(clusterId, ClusterEventType.PROVISION_FAIL, "mock:provision");
@@ -293,6 +314,7 @@ public class ClusterStateMachineService {
 
     /** Re-enter provisioning after a short delay. */
     private void scheduleMockRetry(ObjectId clusterId) {
+        log.info("[Cluster FSM] scheduling mock retry for cluster {} delayMs=1000", clusterId);
         Thread.ofVirtual().start(() -> {
             try {
                 TimeUnit.MILLISECONDS.sleep(1_000);

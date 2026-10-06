@@ -119,17 +119,31 @@ public class MdbAllocationStateMachineService {
 
         // === PROVISIONING_PENDING → PROVISIONING: async Atlas DB + user creation ===
         if (from == MdbAllocationStatus.PROVISIONING_PENDING && to == MdbAllocationStatus.PROVISIONING) {
+            log.info("[MdbAllocation FSM] scheduling async Atlas provisioning for allocation {} clusterId={}",
+                allocation.getId(), allocation.getClusterId());
             Thread.ofVirtual().start(() -> {
+                long startedAt = System.currentTimeMillis();
                 try {
                     // First create database (connectivity check + seed)
                     atlasMdbService.createDatabase(allocation);
                     // Then create database user with readWrite on that DB
                     atlasMdbService.createDatabaseUser(allocation);
-                    // Success — fire PROVISION_SUCCESS
-                    transition(allocation.getId(), MdbAllocationEventType.PROVISION_SUCCESS, "system(atlas-provision)");
+                    log.info("[MdbAllocation FSM] Atlas provisioning succeeded for allocation {} in {}ms",
+                        allocation.getId(), System.currentTimeMillis() - startedAt);
+                    // AtlasMdbService marks READY directly (markReady) after user
+                    // creation, so the persisted state may already be READY. Fire
+                    // the FSM event only when it is still PROVISIONING; otherwise
+                    // the send is rejected as a spurious PROVISION_SUCCESS.
+                    MdbAllocation fresh = allocationRepo.findById(allocation.getId()).orElse(null);
+                    if (fresh != null && fresh.getStatus() == MdbAllocationStatus.PROVISIONING) {
+                        transition(allocation.getId(), MdbAllocationEventType.PROVISION_SUCCESS, "system(atlas-provision)");
+                    } else {
+                        log.info("[MdbAllocation FSM] allocation {} already in status {} after provisioning; skipping PROVISION_SUCCESS",
+                            allocation.getId(), fresh == null ? "missing" : fresh.getStatus());
+                    }
                 } catch (Exception e) {
-                    log.error("[MdbAllocation FSM] Atlas provisioning failed for allocation {}: {}",
-                        allocation.getId(), e.getMessage());
+                    log.error("[MdbAllocation FSM] Atlas provisioning failed for allocation {} after {}ms: {}",
+                        allocation.getId(), System.currentTimeMillis() - startedAt, e.getMessage());
                     // Record error detail before firing PROVISION_FAIL
                     MdbAllocation latest = allocationRepo.findById(allocation.getId()).orElse(allocation);
                     latest.setProvisionErrorCode("ATLAS_PROVISION_FAILED");
@@ -147,17 +161,22 @@ public class MdbAllocationStateMachineService {
 
         // === INITIATE_RECLAIM → DELETING: async Atlas teardown ===
         if (from == MdbAllocationStatus.READY && to == MdbAllocationStatus.DELETING) {
+            log.info("[MdbAllocation FSM] scheduling async Atlas reclaim for allocation {} clusterId={}",
+                allocation.getId(), allocation.getClusterId());
             Thread.ofVirtual().start(() -> {
+                long startedAt = System.currentTimeMillis();
                 try {
                     // Order matters: databases are dropped over a Mongo connection
                     // authenticated as the per-allocation dbUser, so the user must
                     // be deleted only AFTER its databases are gone.
                     atlasMdbService.dropDatabase(allocation);
                     atlasMdbService.dropDatabaseUser(allocation);
+                    log.info("[MdbAllocation FSM] Atlas reclaim succeeded for allocation {} in {}ms",
+                        allocation.getId(), System.currentTimeMillis() - startedAt);
                     transition(allocation.getId(), MdbAllocationEventType.RECLAIM_COMPLETE, "system(atlas-reclaim)");
                 } catch (Exception e) {
-                    log.warn("[MdbAllocation FSM] Atlas reclaim failed for allocation {}: {}",
-                        allocation.getId(), e.getMessage());
+                    log.warn("[MdbAllocation FSM] Atlas reclaim failed for allocation {} after {}ms: {}",
+                        allocation.getId(), System.currentTimeMillis() - startedAt, e.getMessage());
                     transition(allocation.getId(), MdbAllocationEventType.RECLAIM_FAILED, "system(atlas-reclaim)");
                 }
             });
