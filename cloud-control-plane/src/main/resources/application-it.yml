@@ -12,7 +12,11 @@ spring:
   data:
     mongodb:
       uri: ${TAPSTATE_CLOUD_MONGO_URI:mongodb://localhost:27017/tapstate_cloud_it}
-      database: ${TAPSTATE_CLOUD_MONGO_DB:tapstate_cloud_it}
+      # Empty by default so the database embedded in the URI path is used —
+      # an explicit TAPSTATE_CLOUD_MONGO_DB must never silently redirect the
+      # application to a different store than the one the URI (and the IT
+      # mongosh helpers) connect to.
+      database: ${TAPSTATE_CLOUD_MONGO_DB:}
   security:
     user:
       name: it-dev

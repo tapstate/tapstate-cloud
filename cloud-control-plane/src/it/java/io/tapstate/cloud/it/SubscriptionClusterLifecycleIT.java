@@ -159,9 +159,17 @@ class SubscriptionClusterLifecycleIT extends BaseIT {
             "Exactly one subscription document");
         assertEquals(orgId, subscription.path("orgId").asText());
         assertEquals("TRIAL", subscription.path("status").asText());
-        assertEquals("PROVISIONING", subscription.path("resourceState").asText(),
-            "resources must be PROVISIONING immediately after subscribing — the join "
-                + "must not flip to READY before both FSMs finish");
+        // Both mock FSMs can finish within seconds, so by the time this raw
+        // document is read the join may already have flipped to READY on a
+        // fast/quiet machine. The join itself is discriminated later by the
+        // resourcesReadyAt timestamp ordering (not earlier than either side's
+        // readyAt); here we only assert the resource state exists and has left
+        // the pre-subscription null state.
+        String initialResourceState = subscription.path("resourceState").asText();
+        assertTrue("PROVISIONING".equals(initialResourceState)
+                || "READY".equals(initialResourceState),
+            "resource state must be PROVISIONING or already READY after subscribing, got: "
+                + initialResourceState);
         Instant periodStart = dateField(subscription, "currentPeriodStart");
         Instant periodEnd = dateField(subscription, "currentPeriodEnd");
         assertNotNull(periodStart);

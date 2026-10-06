@@ -217,31 +217,47 @@ public abstract class BaseIT {
         return mongoshUri(MONGO_URI, eval);
     }
 
-    /** Run a mongosh script against an explicit connection string (e.g. a per-allocation Atlas URI). */
+    /**
+     * Run a mongosh script against an explicit connection string (e.g. a
+     * per-allocation Atlas URI). A non-zero exit (connection refused, auth
+     * failure, SRV resolution error, ...) throws with the merged shell output
+     * so a broken helper never looks like a successful test setup.
+     */
     protected static String mongoshUri(String connectionUri, String eval) throws Exception {
         Process p = new ProcessBuilder("mongosh", "--quiet", connectionUri, "--eval", eval)
             .redirectErrorStream(true).start();
         String out = new String(p.getInputStream().readAllBytes());
-        p.waitFor();
+        int exit = p.waitFor();
+        if (exit != 0) {
+            String redacted = connectionUri.replaceAll("://[^@/]+@", "://***:***@");
+            throw new IllegalStateException(
+                "mongosh failed (exit " + exit + ") against " + redacted + ":\n" + out.strip());
+        }
         return out;
     }
 
     // ---- MongoDB cleanup ----
 
-    /** Wipes all collections in the test DB before each IT class. Idempotent. */
+    /**
+     * Wipe business collections before each test. Failures propagate: a wipe
+     * that silently no-ops (wrong database, lost credentials) makes every test
+     * fail with confusing duplicate-data errors instead of the real cause.
+     */
     protected static void wipeTestDatabase() {
+        // Drop business collections but preserve:
+        //   sessions — Spring Session store
+        //   regions — seeded once by RegionSeeder on app startup
+        //   mdb_clusters + atlas_configs — seeded by MdbClusterSeeder / AtlasConfigSeeder
+        //   jwks_keys — seeded by JwksRotationService on startup
+        //   cluster_status_report_history — time-series collection, must NOT be dropped
+        //       (MongoInitListener only creates it on app startup — a drop would
+        //       silently recreate it as a plain collection on next insert)
+        //   system.indexes — internal MongoDB
+        // After dropping, reset currentAllocations on preserved MdbClusters
+        //   so each IT test starts with a clean capacity count.
         try {
-            // Drop business collections but preserve:
-            //   sessions — Spring Session store
-            //   regions — seeded once by RegionSeeder on app startup
-            //   mdb_clusters + atlas_configs — seeded by MdbClusterSeeder / AtlasConfigSeeder
-            //   cluster_status_report_history — time-series collection, must NOT be dropped
-            //       (MongoInitListener only creates it on app startup — a drop would
-            //       silently recreate it as a plain collection on next insert)
-            //   system.indexes — internal MongoDB
-            // After dropping, reset currentAllocations on preserved MdbClusters
-            //   so each IT test starts with a clean capacity count.
             String output = mongoshEval(
+                "print(' [wipe] database=' + db.getName());" +
                 "const keep = new Set(['sessions','regions','mdb_clusters','atlas_configs','jwks_keys'," +
                 "'cluster_status_report_history','system.indexes']);" +
                 "db.getCollectionNames().filter(c => !keep.has(c)).forEach(c => db.getCollection(c).drop());" +
@@ -249,10 +265,12 @@ public abstract class BaseIT {
                 "db.cluster_status_report_history.deleteMany({});" +
                 "db.mdb_clusters.find().forEach(c => print(' [wipe] MdbCluster ' + c._id + ' capacity reset ' + c.currentAllocations + '/' + c.maxAllocations));");
             if (output.toLowerCase().contains("error")) {
-                System.err.println("[BaseIT] mongosh wipe reported: " + output.strip());
+                throw new IllegalStateException("mongosh wipe reported an error:\n" + output.strip());
             }
+        } catch (RuntimeException e) {
+            throw e;
         } catch (Exception e) {
-            System.err.println("[BaseIT] MongoDB cleanup error: " + e.getMessage());
+            throw new IllegalStateException("IT control-plane wipe failed against " + MONGO_URI, e);
         }
     }
 
