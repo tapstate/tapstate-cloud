@@ -55,10 +55,7 @@ class SubscriptionClusterLifecycleIT extends BaseIT {
 
     /** Run a mongosh script that prints a single JSON document or value. */
     private JsonNode mongoJson(String eval) throws Exception {
-        Process p = new ProcessBuilder("mongosh", "--quiet", "--eval", eval, MONGO_DB)
-            .redirectErrorStream(true).start();
-        String out = new String(p.getInputStream().readAllBytes()).trim();
-        p.waitFor();
+        String out = mongoshEval(eval).trim();
         return mapper.readTree(out.isBlank() ? "null" : out);
     }
 

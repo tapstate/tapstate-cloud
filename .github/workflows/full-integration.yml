@@ -1,0 +1,244 @@
+# ============================================================
+# Full integration suite (maven-failsafe *IT.java)
+#
+# Triggered by pull requests against main/develop and by pushes
+# to develop. Two jobs:
+#
+#   integration-mock  — fast, cloud-free ITs. The control-plane
+#                       store is an Atlas cluster supplied through
+#                       the TAPSTATE_CLOUD_MONGO_URI secret; IaC and
+#                       Atlas run in mock mode.
+#   integration-real  — the FULL suite, including AwsClusterDeployIT
+#                       and AwsAtlasFullLifecycleIT against real AWS
+#                       and real Atlas. Creates billable resources
+#                       for 15-30 minutes, therefore runs globally
+#                       serialized (queued, never cancelled) and
+#                       self-skips when any cloud secret is missing.
+#
+# Secrets (repository or environment):
+#   TAPSTATE_CLOUD_MONGO_URI      full mongodb+srv URI incl. db name
+#   AWS_ACCESS_KEY_ID             CloudFormation/EC2 permissions
+#   AWS_SECRET_ACCESS_KEY
+#   GODADDY_API_KEY               gd_pat_ PAT (Bearer) or classic key
+#   GODADDY_API_SECRET            only needed for classic sso-key
+#   TAPSTATE_ATLAS_PUBLIC_KEY     Atlas Admin API key
+#   TAPSTATE_ATLAS_PRIVATE_KEY
+#   TAPSTATE_ATLAS_PROJECT_ID
+#   TAPSTATE_ATLAS_CLUSTER_NAME
+#   TAPSTATE_ATLAS_CONNECTION_STRING  clean mongodb+srv seed URI
+#
+# The real job also requires the Atlas project network access list
+# and the Admin API key allowlist to accept GitHub runner egress.
+# ============================================================
+
+name: Full Integration
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [develop]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------- Fast, cloud-free integration tests ----------
+  integration-mock:
+    name: Integration (mock)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: integration-mock-${{ github.ref }}
+      cancel-in-progress: true
+
+    services:
+      # Local mongod backs the surefire unit tests (same as ci.yaml);
+      # the ITs themselves use TAPSTATE_CLOUD_MONGO_URI.
+      mongodb:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --eval 'db.runCommand({ping:1})'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      TAPSTATE_CLOUD_MONGO_URI: ${{ secrets.TAPSTATE_CLOUD_MONGO_URI }}
+
+    steps:
+      - name: Verify required secrets
+        run: |
+          if [ -z "${TAPSTATE_CLOUD_MONGO_URI}" ]; then
+            echo "::error::repository secret TAPSTATE_CLOUD_MONGO_URI is not configured (full Atlas URI incl. database name)"
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+
+      - name: Install mongosh
+        run: |
+          set -euo pipefail
+          . /etc/os-release
+          sudo apt-get update
+          sudo apt-get install -y gnupg ca-certificates curl
+          curl -fsSL https://www.mongodb.org/static/pgp/server-8.0.asc | \
+            sudo gpg -o /usr/share/keyrings/mongodb-server-8.0.gpg --dearmor
+          echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-8.0.gpg ] https://repo.mongodb.org/apt/ubuntu ${VERSION_CODENAME}/mongodb-org/8.0 multiverse" | \
+            sudo tee /etc/apt/sources.list.d/mongodb-org-8.0.list
+          sudo apt-get update
+          sudo apt-get install -y mongodb-mongosh
+          mongosh --version
+
+      - name: Run cloud-free ITs
+        run: >
+          mvn -B -ntp -DskipSdkGeneration=true
+          -pl cloud-control-plane -am verify
+          -Dit.test=!AwsAtlasFullLifecycleIT,!AwsClusterDeployIT,!**/atlas/*IT.java
+          -DfailIfNoSpecifiedTests=false
+
+      - name: Upload failsafe reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failsafe-reports-mock
+          path: cloud-control-plane/target/failsafe-reports/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # ---------- Full suite against real AWS + real Atlas ----------
+  integration-real:
+    name: Integration (real AWS + Atlas)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    needs: integration-mock
+    # Global group without the ref: cloud runs are mutually exclusive
+    # across refs because they share the Atlas seed documents and create
+    # billable resources. Never cancel a run mid-flight.
+    concurrency:
+      group: integration-real-aws-atlas
+      cancel-in-progress: false
+
+    services:
+      mongodb:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --eval 'db.runCommand({ping:1})'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Check cloud credentials
+        id: creds
+        env:
+          MONGO_URI: ${{ secrets.TAPSTATE_CLOUD_MONGO_URI }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          GODADDY_API_KEY: ${{ secrets.GODADDY_API_KEY }}
+          ATLAS_PUBLIC_KEY: ${{ secrets.TAPSTATE_ATLAS_PUBLIC_KEY }}
+          ATLAS_PRIVATE_KEY: ${{ secrets.TAPSTATE_ATLAS_PRIVATE_KEY }}
+          ATLAS_PROJECT_ID: ${{ secrets.TAPSTATE_ATLAS_PROJECT_ID }}
+          ATLAS_CLUSTER_NAME: ${{ secrets.TAPSTATE_ATLAS_CLUSTER_NAME }}
+          ATLAS_CONNECTION_STRING: ${{ secrets.TAPSTATE_ATLAS_CONNECTION_STRING }}
+        run: |
+          missing=()
+          for name in MONGO_URI AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY GODADDY_API_KEY \
+                      ATLAS_PUBLIC_KEY ATLAS_PRIVATE_KEY ATLAS_PROJECT_ID \
+                      ATLAS_CLUSTER_NAME ATLAS_CONNECTION_STRING; do
+            if [ -z "${!name}" ]; then
+              missing+=("$name")
+            fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "### Real cloud ITs skipped"
+              echo
+              echo "Missing secrets: ${missing[*]}"
+              echo
+              echo "The real AWS + Atlas lifecycle ITs need every secret listed"
+              echo "in .github/workflows/full-integration.yml."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        if: steps.creds.outputs.present == 'true'
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        if: steps.creds.outputs.present == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+
+      - name: Install mongosh and DNS tooling
+        if: steps.creds.outputs.present == 'true'
+        run: |
+          set -euo pipefail
+          . /etc/os-release
+          sudo apt-get update
+          sudo apt-get install -y gnupg ca-certificates curl dnsutils
+          curl -fsSL https://www.mongodb.org/static/pgp/server-8.0.asc | \
+            sudo gpg -o /usr/share/keyrings/mongodb-server-8.0.gpg --dearmor
+          echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-8.0.gpg ] https://repo.mongodb.org/apt/ubuntu ${VERSION_CODENAME}/mongodb-org/8.0 multiverse" | \
+            sudo tee /etc/apt/sources.list.d/mongodb-org-8.0.list
+          sudo apt-get update
+          sudo apt-get install -y mongodb-mongosh
+          mongosh --version
+          dig -v
+
+      - name: Configure AWS credentials
+        if: steps.creds.outputs.present == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-southeast-1
+
+      - name: Run full IT suite (real AWS + real Atlas)
+        if: steps.creds.outputs.present == 'true'
+        env:
+          TAPSTATE_CLOUD_MONGO_URI: ${{ secrets.TAPSTATE_CLOUD_MONGO_URI }}
+          GODADDY_API_KEY: ${{ secrets.GODADDY_API_KEY }}
+          GODADDY_API_SECRET: ${{ secrets.GODADDY_API_SECRET }}
+          TAPSTATE_ATLAS_PUBLIC_KEY: ${{ secrets.TAPSTATE_ATLAS_PUBLIC_KEY }}
+          TAPSTATE_ATLAS_PRIVATE_KEY: ${{ secrets.TAPSTATE_ATLAS_PRIVATE_KEY }}
+          TAPSTATE_ATLAS_PROJECT_ID: ${{ secrets.TAPSTATE_ATLAS_PROJECT_ID }}
+          TAPSTATE_ATLAS_CLUSTER_NAME: ${{ secrets.TAPSTATE_ATLAS_CLUSTER_NAME }}
+          TAPSTATE_ATLAS_CONNECTION_STRING: ${{ secrets.TAPSTATE_ATLAS_CONNECTION_STRING }}
+        # GitHub runners have direct egress — disable the local-forwarder
+        # proxy defaults that the real ITs ship with for dev machines.
+        run: >
+          mvn -B -ntp -DskipSdkGeneration=true
+          -pl cloud-control-plane -am verify
+          -Diac.proxyHost=none -Diac.proxyPort=0
+
+      - name: Upload failsafe reports and app logs
+        if: always() && steps.creds.outputs.present == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: failsafe-reports-real
+          path: |
+            cloud-control-plane/target/failsafe-reports/
+            cloud-control-plane/target/real-app-atlas.log
+            cloud-control-plane/target/real-app.log
+          if-no-files-found: ignore
+          retention-days: 14

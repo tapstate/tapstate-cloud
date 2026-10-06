@@ -44,8 +44,10 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  * <p>
  * Credential prerequisites — the test is SKIPPED (not failed) when any is absent:
  * <ul>
- *   <li>{@code ~/.aws/credentials} with CloudFormation/EC2/Route53-less DNS via GoDaddy</li>
- *   <li>{@code GODADDY_API_KEY} / {@code GODADDY_API_SECRET}</li>
+ *   <li>{@code ~/.aws/credentials} or {@code AWS_ACCESS_KEY_ID} /
+ *       {@code AWS_SECRET_ACCESS_KEY} (CloudFormation/EC2 + GoDaddy-based DNS)</li>
+ *   <li>{@code GODADDY_API_KEY} (a {@code gd_pat_} PAT needs no secret; a classic
+ *       sso-key also needs {@code GODADDY_API_SECRET})</li>
  *   <li>{@code TAPSTATE_ATLAS_PUBLIC_KEY} / {@code TAPSTATE_ATLAS_PRIVATE_KEY}</li>
  *   <li>{@code TAPSTATE_ATLAS_PROJECT_ID}, {@code TAPSTATE_ATLAS_CLUSTER_NAME},
  *       {@code TAPSTATE_ATLAS_CONNECTION_STRING} (clean mongodb+srv URI)</li>
@@ -78,10 +80,20 @@ class AwsAtlasFullLifecycleIT extends BaseIT {
 
     @BeforeAll
     static void startRealApp() throws Exception {
-        boolean awsCredentials = new File(System.getProperty("user.home"), ".aws/credentials").isFile();
-        assumeTrue(awsCredentials, "~/.aws/credentials missing — skipping real AWS+Atlas lifecycle IT");
-        assumeTrue(env("GODADDY_API_KEY") != null && env("GODADDY_API_SECRET") != null,
-            "GoDaddy credentials missing — skipping real AWS+Atlas lifecycle IT");
+        // CI injects AWS credentials as environment variables; local runs use
+        // the ~/.aws/credentials file.
+        boolean awsCredentials = new File(System.getProperty("user.home"), ".aws/credentials").isFile()
+            || (env("AWS_ACCESS_KEY_ID") != null && env("AWS_SECRET_ACCESS_KEY") != null);
+        assumeTrue(awsCredentials,
+            "AWS credentials missing (~/.aws/credentials or AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY) "
+                + "— skipping real AWS+Atlas lifecycle IT");
+        // A GoDaddy Personal Access Token (gd_pat_…) authenticates as Bearer
+        // and needs no secret; the classic sso-key form needs both key+secret.
+        String godaddyKey = env("GODADDY_API_KEY");
+        assumeTrue(godaddyKey != null && !godaddyKey.isBlank(),
+            "GODADDY_API_KEY missing — skipping real AWS+Atlas lifecycle IT");
+        assumeTrue(godaddyKey.startsWith("gd_pat_") || env("GODADDY_API_SECRET") != null,
+            "GODADDY_API_SECRET missing for classic sso-key — skipping real AWS+Atlas lifecycle IT");
         assumeTrue(env("TAPSTATE_ATLAS_PUBLIC_KEY") != null && env("TAPSTATE_ATLAS_PRIVATE_KEY") != null,
             "Atlas API keys missing — skipping real AWS+Atlas lifecycle IT");
         assumeTrue(env("TAPSTATE_ATLAS_PROJECT_ID") != null
@@ -319,7 +331,7 @@ class AwsAtlasFullLifecycleIT extends BaseIT {
                 + "status: 'ACTIVE', currentAllocations: 0, maxAllocations: 100},"
                 + "$unset: {cluster: ''}});"
                 + "print('seeds repointed')";
-        assertEquals("seeds repointed", mongosh(eval).trim());
+        assertEquals("seeds repointed", mongoshEval(eval).trim());
     }
 
     /** Restore the deterministic dev/it mock seeds so other ITs stay cloud-free. */
@@ -337,19 +349,11 @@ class AwsAtlasFullLifecycleIT extends BaseIT {
                     + "connectionString: 'mongodb+srv://tapstate-shared.mongodb.net',"
                     + "status: 'ACTIVE', currentAllocations: 0, maxAllocations: 100}});"
                     + "print('seeds restored')";
-            mongosh(eval);
+            mongoshEval(eval);
         } catch (Exception e) {
             System.err.println("[AwsAtlasFullLifecycleIT] failed to restore mock seeds: "
                 + e.getMessage());
         }
-    }
-
-    private static String mongosh(String eval) throws Exception {
-        Process p = new ProcessBuilder("mongosh", "--quiet", "--eval", eval, MONGO_DB)
-            .redirectErrorStream(true).start();
-        String out = new String(p.getInputStream().readAllBytes());
-        p.waitFor();
-        return out;
     }
 
     private static void runQuietly(ProcessBuilder builder) {
@@ -362,7 +366,7 @@ class AwsAtlasFullLifecycleIT extends BaseIT {
     }
 
     private JsonNode mongoOne(String eval) throws Exception {
-        String out = mongosh(eval).trim();
+        String out = mongoshEval(eval).trim();
         return mapper.readTree(out.isBlank() ? "null" : out);
     }
 
@@ -405,11 +409,7 @@ class AwsAtlasFullLifecycleIT extends BaseIT {
 
     /** Authenticate against Atlas exactly as the Cluster runtime would. */
     private String mongoshPing(String runtimeUri) throws Exception {
-        Process p = new ProcessBuilder("mongosh", runtimeUri, "--quiet",
-            "--eval", "print(db.runCommand({ping: 1}).ok)")
-            .redirectErrorStream(true).start();
-        String out = new String(p.getInputStream().readAllBytes()).trim();
-        p.waitFor(60, java.util.concurrent.TimeUnit.SECONDS);
+        String out = mongoshUri(runtimeUri, "print(db.runCommand({ping: 1}).ok)").trim();
         return out.lines().reduce((first, second) -> second).orElse("").trim();
     }
 

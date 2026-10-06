@@ -43,9 +43,32 @@ public abstract class BaseIT {
     /** Server base URL — resolved from System property or default. */
     protected static String BASE_URL;
 
-    /** MongoDB URI for direct cleanup between tests. */
-    protected static String MONGO_URI = "mongodb://localhost:27017";
-    protected static String MONGO_DB = "tapstate_cloud_it";
+    /**
+     * Control-plane store for the IT run. Local mongod by default; CI injects a
+     * full Atlas connection string (database name included) via
+     * {@code TAPSTATE_CLOUD_MONGO_URI}. The forked application and every
+     * mongosh invocation in the ITs use the same value.
+     */
+    protected static final String MONGO_URI = System.getenv()
+        .getOrDefault("TAPSTATE_CLOUD_MONGO_URI", "mongodb://localhost:27017/tapstate_cloud_it");
+    protected static final String MONGO_DB = resolveDatabaseName();
+
+    private static String resolveDatabaseName() {
+        String override = System.getenv("TAPSTATE_CLOUD_MONGO_DB");
+        if (override != null && !override.isBlank()) {
+            return override;
+        }
+        // Take the path component of a full URI: mongodb://host[:port]/<db>[?opts]
+        String afterHost = MONGO_URI.substring(MONGO_URI.indexOf("://") + 3);
+        int slash = afterHost.indexOf('/');
+        if (slash < 0) {
+            return "tapstate_cloud_it";
+        }
+        String dbAndOptions = afterHost.substring(slash + 1);
+        int question = dbAndOptions.indexOf('?');
+        String db = question >= 0 ? dbAndOptions.substring(0, question) : dbAndOptions;
+        return db.isBlank() ? "tapstate_cloud_it" : db;
+    }
 
     /** One shared HttpClient for raw HTTP calls (fallback where SDK doesn't cover). */
     protected static HttpClient httpClient;
@@ -181,38 +204,52 @@ public abstract class BaseIT {
         }
     }
 
+    // ---- MongoDB shell helpers ----
+
+    /**
+     * Run a mongosh script against the IT control-plane store ({@link #MONGO_URI},
+     * which may be a local mongod or an Atlas cluster) and return merged output.
+     * Scripts print their own result; prefer {@code print(JSON.stringify(...))}
+     * because plain {@code printjson} emits shell-style EJSON (unquoted keys,
+     * Long("...")) that is not valid JSON.
+     */
+    protected static String mongoshEval(String eval) throws Exception {
+        return mongoshUri(MONGO_URI, eval);
+    }
+
+    /** Run a mongosh script against an explicit connection string (e.g. a per-allocation Atlas URI). */
+    protected static String mongoshUri(String connectionUri, String eval) throws Exception {
+        Process p = new ProcessBuilder("mongosh", "--quiet", connectionUri, "--eval", eval)
+            .redirectErrorStream(true).start();
+        String out = new String(p.getInputStream().readAllBytes());
+        p.waitFor();
+        return out;
+    }
+
     // ---- MongoDB cleanup ----
 
     /** Wipes all collections in the test DB before each IT class. Idempotent. */
     protected static void wipeTestDatabase() {
         try {
-            Process p = new ProcessBuilder("mongosh", "--quiet", "--eval",
-                // Drop business collections but preserve:
-                //   sessions — Spring Session store
-                //   regions — seeded once by RegionSeeder on app startup
-                //   mdb_clusters + atlas_configs — seeded by MdbClusterSeeder / AtlasConfigSeeder
-                //   cluster_status_report_history — time-series collection, must NOT be dropped
-                //       (MongoInitListener only creates it on app startup — a drop would
-                //       silently recreate it as a plain collection on next insert)
-                //   system.indexes — internal MongoDB
-                // After dropping, reset currentAllocations on preserved MdbClusters
-                //   so each IT test starts with a clean capacity count.
+            // Drop business collections but preserve:
+            //   sessions — Spring Session store
+            //   regions — seeded once by RegionSeeder on app startup
+            //   mdb_clusters + atlas_configs — seeded by MdbClusterSeeder / AtlasConfigSeeder
+            //   cluster_status_report_history — time-series collection, must NOT be dropped
+            //       (MongoInitListener only creates it on app startup — a drop would
+            //       silently recreate it as a plain collection on next insert)
+            //   system.indexes — internal MongoDB
+            // After dropping, reset currentAllocations on preserved MdbClusters
+            //   so each IT test starts with a clean capacity count.
+            String output = mongoshEval(
                 "const keep = new Set(['sessions','regions','mdb_clusters','atlas_configs','jwks_keys'," +
                 "'cluster_status_report_history','system.indexes']);" +
                 "db.getCollectionNames().filter(c => !keep.has(c)).forEach(c => db.getCollection(c).drop());" +
                 "db.mdb_clusters.updateMany({}, {$set: {currentAllocations: 0, updatedAt: new Date()}});" +
                 "db.cluster_status_report_history.deleteMany({});" +
-                "db.mdb_clusters.find().forEach(c => print(' [wipe] MdbCluster ' + c._id + ' capacity reset ' + c.currentAllocations + '/' + c.maxAllocations));",
-                MONGO_DB)
-                .redirectErrorStream(true)
-                .start();
-            // Consume stdout so it doesn't block the pipe
-            new Thread(() -> {
-                try { p.getInputStream().readAllBytes(); } catch (Exception ignored) {}
-            }).start();
-            int rc = p.waitFor();
-            if (rc != 0) {
-                System.err.println("[BaseIT] mongosh wipe exit code=" + rc);
+                "db.mdb_clusters.find().forEach(c => print(' [wipe] MdbCluster ' + c._id + ' capacity reset ' + c.currentAllocations + '/' + c.maxAllocations));");
+            if (output.toLowerCase().contains("error")) {
+                System.err.println("[BaseIT] mongosh wipe reported: " + output.strip());
             }
         } catch (Exception e) {
             System.err.println("[BaseIT] MongoDB cleanup error: " + e.getMessage());

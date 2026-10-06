@@ -1,6 +1,8 @@
 # ============================================================
 # Integration test profile — src/it/java failsafe tests
-# Connects to local MongoDB (NOT Testcontainers) — dev-machine IT baseline.
+# Dedicated IT configuration. The control-plane store is a MongoDB that
+# defaults to a local instance; CI injects an Atlas connection string via
+# TAPSTATE_CLOUD_MONGO_URI (full URI, database name included).
 # Use: mvn verify -Dit.server.port=8081
 # ============================================================
 
@@ -9,8 +11,8 @@ spring:
     name: tapstate-cloud-control-it
   data:
     mongodb:
-      uri: mongodb://localhost:27017/tapstate_cloud_it
-      database: tapstate_cloud_it
+      uri: ${TAPSTATE_CLOUD_MONGO_URI:mongodb://localhost:27017/tapstate_cloud_it}
+      database: ${TAPSTATE_CLOUD_MONGO_DB:tapstate_cloud_it}
   security:
     user:
       name: it-dev
@@ -33,6 +35,12 @@ tapstate:
     resolve-jwt-expiry-minutes: 15
     session-expiry-days: 7
     default-region: ap-southeast-1
+    mdb:
+      atlas:
+        # Mock by default keeps the fast IT suite cloud-free; the real
+        # AWS+Atlas lifecycle IT launches its own application process with
+        # this switched off.
+        mock: ${TAPSTATE_CLOUD_MDB_ATLAS_MOCK:true}
     cluster:
       provision:
         # Mock provisioning must always succeed in the fast IT suite.

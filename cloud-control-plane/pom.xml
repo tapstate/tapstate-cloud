@@ -30,6 +30,10 @@
     <maven.deploy.skip>true</maven.deploy.skip>
     <!-- IT server port — must match application-it.yml and ApiClient base URL in BaseIT -->
     <it.server.port>8081</it.server.port>
+    <!-- Outbound proxy for the real cloud ITs. Local dev defaults to the local
+         forwarder; CI overrides with -Diac.proxyHost=none for direct egress. -->
+    <iac.proxyHost>127.0.0.1</iac.proxyHost>
+    <iac.proxyPort>1235</iac.proxyPort>
   </properties>
 
   <dependencies>
@@ -235,6 +239,9 @@
             <it.server.port>${it.server.port}</it.server.port>
             <!-- Spring profile for IT (controls MongoDB DB name, etc.) -->
             <spring.profiles.active>it</spring.profiles.active>
+            <!-- Proxy for real cloud ITs; host=none disables (CI direct egress) -->
+            <iac.proxyHost>${iac.proxyHost}</iac.proxyHost>
+            <iac.proxyPort>${iac.proxyPort}</iac.proxyPort>
           </systemPropertyVariables>
           <argLine>-Xms512m -Xmx1024m</argLine>
         </configuration>

@@ -79,28 +79,22 @@ class SubscriptionFlowIT extends BaseIT {
     // ========== Raw Mongo helpers ==========
 
     private JsonNode getMdbAllocationForCluster(String clusterId) throws Exception {
-        Process p = new ProcessBuilder("mongosh", "--quiet", "--eval",
-            "const a = db.mdb_allocations.findOne({clusterId: ObjectId('" + clusterId + "')}); print(JSON.stringify(a ? a : {}));",
-            MONGO_DB).redirectErrorStream(true).start();
-        p.waitFor();
-        String out = new String(p.getInputStream().readAllBytes()).trim();
+        String out = mongoshEval(
+            "const a = db.mdb_allocations.findOne({clusterId: ObjectId('" + clusterId + "')}); print(JSON.stringify(a ? a : {}));")
+            .trim();
         return mapper.readTree(out);
     }
 
     private String getMdbAllocationStatus(String clusterId) throws Exception {
-        Process p = new ProcessBuilder("mongosh", "--quiet", "--eval",
-            "const a = db.mdb_allocations.findOne({clusterId: ObjectId('" + clusterId + "')}); print(a ? a.status : 'NONE');",
-            MONGO_DB).redirectErrorStream(true).start();
-        p.waitFor();
-        return new String(p.getInputStream().readAllBytes()).trim();
+        return mongoshEval(
+            "const a = db.mdb_allocations.findOne({clusterId: ObjectId('" + clusterId + "')}); print(a ? a.status : 'NONE');")
+            .trim();
     }
 
     private int countMdbAllocationsForCluster(String clusterId) throws Exception {
-        Process p = new ProcessBuilder("mongosh", "--quiet", "--eval",
-            "db.mdb_allocations.countDocuments({clusterId: ObjectId('" + clusterId + "')})",
-            MONGO_DB).redirectErrorStream(true).start();
-        p.waitFor();
-        return Integer.parseInt(new String(p.getInputStream().readAllBytes()).trim().replaceAll("[^0-9]", ""));
+        return Integer.parseInt(mongoshEval(
+            "db.mdb_allocations.countDocuments({clusterId: ObjectId('" + clusterId + "')})")
+            .trim().replaceAll("[^0-9]", ""));
     }
 
     // ========== T1 — Happy path: POST /subscription → Cluster + MDB records ==========
