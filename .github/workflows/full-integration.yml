@@ -48,7 +48,7 @@ jobs:
   integration-mock:
     name: Integration (mock)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 50
     concurrency:
       group: integration-mock-${{ github.ref }}
       cancel-in-progress: true
@@ -101,12 +101,92 @@ jobs:
           sudo apt-get install -y mongodb-mongosh
           mongosh --version
 
+      - name: Wait for operator to allowlist runner IP for Atlas connectivity
+        id: atlas-ip
+        timeout-minutes: 20
+        env:
+          TAPSTATE_CLOUD_MONGO_URI: ${{ secrets.TAPSTATE_CLOUD_MONGO_URI }}
+        run: |
+          set -euo pipefail
+
+          ip=""
+          for svc in https://api.ipify.org https://checkip.amazonaws.com https://ifconfig.me/ip; do
+            ip="$(curl -fsS --max-time 10 "$svc" 2>/dev/null | tr -d '[:space:]' || true)"
+            if [ -n "$ip" ]; then break; fi
+          done
+          if [ -z "$ip" ]; then
+            echo "::error::Could not determine runner egress IPv4"
+            exit 1
+          fi
+          echo "ip=$ip" >> "$GITHUB_OUTPUT"
+
+          echo ""
+          echo "============================================================"
+          echo " MOCK-JOB RUNNER PUBLIC IP (add to Atlas Project):  $ip"
+          echo "============================================================"
+          echo " Project -> Network Access -> IP Access List"
+          echo "   -> ADD IP ADDRESS -> $ip/32"
+          echo " The control-plane IT database lives on Atlas; until this"
+          echo " runner IP is allowed, mongosh and every IT fail."
+          echo " Polling for up to 20 minutes; the job resumes automatically."
+          echo "============================================================"
+          echo ""
+          {
+            echo "### Action required: allowlist mock-job runner IP"
+            echo
+            echo '```'
+            echo "$ip"
+            echo '```'
+            echo "Add \`$ip/32\` under Project -> Network Access -> IP Access List."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          deadline=$((SECONDS + 1140))
+          announced=0
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            if mongosh "$TAPSTATE_CLOUD_MONGO_URI" --quiet --norc \
+                --eval 'assert(db.adminCommand({ping:1}).ok === 1)' >/dev/null 2>&1; then
+              echo "[$(date -u +%H:%M:%S)] Atlas driver connectivity OK for $ip - continuing"
+              exit 0
+            fi
+            if [ "$announced" = "0" ]; then
+              echo "[$(date -u +%H:%M:%S)] Atlas still unreachable from $ip - waiting for Network Access allowlist"
+              announced=1
+            fi
+            sleep 20
+          done
+          echo "::error::Timed out after 19 minutes waiting for Atlas connectivity for $ip"
+          exit 1
+
       - name: Run cloud-free ITs
         run: >
           mvn -B -ntp -DskipSdkGeneration=true
           -pl cloud-control-plane -am verify
           -Dit.test=!AwsAtlasFullLifecycleIT,!AwsClusterDeployIT,!**/atlas/*IT.java
           -DfailIfNoSpecifiedTests=false
+
+      - name: Remove runner IP from Atlas project access list
+        if: always()
+        env:
+          ATLAS_PUBLIC_KEY: ${{ secrets.TAPSTATE_ATLAS_PUBLIC_KEY }}
+          ATLAS_PRIVATE_KEY: ${{ secrets.TAPSTATE_ATLAS_PRIVATE_KEY }}
+          ATLAS_PROJECT_ID: ${{ secrets.TAPSTATE_ATLAS_PROJECT_ID }}
+          ATLAS_EGRESS_IP: ${{ steps.atlas-ip.outputs.ip }}
+        run: |
+          set -u
+          [ -z "${ATLAS_PUBLIC_KEY:-}" ] && { echo "No Atlas Admin credentials; skip access-list cleanup"; exit 0; }
+          [ -z "${ATLAS_EGRESS_IP:-}" ] && { echo "No runner IP was registered; nothing to clean"; exit 0; }
+          api="https://cloud.mongodb.com/api/atlas/v2/groups/${ATLAS_PROJECT_ID}/accessList/${ATLAS_EGRESS_IP}"
+          code="$(curl -sS --max-time 30 --digest -u "$ATLAS_PUBLIC_KEY:$ATLAS_PRIVATE_KEY" \
+            -H 'Accept: application/vnd.atlas.2023-02-01+json' \
+            -X DELETE "$api" -o /tmp/atlas-mock-del.json -w '%{http_code}')"
+          echo "DELETE project accessList ${ATLAS_EGRESS_IP} -> HTTP $code"
+          case "$code" in
+            2??|404) echo "Cleanup done" ;;
+            *)
+              echo "::warning::Project list cleanup returned $code; remove ${ATLAS_EGRESS_IP} manually"
+              cat /tmp/atlas-mock-del.json || true
+              ;;
+          esac
 
       - name: Upload failsafe reports
         if: always()
@@ -121,7 +201,7 @@ jobs:
   integration-real:
     name: Integration (real AWS + Atlas)
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 85
     needs: integration-mock
     # Global group without the ref: cloud runs are mutually exclusive
     # across refs because they share the Atlas seed documents and create
