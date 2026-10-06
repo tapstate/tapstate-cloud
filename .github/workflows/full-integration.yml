@@ -213,6 +213,73 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ap-southeast-1
 
+      # GitHub-hosted runners have ephemeral egress IPs, and some Atlas
+      # organizations reject wildcard CIDRs in the Project network access
+      # list. Register this runner's exact IPv4 before any driver connection,
+      # with a 3-hour auto-expiry as a safety net; remove it again afterwards.
+      # NOTE: this only governs mongodb+srv driver access. The Admin REST API
+      # edge gate (API key access list) cannot be self-registered and must be
+      # opened once by an org admin (disable "Require IP Access List for the
+      # Atlas Administration API" and keep the key's list empty).
+      - name: Register runner IP in Atlas project network access list
+        id: atlas-ip
+        if: steps.creds.outputs.present == 'true'
+        env:
+          ATLAS_PUBLIC_KEY: ${{ secrets.TAPSTATE_ATLAS_PUBLIC_KEY }}
+          ATLAS_PRIVATE_KEY: ${{ secrets.TAPSTATE_ATLAS_PRIVATE_KEY }}
+          ATLAS_PROJECT_ID: ${{ secrets.TAPSTATE_ATLAS_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          api="https://cloud.mongodb.com/api/atlas/v2/groups/${ATLAS_PROJECT_ID}/accessList"
+          accept="Accept: application/vnd.atlas.2023-02-01+json"
+
+          ip=""
+          for svc in https://api.ipify.org https://checkip.amazonaws.com https://ifconfig.me/ip; do
+            ip="$(curl -fsS --max-time 10 "$svc" 2>/dev/null | tr -d '[:space:]' || true)"
+            if [ -n "$ip" ]; then break; fi
+          done
+          if [ -z "$ip" ]; then
+            echo "::error::Could not determine runner egress IPv4"
+            exit 1
+          fi
+          echo "Runner egress IP seen by Atlas: $ip"
+          echo "ip=$ip" >> "$GITHUB_OUTPUT"
+
+          expiry="$(date -u -d '+3 hours' +%Y-%m-%dT%H:%M:%SZ)"
+          code="$(curl -sS --max-time 30 --digest -u "$ATLAS_PUBLIC_KEY:$ATLAS_PRIVATE_KEY" \
+            -H "$accept" -H 'Content-Type: application/json' \
+            -X POST "$api" \
+            -d "{\"ipAddress\":\"$ip\",\"comment\":\"gha run ${GITHUB_RUN_ID} attempt ${GITHUB_RUN_ATTEMPT}\",\"deleteAfterDate\":\"$expiry\"}" \
+            -o /tmp/atlas-al-post.json -w '%{http_code}')"
+          echo "POST project accessList -> HTTP $code"
+          case "$code" in
+            2??) ;;
+            403)
+              echo "::error::Atlas Admin API edge gate blocked this runner (403). An org admin must disable 'Require IP Access List for the Atlas Administration API' in Organization Settings AND empty the API key's access list."
+              cat /tmp/atlas-al-post.json || true
+              exit 1
+              ;;
+            *)
+              echo "::error::Unexpected Atlas response $code when registering runner IP"
+              cat /tmp/atlas-al-post.json || true
+              exit 1
+              ;;
+          esac
+
+          # Entries take a few seconds to propagate; wait until visible so the
+          # first mongodb+srv connection does not race the change.
+          for i in $(seq 1 18); do
+            list="$(curl -fsS --max-time 30 --digest -u "$ATLAS_PUBLIC_KEY:$ATLAS_PRIVATE_KEY" \
+              -H "$accept" "$api?itemsPerPage=500" 2>/dev/null || true)"
+            if printf '%s' "$list" | grep -q "\"ipAddress\":\"$ip\""; then
+              echo "Access-list entry $ip is active"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::Access-list entry $ip did not become visible within 90s"
+          exit 1
+
       - name: Run full IT suite (real AWS + real Atlas)
         if: steps.creds.outputs.present == 'true'
         env:
@@ -230,6 +297,33 @@ jobs:
           mvn -B -ntp -DskipSdkGeneration=true
           -pl cloud-control-plane -am verify
           -Diac.proxyHost=none -Diac.proxyPort=0
+
+      - name: Remove runner IP from Atlas project network access list
+        if: always() && steps.creds.outputs.present == 'true'
+        env:
+          ATLAS_PUBLIC_KEY: ${{ secrets.TAPSTATE_ATLAS_PUBLIC_KEY }}
+          ATLAS_PRIVATE_KEY: ${{ secrets.TAPSTATE_ATLAS_PRIVATE_KEY }}
+          ATLAS_PROJECT_ID: ${{ secrets.TAPSTATE_ATLAS_PROJECT_ID }}
+          ATLAS_EGRESS_IP: ${{ steps.atlas-ip.outputs.ip }}
+        run: |
+          set -u
+          if [ -z "${ATLAS_EGRESS_IP:-}" ]; then
+            echo "No access-list entry was registered; nothing to clean up"
+            exit 0
+          fi
+          api="https://cloud.mongodb.com/api/atlas/v2/groups/${ATLAS_PROJECT_ID}/accessList/${ATLAS_EGRESS_IP}"
+          code="$(curl -sS --max-time 30 --digest -u "$ATLAS_PUBLIC_KEY:$ATLAS_PRIVATE_KEY" \
+            -H 'Accept: application/vnd.atlas.2023-02-01+json' \
+            -X DELETE "$api" -o /tmp/atlas-al-delete.json -w '%{http_code}')"
+          echo "DELETE project accessList entry ${ATLAS_EGRESS_IP} -> HTTP $code"
+          case "$code" in
+            2??|404) echo "Cleanup done" ;;
+            *)
+              # Do not fail the job over cleanup: the entry auto-expires in 3h.
+              echo "::warning::Access-list cleanup returned $code; the entry auto-expires within 3 hours"
+              cat /tmp/atlas-al-delete.json || true
+              ;;
+          esac
 
       - name: Upload failsafe reports and app logs
         if: always() && steps.creds.outputs.present == 'true'
