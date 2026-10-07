@@ -49,6 +49,22 @@ public class SubscriptionItem {
     private SubscriptionItemType itemType;
 
     /**
+     * Provisioned Cluster billed by this item. Populated for
+     * {@link SubscriptionItemType#CLUSTER_PIPELINE_RUNTIME} once the
+     * subscription's Cluster record exists; null for shell items and other types.
+     */
+    @Schema(description = "Provisioned Cluster ID (CLUSTER_PIPELINE_RUNTIME items)")
+    private ObjectId clusterId;
+
+    /**
+     * Provisioned MdbAllocation billed by this item. Populated for
+     * {@link SubscriptionItemType#ATLAS_DATABASE_STORAGE} once the Atlas
+     * allocation record exists; null for shell items and other types.
+     */
+    @Schema(description = "Provisioned MdbAllocation ID (ATLAS_DATABASE_STORAGE items)")
+    private ObjectId mdbAllocationId;
+
+    /**
      * Included quantity — interpretation depends on itemType.
      * For CLUSTER_PIPELINE_RUNTIME: number of concurrent pipeline workers included.
      * For ATLAS_DATABASE_STORAGE: included GB-month ceiling (0 = unlimited during trial).

@@ -125,10 +125,22 @@ public class SubscriptionService {
 
         // Link allocation ID to Cluster so the Cluster runtime can find its Atlas DB credentials
         cluster.setMdbAllocationId(allocation.getId());
-        // Note: we need to save cluster — but ClusterService.createCluster already owns the save.
-        // We do a lightweight update here (only setting mdbAllocationId).
-        // Actually, let's use the repo directly since it's a simple add-on.
         clusterService.updateMdbAllocationId(cluster.getId(), allocation.getId());
+
+        // Record the provisioned resource IDs on the corresponding billable
+        // items, so usage aggregation and billing can resolve each line to the
+        // actual Cluster / MdbAllocation instead of inferring the link.
+        linkItemResource(subscriptionId, SubscriptionItemType.CLUSTER_PIPELINE_RUNTIME,
+            cluster.getId(), null);
+        linkItemResource(subscriptionId, SubscriptionItemType.ATLAS_DATABASE_STORAGE,
+            null, allocation.getId());
+
+        // Start Cluster provisioning only now that its allocation link is
+        // durable. The async run loads the Cluster after this point and always
+        // observes the link, so the runtime URI resolves via the allocation
+        // instead of silently falling back to the global URI / local sidecar.
+        clusterService.startProvisioning(cluster.getId(),
+            "subscription:" + creatorEmail);
 
         // Both FSMs are now running; the subscription resources stay PROVISIONING
         // until SubscriptionResourceCoordinator observes Cluster AND allocation READY.
@@ -230,6 +242,28 @@ public class SubscriptionService {
     }
 
     // ========== Private helpers ==========
+
+    /**
+     * Stamp one billable item with the resource ID it bills. A shell
+     * subscription always carries both default items; a missing item means the
+     * shell was created by an older path and is logged, not fatal.
+     */
+    private void linkItemResource(ObjectId subscriptionId, SubscriptionItemType itemType,
+                                  ObjectId clusterId, ObjectId mdbAllocationId) {
+        itemRepository.findBySubscriptionIdAndItemType(subscriptionId, itemType)
+            .ifPresentOrElse(
+                item -> {
+                    item.setClusterId(clusterId);
+                    item.setMdbAllocationId(mdbAllocationId);
+                    itemRepository.save(item);
+                    log.info("[Subscription] {} item linked: subscriptionId={}, clusterId={}, mdbAllocationId={}",
+                        itemType, subscriptionId.toHexString(),
+                        clusterId == null ? null : clusterId.toHexString(),
+                        mdbAllocationId == null ? null : mdbAllocationId.toHexString());
+                },
+                () -> log.warn("[Subscription] {} item missing for subscription {} — resource link not recorded",
+                    itemType, subscriptionId.toHexString()));
+    }
 
     /** Create subscription shell (record + default items), return persisted entity. */
     private Subscription createSubscriptionShell(String orgId) {

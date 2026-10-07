@@ -218,7 +218,15 @@ public class ClusterProvisioningService {
             log.info("[IaC] TLS certificate issued cluster={}", clusterId);
 
             // 11. Verify the public endpoint end to end.
-            waitForHealthy(domain, proxy);
+            try {
+                waitForHealthy(domain, proxy);
+            } catch (IacException e) {
+                // Capture the node side before compensation terminates the EC2
+                // instance: a 502 means the runtime container failed to boot and
+                // its logs are the only evidence of why.
+                throw new IacException(AppErrorCode.IAC_HEALTH_CHECK_FAILED,
+                    e.getMessage() + collectNodeDiagnostics(node.publicIp(), proxy, privateKeyPem));
+            }
 
             log.info("[IaC] provision complete cluster={}", clusterId);
             return ProvisionResult.ok();
@@ -412,6 +420,37 @@ public class ClusterProvisioningService {
             "endpoint not healthy within " + HEALTH_TIMEOUT + ": " + lastError);
     }
 
+    /**
+     * Best-effort snapshot of the runtime stack taken on the node after a failed
+     * health check. Compensation terminates the EC2 instance immediately after a
+     * failed provisioning, so without this capture the container evidence is lost
+     * and diagnosis needs another full provisioning cycle.
+     * <p>
+     * Never throws: a diagnostics failure must not mask the original failure.
+     */
+    private String collectNodeDiagnostics(String nodeIp, ProxyConfig proxy, String privateKeyPem) {
+        String command = "cd /opt/tapstate-runtime"
+            + " && echo '=== docker compose ps ===' && sudo docker compose ps"
+            + " && echo '=== runtime logs (tail) ==='"
+            + " && sudo docker compose logs --tail=200 tapstate-runtime"
+            + " && echo '=== local healthz ==='"
+            + " && curl -sS -m 10 -o /dev/null -w 'local healthz HTTP %{http_code}\\n'"
+            + " http://127.0.0.1:8080/healthz";
+        try (SshSession session = sshClient.connect(nodeIp, SSH_PORT, SSH_USER,
+            privateKeyPem, SSH_SESSION_TIMEOUT_MS, proxyHost(proxy), proxyPort(proxy))) {
+            CommandResult result = session.exec(
+                "sudo bash -c " + shellQuote(command), Duration.ofSeconds(90));
+            String output = result.stdout();
+            if (result.stderr() != null && !result.stderr().isBlank()) {
+                output = output + System.lineSeparator() + result.stderr();
+            }
+            return System.lineSeparator() + "node diagnostics:" + System.lineSeparator()
+                + truncate(output.strip(), 8000);
+        } catch (Exception e) {
+            return System.lineSeparator() + "node diagnostics unavailable: " + safeMessage(e);
+        }
+    }
+
     /** Create the remote directories used by the runtime and ACME webroot. */
     private void prepareRemoteDirs(SshSession session) {
         remoteExec(session,
@@ -505,6 +544,13 @@ public class ClusterProvisioningService {
         }
         String trimmed = value.trim();
         return trimmed.length() > 500 ? trimmed.substring(0, 500) : trimmed;
+    }
+
+    private static String truncate(String value, int max) {
+        if (value == null) {
+            return "";
+        }
+        return value.length() > max ? value.substring(0, max) + "...[truncated]" : value;
     }
 
     /**

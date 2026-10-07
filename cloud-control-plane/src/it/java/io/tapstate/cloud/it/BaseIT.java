@@ -275,6 +275,12 @@ public abstract class BaseIT {
         //   cluster_status_report_history — time-series collection, must NOT be dropped
         //       (MongoInitListener only creates it on app startup — a drop would
         //       silently recreate it as a plain collection on next insert)
+        //   system.buckets.* — physical buckets backing time-series collections
+        //       (getCollectionNames lists them; their logical name is not enough
+        //       to protect them). They must be kept for the same startup-only reason.
+        //   system.views — dropping it is rejected while any time-series
+        //       collection exists, and listCollections order is not stable, so
+        //       never rely on dropping the buckets first.
         //   system.indexes — internal MongoDB
         // After dropping, reset currentAllocations on preserved MdbClusters
         //   so each IT test starts with a clean capacity count.
@@ -285,8 +291,14 @@ public abstract class BaseIT {
                 "print(' [wipe] database=' + db.getName());" +
                 "const keep = new Set(['sessions','regions','mdb_clusters','atlas_configs','jwks_keys'," +
                 "'cluster_status_report_history','system.indexes']);" +
+                // Time-series logical names are discovered at runtime (their physical
+                // system.buckets.* collections are filtered by prefix) so the
+                // wipe never depends on listCollections ordering.
+                "const tsNames = new Set(db.getCollectionInfos({type: 'timeseries'}).map(i => i.name));" +
                 "let dropped = 0;" +
-                "db.getCollectionNames().filter(c => !keep.has(c)).forEach(c => { if (db.getCollection(c).drop()) dropped++; });" +
+                "db.getCollectionNames().filter(c => !keep.has(c) && !tsNames.has(c) && " +
+                "!c.startsWith('system.buckets.') && c !== 'system.views')" +
+                ".forEach(c => { if (db.getCollection(c).drop()) dropped++; });" +
                 "print(' [wipe] droppedCollections=' + dropped);" +
                 "db.mdb_clusters.updateMany({}, {$set: {currentAllocations: 0, updatedAt: new Date()}});" +
                 "print(' [wipe] historyRemoved=' + db.cluster_status_report_history.deleteMany({}).deletedCount);" +

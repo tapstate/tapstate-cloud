@@ -9,9 +9,9 @@ import io.tapstate.cloud.mdb.MdbAllocationRepository;
 import io.tapstate.cloud.mdb.MdbAllocationStatus;
 import io.tapstate.cloud.mdb.MdbCluster;
 import io.tapstate.cloud.mdb.MdbClusterRepository;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.bson.types.ObjectId;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
@@ -28,14 +28,16 @@ import java.util.Set;
  * {@link MdbCluster}, and assembles the per-allocation runtime URI via
  * {@link MdbAllocation#buildRuntimeConnectionString(String)}.
  * <p>
- * A Cluster without a linked allocation (e.g. legacy records) falls back to the
- * globally configured {@code tapstate.cloud.iac.runtime-atlas-uri}; when that is
- * blank the rendered compose file provisions a local MongoDB sidecar instead.
+ * A Cluster without a linked allocation (e.g. legacy records), and every
+ * Cluster while the Atlas allocation engine runs in mock mode (no real Atlas
+ * user exists for the assembled per-allocation credentials), falls back to the
+ * globally configured {@code tapstate.cloud.iac.runtime-atlas-uri}; when that
+ * is blank the rendered compose file provisions a local MongoDB sidecar
+ * instead.
  * The resolved URI carries the per-allocation database password and must never be
  * written to the Cluster document or logs in full.
  */
 @Component
-@RequiredArgsConstructor
 @Slf4j
 public class RuntimeAtlasUriResolver {
 
@@ -54,6 +56,25 @@ public class RuntimeAtlasUriResolver {
     private final IacProperties properties;
 
     /**
+     * Mirrors {@code tapstate.cloud.mdb.atlas.mock} consumed by the allocation
+     * engine. In mock mode no Atlas database user exists, so a linked
+     * allocation's assembled credentials cannot authenticate; the node then
+     * uses the global URI / local MongoDB sidecar instead.
+     */
+    private final boolean atlasMockMode;
+
+    public RuntimeAtlasUriResolver(MdbAllocationRepository allocationRepository,
+                                   MdbClusterRepository mdbClusterRepository,
+                                   IacProperties properties,
+                                   @Value("${tapstate.cloud.mdb.atlas.mock:true}")
+                                   boolean atlasMockMode) {
+        this.allocationRepository = allocationRepository;
+        this.mdbClusterRepository = mdbClusterRepository;
+        this.properties = properties;
+        this.atlasMockMode = atlasMockMode;
+    }
+
+    /**
      * Resolve the runtime Atlas URI for the given Cluster.
      *
      * @throws IacException coded {@link AppErrorCode#IAC_MDB_NOT_READY} when the
@@ -65,12 +86,15 @@ public class RuntimeAtlasUriResolver {
         ObjectId allocationId = cluster.getMdbAllocationId();
         String clusterId = cluster.getId().toHexString();
 
-        if (allocationId == null) {
-            // Legacy / unlinked Cluster: keep the global configuration behavior,
-            // including a blank URI that selects the on-node MongoDB sidecar.
+        if (allocationId == null || atlasMockMode) {
+            // Unlinked/legacy Cluster, or an allocation engine running in mock
+            // mode where no Atlas user exists for the assembled credentials:
+            // keep the global configuration behavior, including a blank global
+            // URI that selects the on-node MongoDB sidecar.
             String globalUri = properties.getRuntimeAtlasUri();
-            log.info("[IaC] Cluster {} has no linked MdbAllocation — falling back to "
+            log.info("[IaC] Cluster {} uses {} — falling back to "
                 + "runtime-atlas-uri ({} sidecar)", clusterId,
+                atlasMockMode ? "mock Atlas allocation" : "no linked MdbAllocation",
                 (globalUri == null || globalUri.isBlank()) ? "local" : "configured");
             return globalUri == null ? "" : globalUri;
         }
