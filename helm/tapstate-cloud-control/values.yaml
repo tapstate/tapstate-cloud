@@ -20,8 +20,9 @@ fullnameOverride: ""
 # Per ADR-0121 D4: ALL credentials come from k3s Secrets.
 # mongoUri / jwksSigningKey / awsCredentials are REQUIRED — the pod will not
 # start without them. godaddy / iacCrypto / runtimeAtlasUri / jwksEncryptionKey
-# are wired as OPTIONAL env refs: environments that run IAC_MODE=mock work
-# without them, and real environments must pre-create them before provisioning
+# are wired as OPTIONAL env refs: environments that run
+# TAPSTATE_CLOUD_IAC_MODE=mock work without them, and real environments must
+# pre-create them before provisioning
 # Clusters (a missing secret then surfaces as a coded provisioning failure,
 # not a pod start failure).
 secrets:
@@ -38,13 +39,14 @@ secrets:
     name: tapstate-cloud-control-aws-credentials
     accessKeyIdKey: access-key-id
     secretAccessKeyKey: secret-access-key
-  # GoDaddy DNS API credentials (only needed when IAC_MODE=real)
+  # GoDaddy DNS API credentials (only needed when TAPSTATE_CLOUD_IAC_MODE=real)
   godaddy:
     name: tapstate-cloud-control-dns
     apiKeyKey: api-key
     apiSecretKeyKey: api-secret
   # Base64-encoded 32-byte AES master key protecting generated SSH private
-  # keys at rest (only needed when IAC_MODE=real; blank blocks provisioning)
+  # keys at rest (only needed when TAPSTATE_CLOUD_IAC_MODE=real; blank blocks
+  # provisioning)
   iacCrypto:
     name: tapstate-cloud-control-iac
     masterKeyKey: master-key

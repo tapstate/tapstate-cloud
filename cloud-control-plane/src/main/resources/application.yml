@@ -119,28 +119,33 @@ tapstate:
     mdb:
       atlas:
         mock: ${TAPSTATE_CLOUD_MDB_ATLAS_MOCK:true}
-    # Infrastructure-as-code layer — multi-cloud Cluster provisioning
+    # Infrastructure-as-code layer — multi-cloud Cluster provisioning.
+    # Env vars carry the FULL property path (relaxed binding): short names
+    # like IAC_MODE do NOT bind to this prefix and are silently shadowed by
+    # profile YAML literals. GODADDY_API_KEY/SECRET keep a legacy fallback
+    # because CI and the real-cloud ITs export the app process under the
+    # short names.
     iac:
-      provider: ${IAC_PROVIDER:aws}
-      mode: ${IAC_MODE:real}
-      public-base-url: ${CLOUD_PUBLIC_BASE_URL:https://cloud.tapstate.com}
-      environment: ${IAC_ENVIRONMENT:dev}
+      provider: ${TAPSTATE_CLOUD_IAC_PROVIDER:aws}
+      mode: ${TAPSTATE_CLOUD_IAC_MODE:real}
+      public-base-url: ${TAPSTATE_CLOUD_IAC_PUBLIC_BASE_URL:https://cloud.tapstate.com}
+      environment: ${TAPSTATE_CLOUD_IAC_ENVIRONMENT:dev}
       # Blank provisions a MongoDB sidecar on each node; set for externally managed MongoDB
-      runtime-atlas-uri: ${RUNTIME_ATLAS_URI:}
+      runtime-atlas-uri: ${TAPSTATE_CLOUD_IAC_RUNTIME_ATLAS_URI:}
       aws:
-        instance-type: ${IAC_AWS_INSTANCE_TYPE:t3.medium}
-        disk-size-gb: ${IAC_AWS_DISK_SIZE_GB:40}
+        instance-type: ${TAPSTATE_CLOUD_IAC_AWS_INSTANCE_TYPE:t3.medium}
+        disk-size-gb: ${TAPSTATE_CLOUD_IAC_AWS_DISK_SIZE_GB:40}
         # Blank = resolve the region default VPC and one of its public subnets.
-        vpc-id: ${IAC_AWS_VPC_ID:}
-        subnet-id: ${IAC_AWS_SUBNET_ID:}
+        vpc-id: ${TAPSTATE_CLOUD_IAC_AWS_VPC_ID:}
+        subnet-id: ${TAPSTATE_CLOUD_IAC_AWS_SUBNET_ID:}
       godaddy:
-        base-url: ${GODADDY_BASE_URL:https://api.godaddy.com}
-        domain: ${GODADDY_DOMAIN:tapstate.com}
-        api-key: ${GODADDY_API_KEY:}
-        api-secret: ${GODADDY_API_SECRET:}
-        ttl: ${GODADDY_TTL:600}
+        base-url: ${TAPSTATE_CLOUD_IAC_GODADDY_BASE_URL:https://api.godaddy.com}
+        domain: ${TAPSTATE_CLOUD_IAC_GODADDY_DOMAIN:tapstate.com}
+        api-key: ${TAPSTATE_CLOUD_IAC_GODADDY_API_KEY:${GODADDY_API_KEY:}}
+        api-secret: ${TAPSTATE_CLOUD_IAC_GODADDY_API_SECRET:${GODADDY_API_SECRET:}}
+        ttl: ${TAPSTATE_CLOUD_IAC_GODADDY_TTL:600}
       crypto:
-        master-key: ${TAPSTATE_IAC_CRYPTO_KEY:}
+        master-key: ${TAPSTATE_CLOUD_IAC_CRYPTO_MASTER_KEY:}
 
 # ========== Logging ==========
 logging:
