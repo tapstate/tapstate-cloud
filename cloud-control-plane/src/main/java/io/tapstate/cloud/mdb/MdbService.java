@@ -12,7 +12,7 @@ package io.tapstate.cloud.mdb;
  * <ol>
  *   <li>{@link #createMdb(String, String, String)} — pick an MdbCluster by region + capacity</li>
  *   <li>{@link #createDatabase(MdbAllocation)} — verify Atlas cluster reachability</li>
- *   <li>{@link #createDatabaseUser(MdbAllocation)} — call Atlas Admin API to create the dbAdmin-scoped user</li>
+ *   <li>{@link #createDatabaseUser(MdbAllocation)} — call Atlas Admin API to create the dbAdmin+readWrite-scoped user</li>
  *   <li>{@link #destroyMdb(MdbAllocation)} — release via dropDatabase + dropDatabaseUser (shared-instance is admin-managed)</li>
  * </ol>
  * All methods throw {@link MdbException} on failure — callers catch this and
@@ -52,9 +52,11 @@ public interface MdbService {
     void createDatabase(MdbAllocation allocation);
 
     /**
-     * Call Atlas Admin API to create the database user with {@code dbAdmin}
-     * role on the three allocation databases (main + operator + views).
-     * Atlas username / password come from
+     * Call Atlas Admin API to create the database user with {@code dbAdmin} and
+     * {@code readWrite} roles on the three allocation databases
+     * (main + operator + views). readWrite is required for the runtime's data
+     * access and bootstrap migrations; dbAdmin additionally permits dropping the
+     * databases on reclaim. Atlas username / password come from
      * {@link MdbAllocation#getDbUsername()} / {@link MdbAllocation#getDbPassword()}.
      * <p>
      * Idempotent: 409 USER_ALREADY_EXISTS treated as success.

@@ -125,9 +125,6 @@ public class SubscriptionService {
 
         // Link allocation ID to Cluster so the Cluster runtime can find its Atlas DB credentials
         cluster.setMdbAllocationId(allocation.getId());
-        // Note: we need to save cluster — but ClusterService.createCluster already owns the save.
-        // We do a lightweight update here (only setting mdbAllocationId).
-        // Actually, let's use the repo directly since it's a simple add-on.
         clusterService.updateMdbAllocationId(cluster.getId(), allocation.getId());
 
         // Record the provisioned resource IDs on the corresponding billable
@@ -137,6 +134,13 @@ public class SubscriptionService {
             cluster.getId(), null);
         linkItemResource(subscriptionId, SubscriptionItemType.ATLAS_DATABASE_STORAGE,
             null, allocation.getId());
+
+        // Start Cluster provisioning only now that its allocation link is
+        // durable. The async run loads the Cluster after this point and always
+        // observes the link, so the runtime URI resolves via the allocation
+        // instead of silently falling back to the global URI / local sidecar.
+        clusterService.startProvisioning(cluster.getId(),
+            "subscription:" + creatorEmail);
 
         // Both FSMs are now running; the subscription resources stay PROVISIONING
         // until SubscriptionResourceCoordinator observes Cluster AND allocation READY.

@@ -101,12 +101,25 @@ public class ClusterService {
         saved.getTags().put("runtime_id", saved.getRuntimeId());
         saved = clusterRepository.save(saved);
 
-        // Fire START_PROVISION event → state machine moves PENDING → PROVISIONING
-        clusterStateMachineService.transition(saved.getId(),
-            ClusterEventType.START_PROVISION, "subscription:" + creatorEmail);
-
-        log.info("Cluster created: {} (sm transition START_PROVISION fired)", saved.getId().toHexString());
+        // The record stays PROVISIONING_PENDING until the caller links the
+        // MdbAllocation and invokes startProvisioning. Firing here would race
+        // the subscription flow, whose allocation link is saved only after this
+        // returns: the async provisioning run can load and persist a snapshot
+        // that predates the link and erase it.
+        log.info("Cluster created: {} (provisioning pending until started)",
+            saved.getId().toHexString());
         return saved;
+    }
+
+    /**
+     * Fire START_PROVISION on a previously created Cluster. The subscription
+     * flow calls this only after the Cluster -> MdbAllocation link is
+     * persisted, so the asynchronous provisioning run observes the link from
+     * its very first document load.
+     */
+    public void startProvisioning(ObjectId clusterId, String trigger) {
+        clusterStateMachineService.transition(clusterId,
+            ClusterEventType.START_PROVISION, trigger);
     }
 
     // ========== Link MDB allocation (called by SubscriptionService after allocation) ==========
