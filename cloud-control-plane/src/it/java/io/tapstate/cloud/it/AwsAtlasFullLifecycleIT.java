@@ -425,8 +425,15 @@ class AwsAtlasFullLifecycleIT extends BaseIT {
     }
 
     private boolean waitForRecordGone() throws Exception {
+        // Query the zone's AUTHORITATIVE nameservers. A public recursive
+        // resolver (8.8.8.8) keeps a positive answer cached for the record TTL
+        // (600s here), so a bounded poll right after the provider delete can
+        // observe the stale cached record even though the record is already
+        // gone at the source; the authoritative answer reflects the delete
+        // immediately without waiting out the TTL.
+        String nameserver = resolveAuthoritativeNameserver(domain);
         for (int i = 0; i < 18; i++) {
-            Process p = new ProcessBuilder("dig", "@8.8.8.8", "+short", "A", domain)
+            Process p = new ProcessBuilder("dig", "@" + nameserver, "+short", "+norecurse", "A", domain)
                 .redirectErrorStream(true).start();
             String out = new String(p.getInputStream().readAllBytes()).trim();
             p.waitFor();
@@ -436,6 +443,37 @@ class AwsAtlasFullLifecycleIT extends BaseIT {
             Thread.sleep(10_000);
         }
         return false;
+    }
+
+    /**
+     * Resolve an authoritative nameserver for the record's zone by walking
+     * labels upward until a zone with an NS delegation is found. Falls back to
+     * 8.8.8.8 (recursive) when NS discovery fails locally.
+     */
+    private static String resolveAuthoritativeNameserver(String fqdn) throws Exception {
+        String zone = fqdn;
+        int dot = zone.indexOf('.');
+        if (dot >= 0) {
+            zone = zone.substring(dot + 1); // strip the host label first
+        }
+        while (zone.contains(".")) {
+            Process p = new ProcessBuilder("dig", "+short", "NS", zone)
+                .redirectErrorStream(true).start();
+            String out = new String(p.getInputStream().readAllBytes()).trim();
+            p.waitFor();
+            for (String line : out.split("\\R")) {
+                String ns = line.trim();
+                if (!ns.isEmpty()) {
+                    return ns.endsWith(".") ? ns.substring(0, ns.length() - 1) : ns;
+                }
+            }
+            dot = zone.indexOf('.');
+            if (dot < 0) {
+                break;
+            }
+            zone = zone.substring(dot + 1);
+        }
+        return "8.8.8.8";
     }
 
     private boolean waitForStackGone() throws Exception {

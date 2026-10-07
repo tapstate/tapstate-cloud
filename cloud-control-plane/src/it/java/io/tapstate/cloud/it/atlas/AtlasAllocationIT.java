@@ -184,6 +184,19 @@ class AtlasAllocationIT {
         assertNotNull(registeredEgressIp, "Egress IPv4 detection failed; cannot register Project network access");
 
         try {
+            // The CI workflow gates this suite behind an operator-managed
+            // allowlist step: a human may already have added this exact IP as a
+            // PERMANENT entry. Atlas rejects posting a temporary (expiring)
+            // entry over a permanent one with
+            // PERMANENT_ENTITY_CANNOT_BE_MADE_TEMPORARY, so check first and
+            // accept an existing entry instead of upserting.
+            if (atlas.accessListContains(PROJECT_ID, registeredEgressIp)) {
+                System.out.println("Egress IP " + registeredEgressIp
+                    + " already present in Project " + PROJECT_ID
+                    + " network access list (operator-managed) — skipping registration");
+                return;
+            }
+
             atlas.addIpAccessListEntry(PROJECT_ID, registeredEgressIp,
                 "tapstate-it " + Instant.now(), Instant.now().plus(Duration.ofHours(3)));
             System.out.println("Registered egress IP " + registeredEgressIp
