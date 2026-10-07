@@ -35,8 +35,9 @@
 # and the registering call is itself gated. Both jobs therefore
 # SSH to a fixed-IP bastion, whose own address is permanently
 # allowlisted, and run curl there to register the runner IP
-# automatically. Every temporary entry carries a deleteAfterDate
-# safety net and is removed through the same bastion in cleanup.
+# automatically. Project entries carry a deleteAfterDate safety net; the
+# per-key list does not accept it, so key entries are removed explicitly in
+# cleanup. All removals go through the same bastion.
 # ============================================================
 
 name: Full Integration
@@ -457,7 +458,11 @@ jobs:
                 python3 -c 'import json,sys; pub=sys.argv[1]; d=json.load(sys.stdin); print(next((k.get("id","") for k in d.get("results",[]) if k.get("publicKey")==pub), ""))' "$pub" 2>/dev/null || true)"
             fi
             if [ -n "$keyid" ]; then
-              kbody="$(printf '[{"ipAddress":"%s","comment":"%s","deleteAfterDate":"%s"}]' "$ip" "$comment" "$expiry")"
+              # This endpoint accepts ONLY ipAddress/cidrBlock per the API
+              # schema: it rejects 'comment' and 'deleteAfterDate'. Removed
+              # explicitly in cleanup - the runner IP is ephemeral, so a
+              # leftover entry is harmless.
+              kbody="$(printf '[{"ipAddress":"%s"}]' "$ip")"
               kcode="$(curl -sS --max-time 30 --digest -u "$pub:$priv" \
                 -H 'Accept: application/vnd.atlas.2025-03-12+json' \
                 -H 'Content-Type: application/json' \
@@ -483,9 +488,8 @@ jobs:
             echo "### Runner IP registered in Atlas (via bastion)"
             echo
             echo "- IP: \`${RUNNER_IP}/32\` (via bastion ${ATLAS_BASTION_HOST})"
-            echo "- Project network list: required and added"
-            echo "- Per-key API list: added when the key has org rights; runner-side gate verifies"
-            echo "- Auto-expires within 2 hours; removed explicitly in cleanup"
+            echo "- Project network list: required and added (auto-expires within 2 hours)"
+            echo "- Per-key API list: added when the key has org rights; removed explicitly in cleanup"
           } >> "$GITHUB_STEP_SUMMARY"
 
       # Verify from the RUNNER: Admin API GET must return 200 (edge
