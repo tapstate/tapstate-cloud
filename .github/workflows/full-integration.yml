@@ -437,27 +437,54 @@ jobs:
 
           # 2) Per-key API access list (Admin REST API edge plane), so
           # the runner's own IT code can call the Admin API during tests.
-          kbody="$(printf '[{"ipAddress":"%s","comment":"%s","deleteAfterDate":"%s"}]' "$ip" "$comment" "$expiry")"
-          kcode="$(curl -sS --max-time 30 --digest -u "$pub:$priv" \
-            -H 'Accept: application/vnd.atlas.2025-03-12+json' \
-            -H 'Content-Type: application/json' \
-            -X POST "https://cloud.mongodb.com/api/atlas/v2/apiAccessList" \
-            --data "$kbody" -o /tmp/atlas-al-kadd.json -w '%{http_code}')"
-          echo "POST API-key accessList ${ip} -> HTTP ${kcode}"
-          case "$kcode" in
-            2??) echo "Registered on both Atlas access lists; propagation takes a few seconds" ;;
-            *)
-              cat /tmp/atlas-al-kadd.json || true
-              echo "::error::Failed to register ${ip} in API key access list via bastion"
-              exit 1
-              ;;
-          esac
+          # It is an ORG-level resource keyed by the key's 24-hex id, so
+          # read orgId from the project and the key id from the org.
+          # Best effort: a project-scoped key cannot self-register; the
+          # runner-side verification below is the authoritative gate
+          # (403 there means the edge is enforced but still closed).
+          edge="skipped"
+          if command -v python3 >/dev/null 2>&1; then
+            base="https://cloud.mongodb.com/api/atlas/v2"
+            orgid="$(curl -sS --max-time 30 --digest -u "$pub:$priv" \
+              -H 'Accept: application/vnd.atlas.2025-03-12+json' \
+              "$base/groups/${proj}" | \
+              python3 -c 'import json,sys; print(json.load(sys.stdin).get("orgId", ""))' 2>/dev/null || true)"
+            keyid=""
+            if [ -n "$orgid" ]; then
+              keyid="$(curl -sS --max-time 30 --digest -u "$pub:$priv" \
+                -H 'Accept: application/vnd.atlas.2025-03-12+json' \
+                "$base/orgs/${orgid}/apiKeys?itemsPerPage=500" | \
+                python3 -c 'import json,sys; pub=sys.argv[1]; d=json.load(sys.stdin); print(next((k.get("id","") for k in d.get("results",[]) if k.get("publicKey")==pub), ""))' "$pub" 2>/dev/null || true)"
+            fi
+            if [ -n "$keyid" ]; then
+              kbody="$(printf '[{"ipAddress":"%s","comment":"%s","deleteAfterDate":"%s"}]' "$ip" "$comment" "$expiry")"
+              kcode="$(curl -sS --max-time 30 --digest -u "$pub:$priv" \
+                -H 'Accept: application/vnd.atlas.2025-03-12+json' \
+                -H 'Content-Type: application/json' \
+                -X POST "$base/orgs/${orgid}/apiKeys/${keyid}/accessList" \
+                --data "$kbody" -o /tmp/atlas-al-kadd.json -w '%{http_code}' || true)"
+              echo "POST API-key accessList ${ip} -> HTTP ${kcode}"
+              case "$kcode" in
+                2??) edge="registered" ;;
+                *)
+                  cat /tmp/atlas-al-kadd.json || true
+                  edge="failed"
+                  ;;
+              esac
+            else
+              echo "Could not resolve this key's org id (key may be project-scoped); edge self-registration skipped"
+            fi
+          else
+            echo "python3 unavailable on bastion; edge self-registration skipped"
+          fi
+          echo "Edge plane: ${edge}"
           REMOTE
           {
-            echo "### Runner IP registered on both Atlas access lists"
+            echo "### Runner IP registered in Atlas (via bastion)"
             echo
             echo "- IP: \`${RUNNER_IP}/32\` (via bastion ${ATLAS_BASTION_HOST})"
-            echo "- Project network list and per-key API list"
+            echo "- Project network list: required and added"
+            echo "- Per-key API list: added when the key has org rights; runner-side gate verifies"
             echo "- Auto-expires within 2 hours; removed explicitly in cleanup"
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -498,7 +525,11 @@ jobs:
             rm -f "$body"
             sleep 10
           done
-          echo "::error::Timed out waiting for Atlas access list entries for $ip (edge_seen=$edge_seen)"
+          if [ "$edge_seen" = "0" ]; then
+            echo "::error::Timed out: the org enforces the per-key Admin API access list and this key cannot self-register ${ip}. Turn off 'Require IP Access List for the Atlas Administration API' for the org, add ${ip} to the key, or use an Organization Owner key."
+          else
+            echo "::error::Timed out: edge is open but the project network entry for ${ip} never became active"
+          fi
           exit 1
 
       - name: Run full IT suite (real AWS + real Atlas)
@@ -556,19 +587,38 @@ jobs:
               ;;
           esac
 
-          # 2) Per-key API access list (edge plane) - removed last. 404
-          # means it was never added - not expected here, but harmless.
-          kapi="https://cloud.mongodb.com/api/atlas/v2/apiAccessList/${ip}"
-          kcode="$(curl -sS --max-time 30 --digest -u "$pub:$priv" \
-            -H "$accept" -X DELETE "$kapi" -o /tmp/atlas-al-kdel.json -w '%{http_code}')"
-          echo "DELETE API-key accessList ${ip} -> HTTP $kcode"
-          case "$kcode" in
-            2??|404) echo "Key list cleanup done" ;;
-            *)
-              echo "::warning::API-key list cleanup returned $kcode (entry auto-expires within 2 hours)"
-              cat /tmp/atlas-al-kdel.json || true
-              ;;
-          esac
+          # 2) Per-key API access list (edge plane), removed last. It is
+          # an org-level resource keyed by the key's 24-hex id, so read
+          # orgId from the project and the key id from the org. Best
+          # effort - entries auto-expire within 2 hours regardless.
+          base="https://cloud.mongodb.com/api/atlas/v2"
+          orgid=""
+          keyid=""
+          if command -v python3 >/dev/null 2>&1; then
+            orgid="$(curl -sS --max-time 30 --digest -u "$pub:$priv" -H "$accept" \
+              "$base/groups/${proj}" | \
+              python3 -c 'import json,sys; print(json.load(sys.stdin).get("orgId", ""))' 2>/dev/null || true)"
+            if [ -n "$orgid" ]; then
+              keyid="$(curl -sS --max-time 30 --digest -u "$pub:$priv" -H "$accept" \
+                "$base/orgs/${orgid}/apiKeys?itemsPerPage=500" | \
+                python3 -c 'import json,sys; pub=sys.argv[1]; d=json.load(sys.stdin); print(next((k.get("id","") for k in d.get("results",[]) if k.get("publicKey")==pub), ""))' "$pub" 2>/dev/null || true)"
+            fi
+          fi
+          if [ -n "$orgid" ] && [ -n "$keyid" ]; then
+            kapi="$base/orgs/${orgid}/apiKeys/${keyid}/accessList/${ip}"
+            kcode="$(curl -sS --max-time 30 --digest -u "$pub:$priv" \
+              -H "$accept" -X DELETE "$kapi" -o /tmp/atlas-al-kdel.json -w '%{http_code}' || true)"
+            echo "DELETE API-key accessList ${ip} -> HTTP $kcode"
+            case "$kcode" in
+              2??|404) echo "Key list cleanup done" ;;
+              *)
+                echo "::warning::API-key list cleanup returned $kcode (entry auto-expires within 2 hours)"
+                cat /tmp/atlas-al-kdel.json || true
+                ;;
+            esac
+          else
+            echo "Edge ids not resolvable; skip key-list cleanup (entries auto-expire within 2 hours)"
+          fi
           REMOTE
 
       - name: Upload failsafe reports and app logs
