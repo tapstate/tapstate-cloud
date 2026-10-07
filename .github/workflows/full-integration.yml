@@ -1,0 +1,455 @@
+# ============================================================
+# Full integration suite (maven-failsafe *IT.java)
+#
+# Triggered by pull requests against main/develop and by pushes
+# to develop. Two jobs:
+#
+#   integration-mock  — fast, cloud-free ITs. The control-plane
+#                       store is an Atlas cluster supplied through
+#                       the TAPSTATE_CLOUD_MONGO_URI secret; IaC and
+#                       Atlas run in mock mode.
+#   integration-real  — the FULL suite, including AwsClusterDeployIT
+#                       and AwsAtlasFullLifecycleIT against real AWS
+#                       and real Atlas. Creates billable resources
+#                       for 15-30 minutes, therefore runs globally
+#                       serialized (queued, never cancelled) and
+#                       self-skips when any cloud secret is missing.
+#
+# Secrets (repository or environment):
+#   TAPSTATE_CLOUD_MONGO_URI      full mongodb+srv URI incl. db name
+#   AWS_ACCESS_KEY_ID             CloudFormation/EC2 permissions
+#   AWS_SECRET_ACCESS_KEY
+#   GODADDY_API_KEY               gd_pat_ PAT (Bearer) or classic key
+#   GODADDY_API_SECRET            only needed for classic sso-key
+#   TAPSTATE_ATLAS_PUBLIC_KEY     Atlas Admin API key
+#   TAPSTATE_ATLAS_PRIVATE_KEY
+#   TAPSTATE_ATLAS_PROJECT_ID
+#   TAPSTATE_ATLAS_CLUSTER_NAME
+#   TAPSTATE_ATLAS_CONNECTION_STRING  clean mongodb+srv seed URI
+#
+# The real job also requires the Atlas project network access list
+# and the Admin API key allowlist to accept GitHub runner egress.
+# ============================================================
+
+name: Full Integration
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [develop]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------- Fast, cloud-free integration tests ----------
+  integration-mock:
+    name: Integration (mock)
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    concurrency:
+      group: integration-mock-${{ github.ref }}
+      cancel-in-progress: true
+
+    services:
+      # Local mongod backs the surefire unit tests (same as ci.yaml);
+      # the ITs themselves use TAPSTATE_CLOUD_MONGO_URI.
+      mongodb:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --eval 'db.runCommand({ping:1})'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      TAPSTATE_CLOUD_MONGO_URI: ${{ secrets.TAPSTATE_CLOUD_MONGO_URI }}
+
+    steps:
+      - name: Verify required secrets
+        run: |
+          if [ -z "${TAPSTATE_CLOUD_MONGO_URI}" ]; then
+            echo "::error::repository secret TAPSTATE_CLOUD_MONGO_URI is not configured (full Atlas URI incl. database name)"
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+
+      - name: Install mongosh
+        run: |
+          set -euo pipefail
+          . /etc/os-release
+          sudo apt-get update
+          sudo apt-get install -y gnupg ca-certificates curl
+          curl -fsSL https://www.mongodb.org/static/pgp/server-8.0.asc | \
+            sudo gpg -o /usr/share/keyrings/mongodb-server-8.0.gpg --dearmor
+          echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-8.0.gpg ] https://repo.mongodb.org/apt/ubuntu ${VERSION_CODENAME}/mongodb-org/8.0 multiverse" | \
+            sudo tee /etc/apt/sources.list.d/mongodb-org-8.0.list
+          sudo apt-get update
+          sudo apt-get install -y mongodb-mongosh
+          mongosh --version
+
+      - name: Wait for operator to allowlist runner IP for Atlas connectivity
+        id: atlas-ip
+        timeout-minutes: 20
+        env:
+          TAPSTATE_CLOUD_MONGO_URI: ${{ secrets.TAPSTATE_CLOUD_MONGO_URI }}
+        run: |
+          set -euo pipefail
+
+          ip=""
+          for svc in https://api.ipify.org https://checkip.amazonaws.com https://ifconfig.me/ip; do
+            ip="$(curl -fsS --max-time 10 "$svc" 2>/dev/null | tr -d '[:space:]' || true)"
+            if [ -n "$ip" ]; then break; fi
+          done
+          if [ -z "$ip" ]; then
+            echo "::error::Could not determine runner egress IPv4"
+            exit 1
+          fi
+          echo "ip=$ip" >> "$GITHUB_OUTPUT"
+
+          echo ""
+          echo "============================================================"
+          echo " MOCK-JOB RUNNER PUBLIC IP (add to Atlas Project):  $ip"
+          echo "============================================================"
+          echo " Project -> Network Access -> IP Access List"
+          echo "   -> ADD IP ADDRESS -> $ip/32"
+          echo " The control-plane IT database lives on Atlas; until this"
+          echo " runner IP is allowed, mongosh and every IT fail."
+          echo " Polling for up to 20 minutes; the job resumes automatically."
+          echo "============================================================"
+          echo ""
+          {
+            echo "### Action required: allowlist mock-job runner IP"
+            echo
+            echo '```'
+            echo "$ip"
+            echo '```'
+            echo "Add \`$ip/32\` under Project -> Network Access -> IP Access List."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          deadline=$((SECONDS + 1140))
+          announced=0
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            if mongosh "$TAPSTATE_CLOUD_MONGO_URI" --quiet --norc \
+                --eval 'assert(db.adminCommand({ping:1}).ok === 1)' >/dev/null 2>&1; then
+              echo "[$(date -u +%H:%M:%S)] Atlas driver connectivity OK for $ip - continuing"
+              exit 0
+            fi
+            if [ "$announced" = "0" ]; then
+              echo "[$(date -u +%H:%M:%S)] Atlas still unreachable from $ip - waiting for Network Access allowlist"
+              announced=1
+            fi
+            sleep 20
+          done
+          echo "::error::Timed out after 19 minutes waiting for Atlas connectivity for $ip"
+          exit 1
+
+      - name: Run cloud-free ITs
+        run: >
+          mvn -B -ntp -DskipSdkGeneration=true
+          -pl cloud-control-plane -am verify
+          -Dit.test=!AwsAtlasFullLifecycleIT,!AwsClusterDeployIT,!**/atlas/*IT.java
+          -DfailIfNoSpecifiedTests=false
+
+      - name: Remove runner IP from Atlas project access list
+        if: always()
+        env:
+          ATLAS_PUBLIC_KEY: ${{ secrets.TAPSTATE_ATLAS_PUBLIC_KEY }}
+          ATLAS_PRIVATE_KEY: ${{ secrets.TAPSTATE_ATLAS_PRIVATE_KEY }}
+          ATLAS_PROJECT_ID: ${{ secrets.TAPSTATE_ATLAS_PROJECT_ID }}
+          ATLAS_EGRESS_IP: ${{ steps.atlas-ip.outputs.ip }}
+        run: |
+          set -u
+          [ -z "${ATLAS_PUBLIC_KEY:-}" ] && { echo "No Atlas Admin credentials; skip access-list cleanup"; exit 0; }
+          [ -z "${ATLAS_EGRESS_IP:-}" ] && { echo "No runner IP was registered; nothing to clean"; exit 0; }
+          api="https://cloud.mongodb.com/api/atlas/v2/groups/${ATLAS_PROJECT_ID}/accessList/${ATLAS_EGRESS_IP}"
+          code="$(curl -sS --max-time 30 --digest -u "$ATLAS_PUBLIC_KEY:$ATLAS_PRIVATE_KEY" \
+            -H 'Accept: application/vnd.atlas.2023-02-01+json' \
+            -X DELETE "$api" -o /tmp/atlas-mock-del.json -w '%{http_code}')"
+          echo "DELETE project accessList ${ATLAS_EGRESS_IP} -> HTTP $code"
+          case "$code" in
+            2??|404) echo "Cleanup done" ;;
+            *)
+              echo "::warning::Project list cleanup returned $code; remove ${ATLAS_EGRESS_IP} manually"
+              cat /tmp/atlas-mock-del.json || true
+              ;;
+          esac
+
+      - name: Upload failsafe reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: failsafe-reports-mock
+          path: cloud-control-plane/target/failsafe-reports/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # ---------- Full suite against real AWS + real Atlas ----------
+  integration-real:
+    name: Integration (real AWS + Atlas)
+    runs-on: ubuntu-latest
+    timeout-minutes: 85
+    needs: integration-mock
+    # Global group without the ref: cloud runs are mutually exclusive
+    # across refs because they share the Atlas seed documents and create
+    # billable resources. Never cancel a run mid-flight.
+    concurrency:
+      group: integration-real-aws-atlas
+      cancel-in-progress: false
+
+    services:
+      mongodb:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --eval 'db.runCommand({ping:1})'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Check cloud credentials
+        id: creds
+        env:
+          MONGO_URI: ${{ secrets.TAPSTATE_CLOUD_MONGO_URI }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          GODADDY_API_KEY: ${{ secrets.GODADDY_API_KEY }}
+          ATLAS_PUBLIC_KEY: ${{ secrets.TAPSTATE_ATLAS_PUBLIC_KEY }}
+          ATLAS_PRIVATE_KEY: ${{ secrets.TAPSTATE_ATLAS_PRIVATE_KEY }}
+          ATLAS_PROJECT_ID: ${{ secrets.TAPSTATE_ATLAS_PROJECT_ID }}
+          ATLAS_CLUSTER_NAME: ${{ secrets.TAPSTATE_ATLAS_CLUSTER_NAME }}
+          ATLAS_CONNECTION_STRING: ${{ secrets.TAPSTATE_ATLAS_CONNECTION_STRING }}
+        run: |
+          missing=()
+          for name in MONGO_URI AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY GODADDY_API_KEY \
+                      ATLAS_PUBLIC_KEY ATLAS_PRIVATE_KEY ATLAS_PROJECT_ID \
+                      ATLAS_CLUSTER_NAME ATLAS_CONNECTION_STRING; do
+            if [ -z "${!name}" ]; then
+              missing+=("$name")
+            fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "### Real cloud ITs skipped"
+              echo
+              echo "Missing secrets: ${missing[*]}"
+              echo
+              echo "The real AWS + Atlas lifecycle ITs need every secret listed"
+              echo "in .github/workflows/full-integration.yml."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        if: steps.creds.outputs.present == 'true'
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        if: steps.creds.outputs.present == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+
+      - name: Install mongosh and DNS tooling
+        if: steps.creds.outputs.present == 'true'
+        run: |
+          set -euo pipefail
+          . /etc/os-release
+          sudo apt-get update
+          sudo apt-get install -y gnupg ca-certificates curl dnsutils
+          curl -fsSL https://www.mongodb.org/static/pgp/server-8.0.asc | \
+            sudo gpg -o /usr/share/keyrings/mongodb-server-8.0.gpg --dearmor
+          echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-8.0.gpg ] https://repo.mongodb.org/apt/ubuntu ${VERSION_CODENAME}/mongodb-org/8.0 multiverse" | \
+            sudo tee /etc/apt/sources.list.d/mongodb-org-8.0.list
+          sudo apt-get update
+          sudo apt-get install -y mongodb-mongosh
+          mongosh --version
+          dig -v
+
+      - name: Configure AWS credentials
+        if: steps.creds.outputs.present == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-southeast-1
+
+      # GitHub-hosted runners use ephemeral egress IPs. Atlas has TWO
+      # independent allowlists and neither can reliably be wildcarded:
+      #   1. API key edge list  -> gates the Admin REST API
+      #   2. Project network list -> gates mongodb+srv driver connections
+      # The edge list cannot be self-registered (the registering call is
+      # itself gated). This step prints the runner's exact public IP and waits
+      # for an operator to allowlist it, polling until BOTH gates are open:
+      #   - Admin API GET /accessList returns 200 (edge gate open)
+      #   - the IP is present in the project network access list
+      # The temporary entries are removed in the cleanup step below.
+      - name: Wait for operator to allowlist runner IP on Atlas
+        id: atlas-ip
+        timeout-minutes: 20
+        if: steps.creds.outputs.present == 'true'
+        env:
+          ATLAS_PUBLIC_KEY: ${{ secrets.TAPSTATE_ATLAS_PUBLIC_KEY }}
+          ATLAS_PRIVATE_KEY: ${{ secrets.TAPSTATE_ATLAS_PRIVATE_KEY }}
+          ATLAS_PROJECT_ID: ${{ secrets.TAPSTATE_ATLAS_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          api="https://cloud.mongodb.com/api/atlas/v2/groups/${ATLAS_PROJECT_ID}/accessList"
+          accept="Accept: application/vnd.atlas.2023-02-01+json"
+
+          ip=""
+          for svc in https://api.ipify.org https://checkip.amazonaws.com https://ifconfig.me/ip; do
+            ip="$(curl -fsS --max-time 10 "$svc" 2>/dev/null | tr -d '[:space:]' || true)"
+            if [ -n "$ip" ]; then break; fi
+          done
+          if [ -z "$ip" ]; then
+            echo "::error::Could not determine runner egress IPv4"
+            exit 1
+          fi
+          echo "ip=$ip" >> "$GITHUB_OUTPUT"
+
+          echo ""
+          echo "============================================================"
+          echo " ADD THIS RUNNER PUBLIC IP TO ATLAS:  $ip"
+          echo "============================================================"
+          echo " Required actions (both needed unless already open):"
+          echo "  (1) Project -> Network Access -> IP Access List"
+          echo "      -> ADD IP ADDRESS -> $ip/32  (driver connections)"
+          echo "  (2) Access Manager -> API Keys -> ${ATLAS_PUBLIC_KEY}"
+          echo "      -> API Access List -> add $ip   (Admin REST API)"
+          echo "      OR Organization Settings -> turn OFF"
+          echo "      'Require IP Access List for the Atlas Administration API'"
+          echo "      and keep the key list empty."
+          echo " Polling for up to 20 minutes; the run continues automatically."
+          echo "============================================================"
+          echo ""
+          {
+            echo "### Action required: allowlist this runner IP on Atlas"
+            echo
+            echo '```'
+            echo "$ip"
+            echo '```'
+            echo "1. Project -> Network Access -> IP Access List -> add \`$ip/32\`"
+            echo "2. Access Manager -> API Keys -> ${ATLAS_PUBLIC_KEY} -> API Access List -> add \`$ip\`"
+            echo "   (or disable 'Require IP Access List for the Atlas Administration API' in Organization Settings)"
+            echo
+            echo "This job polls for up to 20 minutes and resumes automatically once both gates are open."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          deadline=$((SECONDS + 1140))
+          edge_seen=0
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            body="$(mktemp)"
+            code="$(curl -sS --max-time 30 --digest -u "$ATLAS_PUBLIC_KEY:$ATLAS_PRIVATE_KEY" \
+              -H "$accept" "$api?itemsPerPage=500" -o "$body" -w '%{http_code}' || true)"
+            if [ "$code" = "403" ]; then
+              if [ "$edge_seen" = "0" ]; then
+                echo "[$(date -u +%H:%M:%S)] Admin API edge gate: still 403 - add $ip to API key ${ATLAS_PUBLIC_KEY} access list (or disable org requirement)"
+              fi
+            elif [ "$code" = "200" ]; then
+              edge_seen=1
+              if grep -q "\"ipAddress\":\"$ip\"" "$body"; then
+                echo "[$(date -u +%H:%M:%S)] Both gates open: $ip is in the project network access list - continuing"
+                rm -f "$body"
+                exit 0
+              fi
+              echo "[$(date -u +%H:%M:%S)] Edge gate open; $ip not yet in Project Network Access list - waiting"
+            else
+              echo "[$(date -u +%H:%M:%S)] Unexpected GET accessList HTTP $code (ignoring, retrying)"
+            fi
+            rm -f "$body"
+            sleep 20
+          done
+          echo "::error::Timed out after 19 minutes waiting for $ip to be allowlisted on Atlas"
+          exit 1
+
+      - name: Run full IT suite (real AWS + real Atlas)
+        if: steps.creds.outputs.present == 'true'
+        env:
+          TAPSTATE_CLOUD_MONGO_URI: ${{ secrets.TAPSTATE_CLOUD_MONGO_URI }}
+          GODADDY_API_KEY: ${{ secrets.GODADDY_API_KEY }}
+          GODADDY_API_SECRET: ${{ secrets.GODADDY_API_SECRET }}
+          TAPSTATE_ATLAS_PUBLIC_KEY: ${{ secrets.TAPSTATE_ATLAS_PUBLIC_KEY }}
+          TAPSTATE_ATLAS_PRIVATE_KEY: ${{ secrets.TAPSTATE_ATLAS_PRIVATE_KEY }}
+          TAPSTATE_ATLAS_PROJECT_ID: ${{ secrets.TAPSTATE_ATLAS_PROJECT_ID }}
+          TAPSTATE_ATLAS_CLUSTER_NAME: ${{ secrets.TAPSTATE_ATLAS_CLUSTER_NAME }}
+          TAPSTATE_ATLAS_CONNECTION_STRING: ${{ secrets.TAPSTATE_ATLAS_CONNECTION_STRING }}
+        # GitHub runners have direct egress — disable the local-forwarder
+        # proxy defaults that the real ITs ship with for dev machines.
+        run: >
+          mvn -B -ntp -DskipSdkGeneration=true
+          -pl cloud-control-plane -am verify
+          -Diac.proxyHost=none -Diac.proxyPort=0
+
+      - name: Remove runner IP from Atlas access lists
+        if: always() && steps.creds.outputs.present == 'true'
+        env:
+          ATLAS_PUBLIC_KEY: ${{ secrets.TAPSTATE_ATLAS_PUBLIC_KEY }}
+          ATLAS_PRIVATE_KEY: ${{ secrets.TAPSTATE_ATLAS_PRIVATE_KEY }}
+          ATLAS_PROJECT_ID: ${{ secrets.TAPSTATE_ATLAS_PROJECT_ID }}
+          ATLAS_EGRESS_IP: ${{ steps.atlas-ip.outputs.ip }}
+        run: |
+          set -u
+          if [ -z "${ATLAS_EGRESS_IP:-}" ]; then
+            echo "No access-list entry was registered; nothing to clean up"
+            exit 0
+          fi
+          auth=(-sS --max-time 30 --digest -u "$ATLAS_PUBLIC_KEY:$ATLAS_PRIVATE_KEY"
+            -H 'Accept: application/vnd.atlas.2023-02-01+json')
+
+          # 1) Project network access list (driver plane)
+          papi="https://cloud.mongodb.com/api/atlas/v2/groups/${ATLAS_PROJECT_ID}/accessList/${ATLAS_EGRESS_IP}"
+          pcode="$(curl "${auth[@]}" -X DELETE "$papi" -o /tmp/atlas-al-pdel.json -w '%{http_code}')"
+          echo "DELETE project accessList ${ATLAS_EGRESS_IP} -> HTTP $pcode"
+          case "$pcode" in
+            2??|404) echo "Project list cleanup done" ;;
+            *)
+              echo "::warning::Project list cleanup returned $pcode"
+              cat /tmp/atlas-al-pdel.json || true
+              ;;
+          esac
+
+          # 2) API key edge access list (org plane). The operator may have
+          # added the runner IP here too; remove it if present. 404 means it
+          # was never added (org toggle used instead) - expected.
+          kapi="https://cloud.mongodb.com/api/atlas/v2/apiAccessList/${ATLAS_EGRESS_IP}"
+          kcode="$(curl "${auth[@]}" -X DELETE "$kapi" -o /tmp/atlas-al-kdel.json -w '%{http_code}')"
+          echo "DELETE API-key accessList ${ATLAS_EGRESS_IP} -> HTTP $kcode"
+          case "$kcode" in
+            2??|404) echo "Key list cleanup done" ;;
+            *)
+              echo "::warning::API-key list cleanup returned $kcode; remove ${ATLAS_EGRESS_IP} from key ${ATLAS_PUBLIC_KEY} manually"
+              cat /tmp/atlas-al-kdel.json || true
+              ;;
+          esac
+
+      - name: Upload failsafe reports and app logs
+        if: always() && steps.creds.outputs.present == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: failsafe-reports-real
+          path: |
+            cloud-control-plane/target/failsafe-reports/
+            cloud-control-plane/target/real-app-atlas.log
+            cloud-control-plane/target/real-app.log
+          if-no-files-found: ignore
+          retention-days: 14

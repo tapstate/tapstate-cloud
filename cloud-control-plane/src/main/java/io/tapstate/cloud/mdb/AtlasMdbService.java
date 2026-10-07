@@ -48,7 +48,9 @@ import java.util.Map;
  * <p>
  * Production flow: createMdb (reserve slot) → createDatabase (verify cluster reachability)
  * → createDatabaseUser (Atlas Admin API POST /databaseUsers) → markReady →
- * drop path: dropDatabaseUser → dropDatabase → releaseClusterSlot.
+ * drop path: dropDatabase (authenticated as the dbUser) → dropDatabaseUser →
+ * releaseClusterSlot. The order is mandatory: deleting the user first would
+ * make the database-drop connection fail authentication and orphan the databases.
  * <p>
  * Atlas Admin API calls live in {@code prod} profile ({@code mockMode=false}).
  * IT profile defaults to {@code mockMode=true} — no real HTTP calls, but slot

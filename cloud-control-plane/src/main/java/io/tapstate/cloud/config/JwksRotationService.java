@@ -191,11 +191,23 @@ public class JwksRotationService {
     }
 
     /**
-     * Ensure there is at least one active key.
+     * Ensure there is at least one non-expired active key. A key whose status is
+     * ACTIVE but whose validity window has elapsed (for example because the
+     * scheduled rotation did not run while the application was down) is replaced
+     * on startup instead of being served past its expiry.
      */
     private void ensureActiveKey() {
         Optional<JwksKey> activeKey = repository.findFirstByStatusOrderByCreatedAtDesc(JwksKey.KeyStatus.ACTIVE);
-        if (activeKey.isEmpty()) {
+        boolean expired = activeKey.map(key -> key.getExpiresAt() != null
+            && key.getExpiresAt().isBefore(Instant.now())).orElse(false);
+        if (expired) {
+            JwksKey staleKey = activeKey.get();
+            staleKey.setStatus(JwksKey.KeyStatus.EXPIRED);
+            repository.save(staleKey);
+            log.info("Active JWKS key {} expired at {}, replacing it",
+                staleKey.getKid(), staleKey.getExpiresAt());
+        }
+        if (activeKey.isEmpty() || expired) {
             log.info("No active key found, generating initial key pair");
             try {
                 KeyPair keyPair = generateRsaKeyPair();

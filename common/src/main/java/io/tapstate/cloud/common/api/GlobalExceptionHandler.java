@@ -30,6 +30,11 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ApiResponse<Void>> handleBusiness(BusinessException e) {
+        // Business rejections are normal API flow, but they must stay visible:
+        // a 401/403/404/409 wave is usually the first signal of a broken auth or
+        // ownership chain. Log everything at warn; per-request volume is low.
+        log.warn("Business rejection status={} code={} params={}",
+            e.getHttpStatus(), e.getErrorCode().getCode(), java.util.Arrays.toString(e.getParams()));
         return i18nBuild(HttpStatus.valueOf(e.getHttpStatus()), e.getErrorCode(), e.getParams());
     }
 

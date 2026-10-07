@@ -5,6 +5,7 @@ import io.tapstate.cloud.cluster.ClusterRepository;
 import io.tapstate.cloud.cluster.ProvisionErrorCode;
 import io.tapstate.cloud.common.api.AppErrorCode;
 import io.tapstate.cloud.iac.config.ClusterRuntimeConfigs;
+import io.tapstate.cloud.iac.config.RuntimeAtlasUriResolver;
 import io.tapstate.cloud.iac.crypto.SshKeyCrypto;
 import io.tapstate.cloud.iac.model.IngressRule;
 import io.tapstate.cloud.iac.model.NodeInstance;
@@ -49,6 +50,7 @@ public class ClusterProvisioningService {
     private final SshKeyPairGenerator keyPairGenerator;
     private final SshKeyCrypto keyCrypto;
     private final ClusterRuntimeConfigs configs;
+    private final RuntimeAtlasUriResolver runtimeAtlasUriResolver;
 
     // ---- Timing budget ----
     private static final Duration STACK_TIMEOUT = Duration.ofMinutes(15);
@@ -72,7 +74,8 @@ public class ClusterProvisioningService {
         SshClient sshClient,
         SshKeyPairGenerator keyPairGenerator,
         SshKeyCrypto keyCrypto,
-        ClusterRuntimeConfigs configs) {
+        ClusterRuntimeConfigs configs,
+        RuntimeAtlasUriResolver runtimeAtlasUriResolver) {
         this.clusterRepository = clusterRepository;
         this.properties = properties;
         this.dns = dns;
@@ -80,6 +83,7 @@ public class ClusterProvisioningService {
         this.keyPairGenerator = keyPairGenerator;
         this.keyCrypto = keyCrypto;
         this.configs = configs;
+        this.runtimeAtlasUriResolver = runtimeAtlasUriResolver;
 
         CloudProvider provider = CloudProvider.fromId(properties.getProvider());
         ComputeInfrastructure selected = computeBeans.values().stream()
@@ -154,14 +158,20 @@ public class ClusterProvisioningService {
             cluster.setPublicDns(domain);
             persist(cluster);
 
-            // 6. Connect and start the runtime stack.
+            // 6. The Atlas allocation runs in parallel with the EC2 provisioning;
+            // wait for its database + db user and build the per-allocation runtime
+            // URI before rendering the compose file. Resolve outside the SSH
+            // session so the wait does not hold a connection to the node.
+            String runtimeAtlasUri = runtimeAtlasUriResolver.resolve(cluster);
+
+            // 7. Connect and start the runtime stack.
             try (SshSession session = sshClient.connect(node.publicIp(), SSH_PORT, SSH_USER,
                 privateKeyPem, SSH_SESSION_TIMEOUT_MS, proxyHost(proxy), proxyPort(proxy))) {
                 prepareRemoteDirs(session);
 
                 session.uploadFile("/tmp/docker-compose.yml",
                     configs.dockerComposeYaml(cluster, properties.getPublicBaseUrl(),
-                        properties.getRuntimeAtlasUri())
+                        runtimeAtlasUri)
                         .getBytes(StandardCharsets.UTF_8));
                 remoteExec(session,
                     "sudo mv /tmp/docker-compose.yml " + ClusterRuntimeConfigs.REMOTE_COMPOSE_PATH
@@ -173,7 +183,7 @@ public class ClusterProvisioningService {
                     "cd /opt/tapstate-runtime && sudo docker compose up -d", COMPOSE_TIMEOUT);
                 log.info("[IaC] runtime stack started cluster={}", clusterId);
 
-                // 7. Install the Nginx http tuning drop-in and site configuration.
+                // 8. Install the Nginx http tuning drop-in and site configuration.
                 session.uploadFile("/tmp/00-tapstate-http.conf",
                     configs.nginxHttpConf().getBytes(StandardCharsets.UTF_8));
                 remoteExec(session,
@@ -191,10 +201,10 @@ public class ClusterProvisioningService {
                 log.info("[IaC] nginx configured cluster={}", clusterId);
             }
 
-            // 8. Wait until the name resolves to the node so ACME validation lands here.
+            // 9. Wait until the name resolves to the node so ACME validation lands here.
             waitForDns(domain, node.publicIp());
 
-            // 9. Obtain the TLS certificate; certbot rewrites the Nginx site for 443.
+            // 10. Obtain the TLS certificate; certbot rewrites the Nginx site for 443.
             try (SshSession session = sshClient.connect(node.publicIp(), SSH_PORT, SSH_USER,
                 privateKeyPem, SSH_SESSION_TIMEOUT_MS, proxyHost(proxy), proxyPort(proxy))) {
                 remoteExec(session,
@@ -207,7 +217,7 @@ public class ClusterProvisioningService {
             }
             log.info("[IaC] TLS certificate issued cluster={}", clusterId);
 
-            // 10. Verify the public endpoint end to end.
+            // 11. Verify the public endpoint end to end.
             waitForHealthy(domain, proxy);
 
             log.info("[IaC] provision complete cluster={}", clusterId);
@@ -459,6 +469,7 @@ public class ClusterProvisioningService {
         ProvisionErrorCode code = switch (e.errorCode()) {
             case IAC_SSH_COMMAND_FAILED -> ProvisionErrorCode.EC2_BOOTSTRAP_TIMEOUT;
             case IAC_HEALTH_CHECK_FAILED -> ProvisionErrorCode.PROVISIONING_TIMEOUT;
+            case IAC_MDB_NOT_READY -> ProvisionErrorCode.ATLAS_DB_CREATE_FAILED;
             default -> ProvisionErrorCode.CLOUDFORMATION_FAILED;
         };
         String detail = e.errorCode().getCode() + ": " + e.getMessage();

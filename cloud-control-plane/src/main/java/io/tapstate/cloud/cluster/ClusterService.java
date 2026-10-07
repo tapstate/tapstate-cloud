@@ -127,9 +127,12 @@ public class ClusterService {
 
     public List<Cluster> listOrgClusters(String orgId, String userEmail) {
         if (!memberRepository.existsByOrgIdAndUserEmail(new ObjectId(orgId), userEmail)) {
+            log.warn("[Cluster] list denied: user={} is not a member of org={}", userEmail, orgId);
             throw new BusinessException(AppErrorCode.ORG_NOT_MEMBER, 403, orgId);
         }
-        return clusterRepository.findByOrgId(new ObjectId(orgId));
+        List<Cluster> clusters = clusterRepository.findByOrgId(new ObjectId(orgId));
+        log.debug("[Cluster] list org={} user={} -> {} cluster(s)", orgId, userEmail, clusters.size());
+        return clusters;
     }
 
     public Cluster getCluster(String clusterId, String orgId, String userEmail) {
@@ -285,9 +288,13 @@ public class ClusterService {
         Instant threshold = Instant.now().minus(5, ChronoUnit.MINUTES);
         List<Cluster> expired = clusterRepository.findReadyClustersWithExpiredHeartbeat(
             ClusterState.READY, threshold);
-        if (expired.isEmpty()) return;
+        if (expired.isEmpty()) {
+            log.info("[HeartbeatScanner] tick: 0 READY clusters with stale heartbeat (threshold={})", threshold);
+            return;
+        }
 
-        log.info("[HeartbeatScanner] {} READY clusters with stale heartbeat (>5min)", expired.size());
+        log.info("[HeartbeatScanner] {} READY clusters with stale heartbeat (>5min), firing HEARTBEAT_TIMEOUT",
+            expired.size());
         for (Cluster cluster : expired) {
             clusterStateMachineService.transition(cluster.getId(),
                 ClusterEventType.HEARTBEAT_TIMEOUT, "system:heartbeat-scanner");

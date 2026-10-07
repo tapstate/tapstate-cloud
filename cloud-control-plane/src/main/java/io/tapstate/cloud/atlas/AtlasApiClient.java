@@ -9,6 +9,7 @@ import java.net.Proxy;
 import java.net.ProxySelector;
 import java.net.SocketAddress;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpRequest.BodyPublishers;
@@ -176,19 +177,72 @@ public class AtlasApiClient {
         }
     }
 
-    /** Add entries to the Project's API Access List. */
+    /** Add entries to the Project network access list. */
     public void addIpAccessListEntries(String projectId, List<String> cidrBlocks, String comment) throws AtlasApiException {
+        for (String cidr : cidrBlocks) {
+            addIpAccessListEntry(projectId, cidr, comment, null);
+        }
+    }
+
+    /**
+     * Add (or refresh) one entry in the Project network access list.
+     * Used by CI to dynamically register the ephemeral runner egress IP:
+     * Atlas rejects wildcard CIDRs on some organizations, so the entry is the
+     * runner's exact address, with {@code deleteAfterDate} as a safety net in
+     * case the cleanup step never runs. POST is an upsert — refreshing an
+     * existing entry is expected and not an error.
+     *
+     * @param deleteAfterUtc optional auto-deletion instant, null for no expiry
+     */
+    public void addIpAccessListEntry(String projectId, String ipAddressOrCidr,
+                                     String comment, java.time.Instant deleteAfterUtc) throws AtlasApiException {
         String path = V2_BASE + "/groups/{projectId}/accessList"
             .replace("{projectId}", projectId);
 
-        var entries = cidrBlocks.stream().map(cidr -> {
-            var entry = new java.util.LinkedHashMap<String, Object>();
-            entry.put("ipAddress", cidr);
-            if (comment != null) entry.put("comment", comment);
-            return entry;
-        }).toList();
+        var entry = new java.util.LinkedHashMap<String, Object>();
+        entry.put("ipAddress", ipAddressOrCidr);
+        if (comment != null) entry.put("comment", comment);
+        if (deleteAfterUtc != null) entry.put("deleteAfterDate", deleteAfterUtc.toString());
 
-        executeVoid("POST", path, entries);
+        executeVoid("POST", path, List.of(entry));
+    }
+
+    /**
+     * Remove one entry from the Project network access list. Idempotent: a
+     * missing entry (404) is treated as success so cleanup never fails a run.
+     */
+    public void removeIpAccessListEntry(String projectId, String ipAddressOrCidr) throws AtlasApiException {
+        String path = V2_BASE + "/groups/{projectId}/accessList/{entry}"
+            .replace("{projectId}", projectId)
+            .replace("{entry}", URLEncoder.encode(ipAddressOrCidr, java.nio.charset.StandardCharsets.UTF_8));
+        try {
+            executeVoid("DELETE", path, null);
+        } catch (AtlasApiException e) {
+            if (e.statusCode() == 404) {
+                log.info("[AtlasApiClient] remove access-list entry 404 entry={} — idempotent", ipAddressOrCidr);
+                return;
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * @return true when the Project network access list currently contains
+     *         the given entry. Propagation of newly added entries takes a few
+     *         seconds, so callers poll this before opening driver connections.
+     */
+    public boolean accessListContains(String projectId, String ipAddressOrCidr) throws AtlasApiException {
+        String path = V2_BASE + "/groups/{projectId}/accessList"
+            .replace("{projectId}", projectId);
+        JsonNode body = executeJson("GET", path + "?itemsPerPage=500", null);
+        if (body == null || !body.has("results")) return false;
+        for (JsonNode entry : body.get("results")) {
+            if (ipAddressOrCidr.equals(entry.path("ipAddress").asText(null))
+                || ipAddressOrCidr.equals(entry.path("cidrBlock").asText(null))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // ========== Low-level HTTP execution (JDK HttpClient + hand-rolled Digest) ==========

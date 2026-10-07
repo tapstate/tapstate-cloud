@@ -12,12 +12,14 @@ import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -50,15 +52,24 @@ import static org.junit.jupiter.api.Assertions.*;
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class AtlasAllocationIT {
 
-    // ========== Config — read from env vars ==========
-    private static final String PUBLIC_KEY = System.getenv().getOrDefault("TAPSTATE_ATLAS_PUBLIC_KEY",
-        "pmqzyjaz");
-    private static final String PRIVATE_KEY = System.getenv().getOrDefault("TAPSTATE_ATLAS_PRIVATE_KEY",
-        "9e686229-cab4-4073-8fed-2585b5a1d9d8");
-    private static final String PROJECT_ID = System.getenv().getOrDefault("TAPSTATE_ATLAS_PROJECT_ID",
-        "6abbb5e00f0cfe355a4be9d3");
-    private static final String CLUSTER_NAME = System.getenv().getOrDefault("TAPSTATE_ATLAS_CLUSTER_NAME",
-        "Cluster0");
+    // ========== Config — read from env vars (never hardcode real keys) ==========
+    private static final String PUBLIC_KEY = System.getenv("TAPSTATE_ATLAS_PUBLIC_KEY");
+    private static final String PRIVATE_KEY = System.getenv("TAPSTATE_ATLAS_PRIVATE_KEY");
+    private static final String PROJECT_ID = System.getenv("TAPSTATE_ATLAS_PROJECT_ID");
+    private static final String CLUSTER_NAME = System.getenv("TAPSTATE_ATLAS_CLUSTER_NAME");
+
+    /**
+     * Registered Project network access-list entry for this JVM's egress IP.
+     * Atlas has two independent allowlists: the API-key edge list (which gates
+     * the Admin REST API) and the Project network list (which gates driver
+     * connections). The edge list must be opened by an org admin before this
+     * test can run; the Project network entry is registered dynamically here —
+     * wildcard CIDRs are rejected on some Atlas organizations, so the entry is
+     * the machine's exact egress address. The entry is not removed per class
+     * (other failsafe classes still need it); CI removes it after the suite and
+     * the 3-hour deleteAfterDate covers local runs.
+     */
+    private static String registeredEgressIp;
 
     // ========== Test state — unique per test class ==========
     /**
@@ -78,6 +89,22 @@ class AtlasAllocationIT {
 
     // ========== Lifecycle ==========
 
+    /**
+     * Real Atlas credentials are required — without them this class skips
+     * rather than fails, so an unconfigured environment stays green.
+     */
+    @BeforeAll
+    static void requireCredentials() {
+        boolean configured = notBlank(PUBLIC_KEY) && notBlank(PRIVATE_KEY)
+            && notBlank(PROJECT_ID) && notBlank(CLUSTER_NAME);
+        assumeTrue(configured,
+            "Skipping real Atlas ITs: TAPSTATE_ATLAS_PUBLIC_KEY / PRIVATE_KEY / PROJECT_ID / CLUSTER_NAME not all set");
+    }
+
+    private static boolean notBlank(String s) {
+        return s != null && !s.isBlank();
+    }
+
     /** Detect egress IPs so admin can see exactly what Atlas sees. */
     @BeforeAll
     static void detectEgressIps() {
@@ -86,6 +113,7 @@ class AtlasAllocationIT {
             String ipv4 = client.send(java.net.http.HttpRequest.newBuilder()
                 .uri(java.net.URI.create("https://ipv4.icanhazip.com")).build(),
                 java.net.http.HttpResponse.BodyHandlers.ofString()).body().trim();
+            registeredEgressIp = ipv4;
             System.out.println("\n[AtlasAllocationIT] Detected egress IPv4 (Atlas sees this): " + ipv4);
         } catch (Exception e) {
             System.out.println("[AtlasAllocationIT] Could not detect IPv4 egress IP: " + e.getMessage());
@@ -132,50 +160,87 @@ class AtlasAllocationIT {
     // ========== Test methods ==========
 
     /**
-     * Bootstrap: auto-configure Project API Access List to allow 0.0.0.0/0
-     * (PO decision — all IPs allowed for Atlas Admin API calls).
+     * Bootstrap: register this machine's exact egress IP in the Project
+     * network access list (which gates mongodb+srv driver connections).
      * <p>
-     * If this test fails with IP_ADDRESS_NOT_ON_ACCESS_LIST, it means even the
-     * bootstrap call itself is blocked — the admin MUST manually add 0.0.0.0/0
-     * via Atlas Console (Project Settings → API Access → Add Access List Entry).
-     * All downstream tests skip/fail-fast because they'll hit the same 403.
+     * The entry carries a 3-hour {@code deleteAfterDate} safety expiry; CI
+     * deletes it after the whole suite. Wildcard CIDRs (0.0.0.0/0) are rejected
+     * on some organizations, and would be a standing open rule anyway — a
+     * per-run exact IP is both accepted and tighter.
+     * <p>
+     * Edge-gate caveat: the Admin REST API itself is gated by the API key's
+     * own access list, which cannot be self-registered (the registering call
+     * would be blocked too). The org admin must either allow this key from the
+     * required network range or switch off "Require IP Access List for the
+     * Atlas Administration API" (Organization Settings) and leave the key's
+     * list empty. A 403 IP_ADDRESS_NOT_ON_ACCESS_LIST here means that gate is
+     * still closed.
      */
     @Test
     @Order(0)
-    @DisplayName("ATLAS-SETUP-000 — Ensure Project API Access List allows 0.0.0.0/0")
+    @DisplayName("ATLAS-SETUP-000 — Register runner egress IP in Project network access list")
     void ensureIpAccessListOpen() {
         System.out.println("\n=== ATLAS-SETUP-000 ===");
+        assertNotNull(registeredEgressIp, "Egress IPv4 detection failed; cannot register Project network access");
 
         try {
-            atlas.addIpAccessListEntries(PROJECT_ID, List.of("0.0.0.0/0"),
-                "Tapstate Cloud — all IPs allowed (PO default, tighten in Week 4)");
-            System.out.println("✓ Added 0.0.0.0/0 to Project " + PROJECT_ID + " API Access List");
+            // The CI workflow gates this suite behind an operator-managed
+            // allowlist step: a human may already have added this exact IP as a
+            // PERMANENT entry. Atlas rejects posting a temporary (expiring)
+            // entry over a permanent one with
+            // PERMANENT_ENTITY_CANNOT_BE_MADE_TEMPORARY, so check first and
+            // accept an existing entry instead of upserting.
+            if (atlas.accessListContains(PROJECT_ID, registeredEgressIp)) {
+                System.out.println("Egress IP " + registeredEgressIp
+                    + " already present in Project " + PROJECT_ID
+                    + " network access list (operator-managed) — skipping registration");
+                return;
+            }
+
+            atlas.addIpAccessListEntry(PROJECT_ID, registeredEgressIp,
+                "tapstate-it " + Instant.now(), Instant.now().plus(Duration.ofHours(3)));
+            System.out.println("Registered egress IP " + registeredEgressIp
+                + " in Project " + PROJECT_ID + " network access list (auto-expires in 3h)");
+
+            // Entry propagation takes a few seconds; poll before driver tests run.
+            AtlasApiException lastErr = null;
+            for (int i = 0; i < 12; i++) {
+                try {
+                    if (atlas.accessListContains(PROJECT_ID, registeredEgressIp)) {
+                        System.out.println("Access-list entry is visible/active for " + registeredEgressIp);
+                        return;
+                    }
+                } catch (AtlasApiException e) {
+                    lastErr = e;
+                }
+                try {
+                    Thread.sleep(Duration.ofSeconds(5).toMillis());
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    fail("Interrupted while waiting for access-list propagation");
+                }
+            }
+            if (lastErr != null) throw lastErr;
+            fail("Access-list entry " + registeredEgressIp + " did not become visible within 60s");
         } catch (AtlasApiException e) {
             if (e.statusCode() == 403 && "IP_ADDRESS_NOT_ON_ACCESS_LIST".equals(e.errorCode())) {
                 System.err.println();
-                System.err.println("═════════════════════════════════════════════════════════");
-                System.err.println("ATLAS API ACCESS LIST BLOCKS CURRENT MACHINE");
-                System.err.println("═════════════════════════════════════════════════════════");
-                System.err.println("");
-                System.err.println("Your machine's egress IP is NOT on the Project API Access List.");
-                System.err.println("This blocks ALL downstream tests — they will all fail with 403.");
-                System.err.println("");
-                System.err.println("ACTION REQUIRED — admin must configure this manually:");
-                System.err.println("  1. Open Atlas Console: https://cloud.mongodb.com");
-                System.err.println("  2. Navigate to: Project " + PROJECT_ID);
-                System.err.println("  3. Project Settings → API Access → Add Access List Entry");
-                System.err.println("  4. Enter CIDR: 0.0.0.0/0");
-                System.err.println("  5. Add comment: 'Tapstate Cloud dev — all IPs allowed (temporary)'");
-                System.err.println("  6. Save — this will allow ALL IPs to call Atlas Admin API");
-                System.err.println("");
-                System.err.println("After adding, re-run: mvn failsafe:integration-test -Dfailsafe.includes=**/atlas/AtlasAllocationIT.java");
-                System.err.println("");
-                System.err.println("Alternative: find your egress IP (curl -s ifconfig.me) and add it");
-                System.err.println("specifically instead of 0.0.0.0/0 for tighter security.");
-                System.err.println("═════════════════════════════════════════════════════════");
-                fail("ATLAS API ACCESS LIST BLOCKED — admin action required (see stderr for details)");
+                System.err.println("============================================================");
+                System.err.println("ATLAS ADMIN API EDGE GATE BLOCKS THIS MACHINE");
+                System.err.println("============================================================");
+                System.err.println("Egress IP " + registeredEgressIp + " is not on API key " + PUBLIC_KEY
+                    + "'s API access list.");
+                System.err.println("The API-key edge list cannot be self-registered from CI.");
+                System.err.println("Admin action (one of):");
+                System.err.println("  A. Organization Settings -> turn OFF");
+                System.err.println("     'Require IP Access List for the Atlas Administration API'");
+                System.err.println("     AND empty this key's API Access List (any entry enforces it).");
+                System.err.println("  B. Add a stable CI egress IP/CIDR to the key's API Access List.");
+                System.err.println("Downstream tests all fail with the same 403 until this is fixed.");
+                System.err.println("============================================================");
+                fail("ATLAS ADMIN API EDGE GATE CLOSED — admin action required (see stderr)");
             }
-            throw e;
+            throw new AssertionError(e);
         }
     }
 
