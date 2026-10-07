@@ -67,6 +67,9 @@ name: Full Integration
 on:
   pull_request:
     branches: [main, develop]
+    # "edited" re-evaluates the lane when a PR is retargeted between
+    # main and develop after opening.
+    types: [opened, synchronize, reopened, edited]
     paths: &it_paths
       # Product sources (also covers application*.yml and the
       # CloudFormation node template under src/main/resources).
