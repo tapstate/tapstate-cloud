@@ -19,17 +19,17 @@ tapstate:
     issuer: https://dev.cloud.tapstate.com
     # JWKS signing key — leave empty for dev (auto-generated in-memory)
     jwks-signing-key: ""
-    # Local dev runs without real Atlas calls; deployed environments override
-    # this via TAPSTATE_CLOUD_MDB_ATLAS_MOCK=false.
+    # Local dev defaults to mock; deployed environments override via the
+    # full-path env vars (a short IAC_MODE does NOT bind to this prefix).
     mdb:
       atlas:
-        mock: true
+        mock: ${TAPSTATE_CLOUD_MDB_ATLAS_MOCK:true}
     iac:
       # Local dev simulates Cluster provisioning — no AWS / GoDaddy calls.
-      # Deployed environments override this via IAC_MODE=real.
-      mode: mock
-      environment: dev
-      public-base-url: https://dev.cloud.tapstate.com
+      # Deployed environments override via TAPSTATE_CLOUD_IAC_MODE=real.
+      mode: ${TAPSTATE_CLOUD_IAC_MODE:mock}
+      environment: ${TAPSTATE_CLOUD_IAC_ENVIRONMENT:dev}
+      public-base-url: ${TAPSTATE_CLOUD_IAC_PUBLIC_BASE_URL:https://dev.cloud.tapstate.com}
 
 logging:
   level:
