@@ -1,19 +1,41 @@
 # ============================================================
 # Full integration suite (maven-failsafe *IT.java)
 #
-# Triggered by pull requests against main/develop and by pushes
-# to develop. Two jobs:
+# Triggered only by changes that can affect integration behavior
+# — product sources, integration-test sources, or key build/runtime
+# configuration (see the `paths` filters below) — on pushes and
+# pull requests targeting main or develop, plus manual dispatch.
 #
-#   integration-mock  — fast, cloud-free ITs. The control-plane
-#                       store is an Atlas cluster supplied through
-#                       the TAPSTATE_CLOUD_MONGO_URI secret; IaC and
-#                       Atlas run in mock mode.
-#   integration-real  — the FULL suite, including AwsClusterDeployIT
-#                       and AwsAtlasFullLifecycleIT against real AWS
-#                       and real Atlas. Creates billable resources
-#                       for 15-30 minutes, therefore runs globally
-#                       serialized (queued, never cancelled) and
-#                       self-skips when any cloud secret is missing.
+# The target ref selects the lane:
+#
+#   main (full)
+#     integration-mock — every cloud-free IT (IaC + Atlas in mock
+#                        mode), locally backed by the mongo service.
+#     integration-real — ONLY the cloud-touching classes:
+#                        AwsClusterDeployIT / AwsAtlasFullLifecycleIT
+#                        against real AWS + real Atlas and
+#                        atlas/AtlasAllocationIT against the real
+#                        Atlas Admin API. The cloud-free classes are
+#                        not re-run here: the mock job already runs
+#                        them on the same commit (historically that
+#                        duplication added ~8 minutes of billable-job
+#                        time). Creates billable resources, therefore
+#                        runs globally serialized (queued, never
+#                        cancelled) and self-skips when any cloud
+#                        secret is missing.
+#
+#   develop (full-flow)
+#     integration-mock — only the end-to-end pipeline cases:
+#                        SubscriptionFlowIT,
+#                        SubscriptionClusterLifecycleIT,
+#                        CancelCascadeIT. Fast and free of cloud
+#                        costs; point-wise ITs (auth/JWKS/OAuth/...)
+#                        run on main.
+#     integration-real — skipped.
+#
+#   workflow_dispatch — lane follows the selected ref by default;
+#                        the `suite` input can force `full` or
+#                        `full-flow` on any branch.
 #
 # Secrets (repository or environment):
 #   TAPSTATE_CLOUD_MONGO_URI      full mongodb+srv URI incl. db name
@@ -45,18 +67,67 @@ name: Full Integration
 on:
   pull_request:
     branches: [main, develop]
+    paths: &it_paths
+      # Product sources (also covers application*.yml and the
+      # CloudFormation node template under src/main/resources).
+      - "**/src/main/**"
+      # Integration-test cases and their shared harness.
+      - "**/src/it/**"
+      # Build / runtime configuration that changes how ITs run.
+      - "**/pom.xml"
+      - "client/api/openapi.yaml"
+      - "client/java/src/**"
+      - ".github/workflows/full-integration.yml"
   push:
-    branches: [develop]
-  workflow_dispatch: {}
+    branches: [main, develop]
+    paths: *it_paths
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: "Force a suite regardless of the target ref"
+        type: choice
+        options: [auto, full, full-flow]
+        default: auto
 
 permissions:
   contents: read
 
 jobs:
+  # ---------- Lane resolution: full (main) vs full-flow (develop) ----------
+  lane:
+    name: Resolve integration lane
+    runs-on: ubuntu-latest
+    outputs:
+      mode: ${{ steps.resolve.outputs.mode }}
+    steps:
+      - id: resolve
+        name: Resolve suite mode from target ref
+        run: |
+          set -euo pipefail
+          forced="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.suite || 'auto' }}"
+          if [ "$forced" != "auto" ]; then
+            mode="$forced"
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+            case "${{ github.base_ref }}" in
+              main) mode=full ;;
+              develop) mode=full-flow ;;
+              *) mode=full ;;
+            esac
+          else
+            case "${{ github.ref_name }}" in
+              main) mode=full ;;
+              develop) mode=full-flow ;;
+              *) mode=full ;;
+            esac
+          fi
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+          echo "Integration lane: $mode (event=${{ github.event_name }})"
+
   # ---------- Fast, cloud-free integration tests ----------
   integration-mock:
     name: Integration (mock)
     runs-on: ubuntu-latest
+    needs: lane
     timeout-minutes: 50
     concurrency:
       group: integration-mock-${{ github.ref }}
@@ -67,8 +138,9 @@ jobs:
       ATLAS_BASTION_USER: ubuntu
 
     services:
-      # Local mongod backs the surefire unit tests (same as ci.yaml);
-      # the ITs themselves use TAPSTATE_CLOUD_MONGO_URI.
+      # Local mongod backs both the surefire unit tests and the cloud-free
+      # ITs (the mvn step gets no TAPSTATE_CLOUD_MONGO_URI, so the forked
+      # application and BaseIT fall back to mongodb://localhost:27017).
       mongodb:
         image: mongo:7
         ports:
@@ -211,11 +283,24 @@ jobs:
           exit 1
 
       - name: Run cloud-free ITs
-        run: >
-          mvn -B -ntp -DskipSdkGeneration=true
-          -pl cloud-control-plane -am verify
-          -Dit.test=!AwsAtlasFullLifecycleIT,!AwsClusterDeployIT,!**/atlas/*IT.java
-          -DfailIfNoSpecifiedTests=false
+        env:
+          SUITE_MODE: ${{ needs.lane.outputs.mode }}
+        run: |
+          set -euo pipefail
+          if [ "$SUITE_MODE" = full ]; then
+            # main: every cloud-free IT; real-cloud classes belong to
+            # integration-real and the atlas package needs real credentials.
+            it_pattern='!AwsAtlasFullLifecycleIT,!AwsClusterDeployIT,!**/atlas/*IT.java'
+          else
+            # develop: end-to-end pipeline cases only
+            # (subscribe -> provision -> cancel -> reclaim).
+            it_pattern='SubscriptionFlowIT,SubscriptionClusterLifecycleIT,CancelCascadeIT'
+          fi
+          echo "Running failsafe pattern: $it_pattern"
+          mvn -B -ntp -DskipSdkGeneration=true \
+            -pl cloud-control-plane -am verify \
+            "-Dit.test=$it_pattern" \
+            -DfailIfNoSpecifiedTests=false
 
       - name: Remove runner IP from Atlas project access list
         if: always()
@@ -266,12 +351,15 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  # ---------- Full suite against real AWS + real Atlas ----------
+  # ---------- Real-cloud classes against real AWS + real Atlas ----------
   integration-real:
     name: Integration (real AWS + Atlas)
     runs-on: ubuntu-latest
     timeout-minutes: 85
-    needs: integration-mock
+    # Full lane (main) only; on develop this job stays skipped. Requires the
+    # cloud-free job green on the same commit.
+    needs: [lane, integration-mock]
+    if: ${{ needs.lane.outputs.mode == 'full' && needs.integration-mock.result == 'success' }}
     # Global group without the ref: cloud runs are mutually exclusive
     # across refs because they share the Atlas seed documents and create
     # billable resources. Never cancel a run mid-flight.
@@ -536,7 +624,7 @@ jobs:
           fi
           exit 1
 
-      - name: Run full IT suite (real AWS + real Atlas)
+      - name: Run real-cloud ITs (real AWS + real Atlas)
         if: steps.creds.outputs.present == 'true'
         env:
           TAPSTATE_CLOUD_MONGO_URI: ${{ secrets.TAPSTATE_CLOUD_MONGO_URI }}
@@ -547,12 +635,18 @@ jobs:
           TAPSTATE_ATLAS_PROJECT_ID: ${{ secrets.TAPSTATE_ATLAS_PROJECT_ID }}
           TAPSTATE_ATLAS_CLUSTER_NAME: ${{ secrets.TAPSTATE_ATLAS_CLUSTER_NAME }}
           TAPSTATE_ATLAS_CONNECTION_STRING: ${{ secrets.TAPSTATE_ATLAS_CONNECTION_STRING }}
-        # GitHub runners have direct egress — disable the local-forwarder
-        # proxy defaults that the real ITs ship with for dev machines.
+        # Only the cloud-touching classes run here; the cloud-free suite is
+        # integration-mock's job on the same commit. Both AWS classes launch
+        # their own forked real-mode application and only BaseIT's mongosh
+        # wipe uses TAPSTATE_CLOUD_MONGO_URI. GitHub runners have direct
+        # egress — disable the local-forwarder proxy defaults the real ITs
+        # ship with for dev machines.
         run: >
           mvn -B -ntp -DskipSdkGeneration=true
           -pl cloud-control-plane -am verify
           -Diac.proxyHost=none -Diac.proxyPort=0
+          -Dit.test=AwsAtlasFullLifecycleIT,AwsClusterDeployIT,AtlasAllocationIT
+          -DfailIfNoSpecifiedTests=false
 
       - name: Remove runner IP from Atlas access lists
         if: always() && steps.creds.outputs.present == 'true'
