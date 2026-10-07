@@ -44,7 +44,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * <ol>
  *   <li>Build unique clusterId (UUID-derived, so each test gets unique db name)</li>
  *   <li>Verify the target Cluster0 exists and is IDLE on Atlas</li>
- *   <li>Create dbUser with dbAdmin roles on the three allocation dbs</li>
+ *   <li>Create dbUser with dbAdmin + readWrite roles on the three allocation dbs</li>
  *   <li>Verify dbUser exists via queryDatabaseUser</li>
  *   <li>AfterEach cleanup: drop the test dbUser (idempotent 404-safe)</li>
  * </ol>
@@ -282,13 +282,16 @@ class AtlasAllocationIT {
     }
 
     /**
-     * Verify PO naming convention + dbAdmin roles + idempotent 409 handling.
-     * This is the core allocation test — creates a dbUser with dbAdmin on the
-     * three PO-specified databases.
+     * Verify PO naming convention + dbAdmin/readWrite roles + idempotent 409 handling.
+     * This is the core allocation test — creates a dbUser carrying the production
+     * role set: dbAdmin and readWrite on the three PO-specified databases, plus
+     * clusterMonitor@admin and read on config/local. readWrite is mandatory: a
+     * dbAdmin-only user cannot read or insert user data, so the runtime fails its
+     * bootstrap migrations and the node never becomes healthy.
      */
     @Test
     @Order(2)
-    @DisplayName("ATLAS-ALLOC-001 — Create dbUser with dbAdmin on 3 databases, verify via queryDatabaseUser")
+    @DisplayName("ATLAS-ALLOC-001 — Create dbUser with dbAdmin+readWrite on 3 databases, verify via queryDatabaseUser")
     void createAndVerifyDatabaseUser() {
         System.out.println("\n=== ATLAS-ALLOC-001 ===");
         System.out.println("Test cluster hex (simulated ObjectId): " + testClusterHex);
@@ -297,11 +300,14 @@ class AtlasAllocationIT {
         System.out.println("Views db:     " + viewsDbName);
         System.out.println("dbUser:       " + dbUsername);
 
-        // Build dbAdmin role entries per PO decision (plus clusterMonitor / read config / read local)
+        // Role set identical to AtlasMdbService.buildDbUserRoles in production.
         List<Map<String, String>> roles = List.of(
             Map.of("roleName", "dbAdmin", "databaseName", mainDbName),
+            Map.of("roleName", "readWrite", "databaseName", mainDbName),
             Map.of("roleName", "dbAdmin", "databaseName", operatorDbName),
+            Map.of("roleName", "readWrite", "databaseName", operatorDbName),
             Map.of("roleName", "dbAdmin", "databaseName", viewsDbName),
+            Map.of("roleName", "readWrite", "databaseName", viewsDbName),
             Map.of("roleName", "clusterMonitor", "databaseName", "admin"),
             Map.of("roleName", "read", "databaseName", "config"),
             Map.of("roleName", "read", "databaseName", "local")
@@ -342,7 +348,25 @@ class AtlasAllocationIT {
             System.out.println("  - " + role.path("roleName").asText() + "@" + role.path("databaseName").asText());
         }
 
-        assertEquals(6, roleCount, "dbUser should have exactly 6 roles (3 dbAdmin + clusterMonitor + read config + read local)");
+        assertEquals(9, roleCount,
+            "dbUser should have exactly 9 roles (dbAdmin + readWrite on 3 databases"
+                + " + clusterMonitor + read config + read local)");
+
+        // readWrite on every allocation database is the regression guard: without
+        // it the runtime's data access and bootstrap migrations are unauthorized.
+        for (String databaseName : List.of(mainDbName, operatorDbName, viewsDbName)) {
+            boolean hasReadWrite = false;
+            boolean hasDbAdmin = false;
+            for (JsonNode role : queriedRoles) {
+                if (databaseName.equals(role.path("databaseName").asText())) {
+                    String roleName = role.path("roleName").asText();
+                    hasReadWrite |= "readWrite".equals(roleName);
+                    hasDbAdmin |= "dbAdmin".equals(roleName);
+                }
+            }
+            assertTrue(hasReadWrite, databaseName + " must grant readWrite (runtime data access)");
+            assertTrue(hasDbAdmin, databaseName + " must grant dbAdmin (dropDatabase on reclaim)");
+        }
     }
 
     /**

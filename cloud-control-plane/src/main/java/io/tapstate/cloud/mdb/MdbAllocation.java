@@ -30,10 +30,11 @@ import java.time.Instant;
  *   views db       = mdb_{clusterId.toHexString()}_views
  * </pre>
  * <p>
- * dbUser roles are all {@code dbAdmin} on the three databases (plus
- * clusterMonitor / read config / read local) — PO decision, replaces the old
- * readWrite-only model. dbAdmin has the authority to drop its own databases,
- * so the separate admin dbUser credential path is gone.
+ * dbUser roles are {@code dbAdmin} + {@code readWrite} on each of the three
+ * databases (plus clusterMonitor / read config / read local). readWrite carries
+ * the runtime's data and migration privileges; dbAdmin additionally authorizes
+ * dropping the allocation's own databases, so the separate admin dbUser
+ * credential path is gone.
  * <p>
  * Connection string construction: clean parent {@link MdbCluster#connectionString}
  * + per-allocation dbUser/dbPassword + main database name ({@code authSource=admin}).
