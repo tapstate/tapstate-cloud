@@ -19,6 +19,8 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -106,6 +108,21 @@ class SubscriptionServiceResourceLinkTest {
         assertThat(storageItem.getClusterId()).isNull();
         verify(itemRepository).save(runtimeItem);
         verify(itemRepository).save(storageItem);
+    }
+
+    @Test
+    void provisioningStartsOnlyAfterAllocationLinkAndItemsAreDurable() {
+        subscriptionService.createSubscription(orgId.toHexString(), "ap-southeast-1",
+            "qa-cluster", "basic", "leon.li@tapdata.io");
+
+        // START_PROVISION must fire only after the allocation link is saved, so
+        // the async provisioning run can never observe the Cluster unlinked.
+        var order = inOrder(clusterService, itemRepository);
+        order.verify(clusterService).updateMdbAllocationId(clusterId, allocationId);
+        order.verify(itemRepository).save(runtimeItem);
+        order.verify(itemRepository).save(storageItem);
+        order.verify(clusterService).startProvisioning(eq(clusterId),
+            eq("subscription:leon.li@tapdata.io"));
     }
 
     @Test

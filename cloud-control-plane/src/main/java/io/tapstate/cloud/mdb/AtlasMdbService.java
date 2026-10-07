@@ -38,7 +38,10 @@ import java.util.Map;
  *   <li>Database name: {@code mdb_{clusterId.toHexString()}} (24-char full ObjectId hex)</li>
  *   <li>operator db: {@code mdb_{clusterId}_operator}</li>
  *   <li>views db: {@code mdb_{clusterId}_views}</li>
- *   <li>dbUser roles: {@code dbAdmin} on all three databases + clusterMonitor@admin + read@config + read@local</li>
+ *   <li>dbUser roles: {@code dbAdmin} + {@code readWrite} on all three databases
+ *       + clusterMonitor@admin + read@config + read@local. readWrite is mandatory:
+ *       dbAdmin alone grants DDL/admin actions but no data read or insert, so the
+ *       runtime cannot boot (Atlas rejects its migration writes as unauthorized)</li>
  *   <li>dbAdmin role can drop its own databases → no separate admin dbUser needed</li>
  * </ul>
  * <p>
@@ -207,16 +210,30 @@ public class AtlasMdbService implements MdbService {
     }
 
     /**
-     * Build the PO-mandated role set: dbAdmin × 3 databases + clusterMonitor + read config + read local.
-     * dbAdmin can drop its own databases — no separate admin dbUser needed.
+     * Build the role set for an allocation owner: dbAdmin + readWrite on each of
+     * the three databases, plus clusterMonitor@admin + read@config + read@local.
+     * <p>
+     * Both data roles are required on every database:
+     * <ul>
+     *   <li>readWrite — runtime data and migration writes. dbAdmin deliberately
+     *       excludes read/insert/update/delete privileges; without readWrite the
+     *       runtime's bootstrap migrations fail as not authorized and the node
+     *       never becomes healthy.</li>
+     *   <li>dbAdmin — administrative actions and, on reclaim, dropDatabase on the
+     *       allocation's own databases (readWrite cannot drop a database).</li>
+     * </ul>
      */
-    private List<Map<String, String>> buildDbUserRoles(MdbAllocation allocation) {
-        List<Map<String, String>> roles = new ArrayList<>(6);
+    static List<Map<String, String>> buildDbUserRoles(MdbAllocation allocation) {
+        List<Map<String, String>> roles = new ArrayList<>(9);
 
-        // dbAdmin on each of our three databases
-        roles.add(role("dbAdmin", allocation.getDatabaseName()));
-        roles.add(role("dbAdmin", allocation.getOperatorDbName()));
-        roles.add(role("dbAdmin", allocation.getViewsDbName()));
+        for (String databaseName : new String[] {
+            allocation.getDatabaseName(),
+            allocation.getOperatorDbName(),
+            allocation.getViewsDbName()
+        }) {
+            roles.add(role("dbAdmin", databaseName));
+            roles.add(role("readWrite", databaseName));
+        }
 
         // system-level read/monitor roles — Atlas scopes these to admin / config / local
         roles.add(role("clusterMonitor", "admin"));
@@ -226,7 +243,7 @@ public class AtlasMdbService implements MdbService {
         return roles;
     }
 
-    private Map<String, String> role(String roleName, String databaseName) {
+    private static Map<String, String> role(String roleName, String databaseName) {
         Map<String, String> r = new LinkedHashMap<>();
         r.put("roleName", roleName);
         r.put("databaseName", databaseName);
@@ -277,13 +294,13 @@ public class AtlasMdbService implements MdbService {
     // ========== dropDatabase — connect as per-allocation dbUser, drop 3 dbs ==========
     //
     // Atlas Admin API has NO drop-database endpoint — drop is a Mongo-level operation.
-    // PO decision: dbUser has dbAdmin role on its three databases → it can drop them
-    // directly. We build a short-lived MongoClient using the allocation's dbUser
-    // credentials + the clean connectionString stored on MdbCluster.
+    // PO decision: the dbUser's dbAdmin role on its three databases lets it drop
+    // them directly. We build a short-lived MongoClient using the allocation's
+    // dbUser credentials + the clean connectionString stored on MdbCluster.
     //
     // Connection string assembly:
     //   mongodb+srv://username:password@cluster0.xxx.mongodb.net/?authSource=admin
-    //   (dbAdmin is scoped with authSource=admin — same as createDatabaseUser)
+    //   (roles are scoped with authSource=admin — same as createDatabaseUser)
 
     @Override
     @Transactional
