@@ -110,10 +110,15 @@ tapstate:
       access-key-id: ${AWS_ACCESS_KEY_ID:}
       secret-access-key: ${AWS_SECRET_ACCESS_KEY:}
       region: ${AWS_REGION:ap-southeast-1}
-    # Atlas Admin API key from k3s Secret (ADR-0121 D2)
-    atlas:
-      admin-api-key: ${ATLAS_ADMIN_API_KEY:}
-      admin-api-key-secret: ${ATLAS_ADMIN_API_KEY_SECRET:}
+    # Atlas MDB allocation engine.
+    # mock=true skips every real Atlas Admin API call (local dev / fast IT).
+    # Real deployments set TAPSTATE_CLOUD_MDB_ATLAS_MOCK=false and provide the
+    # Activated AtlasConfig key and ACTIVE MdbCluster documents in the
+    # control-plane store — Atlas credentials are read from those documents,
+    # not from environment variables.
+    mdb:
+      atlas:
+        mock: ${TAPSTATE_CLOUD_MDB_ATLAS_MOCK:true}
     # Infrastructure-as-code layer — multi-cloud Cluster provisioning
     iac:
       provider: ${IAC_PROVIDER:aws}
@@ -125,6 +130,9 @@ tapstate:
       aws:
         instance-type: ${IAC_AWS_INSTANCE_TYPE:t3.medium}
         disk-size-gb: ${IAC_AWS_DISK_SIZE_GB:40}
+        # Blank = resolve the region default VPC and one of its public subnets.
+        vpc-id: ${IAC_AWS_VPC_ID:}
+        subnet-id: ${IAC_AWS_SUBNET_ID:}
       godaddy:
         base-url: ${GODADDY_BASE_URL:https://api.godaddy.com}
         domain: ${GODADDY_DOMAIN:tapstate.com}

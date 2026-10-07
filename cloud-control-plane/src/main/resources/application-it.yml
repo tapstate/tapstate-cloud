@@ -55,6 +55,9 @@ tapstate:
       # deployment IT launches its own application process with mode=real.
       mode: ${IAC_MODE:mock}
       environment: dev
+      # Real IT provisions <id>.dev.cloud.tapstate.com nodes, so the control
+      # plane URL handed to runtimes is the dev endpoint.
+      public-base-url: https://dev.cloud.tapstate.com
       aws:
         instance-type: t3.medium
         disk-size-gb: 40

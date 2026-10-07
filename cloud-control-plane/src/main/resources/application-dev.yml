@@ -15,10 +15,21 @@ spring:
 
 tapstate:
   cloud:
-    # Dev: issuer points to localhost
+    # Dev: issuer points to the dev control plane
     issuer: https://dev.cloud.tapstate.com
     # JWKS signing key — leave empty for dev (auto-generated in-memory)
     jwks-signing-key: ""
+    # Local dev runs without real Atlas calls; deployed environments override
+    # this via TAPSTATE_CLOUD_MDB_ATLAS_MOCK=false.
+    mdb:
+      atlas:
+        mock: true
+    iac:
+      # Local dev simulates Cluster provisioning — no AWS / GoDaddy calls.
+      # Deployed environments override this via IAC_MODE=real.
+      mode: mock
+      environment: dev
+      public-base-url: https://dev.cloud.tapstate.com
 
 logging:
   level:

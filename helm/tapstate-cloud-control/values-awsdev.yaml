@@ -22,7 +22,22 @@ imagePullSecrets:
 # Single-node k3s on EC2 — no nodeSelector needed
 config:
   springProfilesActive: dev
+  # Must point at THIS control plane; the base values default to the prod
+  # issuer, which would make dev-issued resolve JWTs carry the prod issuer.
+  jwtIssuer: https://dev.cloud.tapstate.com
   corsAllowedOrigins: "https://dev.cloud.tapstate.com,https://*.dev.cloud.tapstate.com,http://localhost:5173,http://localhost:5174"
+
+  # awsdev drives real AWS (ap-southeast-1) + real Atlas provisioning.
+  # Required secrets beyond the base set:
+  #   tapstate-cloud-control-dns      (api-key / api-secret)
+  #   tapstate-cloud-control-iac      (master-key, base64 32 bytes)
+  # Atlas access additionally needs Activated atlas_configs + ACTIVE
+  # mdb_clusters documents seeded in the control-plane store.
+  iacMode: real
+  iacEnvironment: dev
+  publicBaseUrl: https://dev.cloud.tapstate.com
+  atlasMdbMock: "false"
+  logLevelCloud: DEBUG
 
 service:
   type: NodePort
