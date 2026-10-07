@@ -140,20 +140,11 @@ public class ClusterProvisioningService {
 
             NodeInstance node = compute.provision(spec);
             stackCreated = true;
-            // The subscription flow creates the Cluster (which dispatches this
-            // run) and saves its MdbAllocation link only afterwards. The snapshot
-            // loaded at dispatch therefore predates that link and, saved back
-            // whole, would erase it. Re-read before recording node fields so the
-            // runtime URI resolver sees the linked allocation.
-            cluster = clusterRepository.findById(cluster.getId())
-                .orElseThrow(() -> new IacException(AppErrorCode.SYSTEM_ERROR,
-                    "Cluster " + clusterId + " vanished during provisioning"));
             cluster.setEc2InstanceId(node.instanceId());
             cluster.setEc2PublicIp(node.publicIp());
             cluster.setCloudFormationStackStatus("CREATE_COMPLETE");
             persist(cluster);
-            log.info("[IaC] node ready cluster={} ip={} allocation={}", clusterId,
-                node.publicIp(), cluster.getMdbAllocationId());
+            log.info("[IaC] node ready cluster={} ip={}", clusterId, node.publicIp());
 
             // 4. Wait for the node to accept SSH and collect the real control-plane
             // egress ranges as observed on the wire, then narrow the firewall.

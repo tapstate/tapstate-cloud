@@ -45,7 +45,8 @@ class RuntimeAtlasUriResolverTest {
     void setUp() {
         properties = new IacProperties();
         properties.setRuntimeAtlasUri("mongodb+srv://global-fallback.example");
-        resolver = new RuntimeAtlasUriResolver(allocationRepository, mdbClusterRepository, properties);
+        resolver = new RuntimeAtlasUriResolver(allocationRepository, mdbClusterRepository,
+            properties, false);
         allocationId = new ObjectId();
         mdbClusterId = new ObjectId();
     }
@@ -143,5 +144,26 @@ class RuntimeAtlasUriResolverTest {
         cluster.setId(new ObjectId());
 
         assertEquals("", resolver.resolve(cluster));
+    }
+
+    @Test
+    void linkedAllocationIsIgnoredInAtlasMockModeSoNodeUsesSidecar() {
+        // Real compute provisioning with the Atlas allocation engine still in
+        // mock mode: the assembled per-allocation credentials do not exist on
+        // Atlas, so the node must fall back to the global URI / local sidecar.
+        RuntimeAtlasUriResolver mockResolver = new RuntimeAtlasUriResolver(
+            allocationRepository, mdbClusterRepository, properties, true);
+
+        assertEquals("mongodb+srv://global-fallback.example",
+            mockResolver.resolve(clusterWithAllocation()));
+    }
+
+    @Test
+    void mockModeWithBlankGlobalUriSelectsSidecar() {
+        properties.setRuntimeAtlasUri("");
+        RuntimeAtlasUriResolver mockResolver = new RuntimeAtlasUriResolver(
+            allocationRepository, mdbClusterRepository, properties, true);
+
+        assertEquals("", mockResolver.resolve(clusterWithAllocation()));
     }
 }
