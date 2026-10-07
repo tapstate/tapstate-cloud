@@ -24,6 +24,16 @@ config:
   jwtIssuer: https://cloud.tapstate.io
   corsAllowedOrigins: "https://cloud.tapstate.io,https://*.cloud.tapstate.io"
 
+  # Production drives real AWS + real Atlas provisioning.
+  # Requires the dns / iac k3s Secrets and Activated AtlasConfig + ACTIVE
+  # MdbCluster documents in the control-plane store.
+  iacMode: real
+  publicBaseUrl: https://cloud.tapstate.com
+  atlasMdbMock: "false"
+  # API explorers are not exposed in production.
+  swaggerUiEnabled: "false"
+  knife4jEnabled: "false"
+
 service:
   type: NodePort
   nodePort: 30080

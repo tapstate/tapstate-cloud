@@ -45,6 +45,18 @@ public class Subscription {
     @Schema(description = "Subscription lifecycle status", example = "TRIAL")
     private SubscriptionStatus status = SubscriptionStatus.TRIAL;
 
+    /**
+     * Provisioning state of the Subscription's cloud resources — {@code null}
+     * for shells created before an explicit subscribe, {@link ResourceState#PROVISIONING}
+     * while Cluster + Atlas deployment is in flight, {@link ResourceState#READY}
+     * once every Cluster and every MdbAllocation is ready.
+     */
+    @Schema(description = "Cloud resource provisioning state: PROVISIONING / READY (null for shells without resources)")
+    private ResourceState resourceState;
+
+    @Schema(description = "When every Cluster and MdbAllocation first became READY")
+    private Instant resourcesReadyAt;
+
     @Schema(description = "Trial / billing period start")
     private Instant currentPeriodStart;
 

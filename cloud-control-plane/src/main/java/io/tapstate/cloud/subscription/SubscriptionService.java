@@ -124,11 +124,17 @@ public class SubscriptionService {
             allocation.getId().toHexString(), cluster.getId().toHexString(), subscriptionId.toHexString());
 
         // Link allocation ID to Cluster so the Cluster runtime can find its Atlas DB credentials
-        cluster.setMdbAllocationId(allocation.getId().toHexString());
+        cluster.setMdbAllocationId(allocation.getId());
         // Note: we need to save cluster — but ClusterService.createCluster already owns the save.
         // We do a lightweight update here (only setting mdbAllocationId).
         // Actually, let's use the repo directly since it's a simple add-on.
         clusterService.updateMdbAllocationId(cluster.getId(), allocation.getId());
+
+        // Both FSMs are now running; the subscription resources stay PROVISIONING
+        // until SubscriptionResourceCoordinator observes Cluster AND allocation READY.
+        subscription.setResourceState(ResourceState.PROVISIONING);
+        subscription.setUpdatedAt(Instant.now());
+        subscriptionRepository.save(subscription);
 
         log.info("[Subscription] Full subscription provisioned: subscriptionId={}, clusterId={}, allocationId={}",
             subscriptionId.toHexString(), cluster.getId().toHexString(), allocation.getId().toHexString());

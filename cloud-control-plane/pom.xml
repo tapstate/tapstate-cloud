@@ -30,6 +30,10 @@
     <maven.deploy.skip>true</maven.deploy.skip>
     <!-- IT server port — must match application-it.yml and ApiClient base URL in BaseIT -->
     <it.server.port>8081</it.server.port>
+    <!-- Outbound proxy for the real cloud ITs. Local dev defaults to the local
+         forwarder; CI overrides with -Diac.proxyHost=none for direct egress. -->
+    <iac.proxyHost>127.0.0.1</iac.proxyHost>
+    <iac.proxyPort>1235</iac.proxyPort>
   </properties>
 
   <dependencies>
@@ -79,6 +83,25 @@
       <artifactId>spring-statemachine-starter</artifactId>
     </dependency>
 
+    <!-- AWS CloudFormation — Cluster node provisioning (version via AWS SDK BOM) -->
+    <dependency>
+      <groupId>software.amazon.awssdk</groupId>
+      <artifactId>cloudformation</artifactId>
+    </dependency>
+
+    <!-- AWS EC2 — resolve the default VPC and public subnet per region -->
+    <dependency>
+      <groupId>software.amazon.awssdk</groupId>
+      <artifactId>ec2</artifactId>
+    </dependency>
+
+    <!-- SSHJ — upload configuration and start services on Cluster nodes -->
+    <dependency>
+      <groupId>com.hierynomus</groupId>
+      <artifactId>sshj</artifactId>
+      <version>${sshj.version}</version>
+    </dependency>
+
     <!-- ShedLock — distributed scheduling lock for JWKS rotation -->
     <dependency>
       <groupId>net.javacrumbs.shedlock</groupId>
@@ -105,6 +128,13 @@
       <groupId>org.projectlombok</groupId>
       <artifactId>lombok</artifactId>
       <optional>true</optional>
+    </dependency>
+
+    <!-- Apache HttpClient5 — Atlas Admin API Digest Auth (used by AtlasApiClient + IT tests) -->
+    <dependency>
+      <groupId>org.apache.httpcomponents.client5</groupId>
+      <artifactId>httpclient5</artifactId>
+      <version>5.4</version>
     </dependency>
 
     <!-- ========== Unit + Integration test dependencies ========== -->
@@ -209,6 +239,9 @@
             <it.server.port>${it.server.port}</it.server.port>
             <!-- Spring profile for IT (controls MongoDB DB name, etc.) -->
             <spring.profiles.active>it</spring.profiles.active>
+            <!-- Proxy for real cloud ITs; host=none disables (CI direct egress) -->
+            <iac.proxyHost>${iac.proxyHost}</iac.proxyHost>
+            <iac.proxyPort>${iac.proxyPort}</iac.proxyPort>
           </systemPropertyVariables>
           <argLine>-Xms512m -Xmx1024m</argLine>
         </configuration>

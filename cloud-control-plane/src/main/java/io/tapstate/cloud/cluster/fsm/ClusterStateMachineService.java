@@ -3,9 +3,15 @@ package io.tapstate.cloud.cluster.fsm;
 import io.tapstate.cloud.cluster.Cluster;
 import io.tapstate.cloud.cluster.ClusterRepository;
 import io.tapstate.cloud.cluster.ClusterState;
+import io.tapstate.cloud.cluster.ProvisionErrorCode;
+import io.tapstate.cloud.iac.ClusterProvisioningService;
+import io.tapstate.cloud.iac.ClusterProvisioningService.ProvisionResult;
+import io.tapstate.cloud.iac.IacProperties;
+import io.tapstate.cloud.subscription.ClusterReadyEvent;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.statemachine.StateMachine;
 import org.springframework.statemachine.config.StateMachineFactory;
 import org.springframework.statemachine.support.DefaultStateMachineContext;
@@ -29,7 +35,7 @@ import org.bson.types.ObjectId;
  *       so it starts from the Cluster's persisted state, not {@code initial}</li>
  *   <li>Sends the requested event</li>
  *   <li>If the transition was accepted, persists the new state back to MongoDB</li>
- *   <li>Applies transition effects — async CloudFormation simulation, runtime field setup</li>
+ *   <li>Applies transition effects — real IaC provisioning or a mock simulation</li>
  * </ol>
  * <p>
  * <b>MDB allocation is independent</b> — managed by
@@ -43,6 +49,9 @@ public class ClusterStateMachineService {
 
     private final StateMachineFactory<ClusterState, ClusterEventType> clusterStateMachineFactory;
     private final ClusterRepository clusterRepository;
+    private final ClusterProvisioningService clusterProvisioningService;
+    private final IacProperties iacProperties;
+    private final ApplicationEventPublisher eventPublisher;
 
     private final SecureRandom secureRandom = new SecureRandom();
 
@@ -52,9 +61,15 @@ public class ClusterStateMachineService {
     public ClusterStateMachineService(
         @Qualifier("clusterStateMachineFactory")
         StateMachineFactory<ClusterState, ClusterEventType> clusterStateMachineFactory,
-        ClusterRepository clusterRepository) {
+        ClusterRepository clusterRepository,
+        ClusterProvisioningService clusterProvisioningService,
+        IacProperties iacProperties,
+        ApplicationEventPublisher eventPublisher) {
         this.clusterStateMachineFactory = clusterStateMachineFactory;
         this.clusterRepository = clusterRepository;
+        this.clusterProvisioningService = clusterProvisioningService;
+        this.iacProperties = iacProperties;
+        this.eventPublisher = eventPublisher;
     }
 
     /**
@@ -84,11 +99,19 @@ public class ClusterStateMachineService {
 
             cluster.setState(newState);
             cluster.setUpdatedAt(Instant.now());
+            // Synchronous field mutations are applied before persisting so the
+            // new state and its side-effect fields become visible atomically;
+            // async cloud operations are scheduled only after the save.
+            applySynchronousMutations(cluster, prevState, newState, event);
             clusterRepository.save(cluster);
 
-            applyTransitionEffects(cluster, prevState, newState, event);
+            scheduleAsyncEffects(cluster, prevState, newState, event);
 
-            clusterRepository.save(cluster);
+            // Notify the subscription resource-readiness join once the READY
+            // state (and its synchronous fields) are durable.
+            if (newState == ClusterState.READY) {
+                eventPublisher.publishEvent(new ClusterReadyEvent(clusterId));
+            }
 
             log.info("[Cluster FSM] {} cluster {}: {} → {} on event={}",
                 operator, clusterId, prevState, newState, event);
@@ -111,38 +134,27 @@ public class ClusterStateMachineService {
     }
 
     /**
-     * Apply side-effects after a successful state transition.
-     * <p>
-     * PROVISIONING_PENDING → PROVISIONING:
-     *   - Fire simulated CloudFormation success/failure (85% success rate, virtual thread)
-     * PROVISIONING → READY:
-     *   - Set runtime fields (EC2 instance ID, elastic IP, public DNS, heartbeat)
-     * PROVISIONING → PROVISIONING_FAILED:
-     *   - Record provisionErrorCode + detail
-     * TERMINATED:
-     *   - Clear runtime credentials, record terminatedAt
+     * Apply in-memory field mutations for a transition. Persisted by the caller
+     * before any async effect runs.
      */
-    private void applyTransitionEffects(Cluster cluster, ClusterState from, ClusterState to, ClusterEventType event) {
+    private void applySynchronousMutations(Cluster cluster, ClusterState from, ClusterState to,
+                                           ClusterEventType event) {
+        boolean real = "real".equalsIgnoreCase(iacProperties.getMode());
 
-        // === PROVISIONING_PENDING → PROVISIONING: async simulated CloudFormation ===
-        if (from == ClusterState.PROVISIONING_PENDING && to == ClusterState.PROVISIONING) {
-            startAsyncCloudFormation(cluster);
-        }
-
-        // === PROVISIONING → READY: set runtime fields ===
+        // === PROVISIONING → READY ===
         if (from == ClusterState.PROVISIONING && to == ClusterState.READY) {
             cluster.setReadyAt(Instant.now());
-            cluster.setEc2InstanceId("i-" + cluster.getId().toHexString().substring(0, 12));
-            cluster.setElasticIp("54." + secureRandom.nextInt(256) + "." +
-                secureRandom.nextInt(256) + "." + secureRandom.nextInt(256));
-            cluster.setPublicDns(cluster.getId().toHexString() + ".dev.cloud.tapstate.com");
-            cluster.setLastHeartbeatAt(Instant.now());
+            if (!real) {
+                simulateRuntimeFields(cluster);
+            }
         }
 
         // === PROVISIONING → PROVISIONING_FAILED ===
         if (from == ClusterState.PROVISIONING && to == ClusterState.PROVISIONING_FAILED) {
-            cluster.setProvisionErrorCode(io.tapstate.cloud.cluster.ProvisionErrorCode.CLOUDFORMATION_FAILED);
-            cluster.setProvisionErrorDetail("{\"error\": \"Simulated provisioning failure\"}");
+            if (cluster.getProvisionErrorCode() == null) {
+                cluster.setProvisionErrorCode(ProvisionErrorCode.CLOUDFORMATION_FAILED);
+                cluster.setProvisionErrorDetail("{\"error\": \"Provisioning failed without a coded cause\"}");
+            }
         }
 
         if (from == ClusterState.READY && to == ClusterState.DEGRADED) {
@@ -153,45 +165,179 @@ public class ClusterStateMachineService {
             log.info("[Cluster FSM] cluster {} recovered from DEGRADED", cluster.getId());
         }
 
-        // === TERMINATED: clear runtime credentials ===
+        // === TERMINATED: clear credentials ===
         if (to == ClusterState.TERMINATED) {
             cluster.setTerminatedAt(Instant.now());
             cluster.setSdkStaticToken(null);
             cluster.setBootstrapToken(null);
-            log.warn("[Cluster FSM] cluster {} TERMINATED — cleanup triggered", cluster.getId());
         }
     }
 
-    // ========== Async simulated CloudFormation ==========
+    /**
+     * Schedule side-effects that must run after the transition is persisted:
+     * real-mode provisioning, retry cleanup and resource termination.
+     */
+    private void scheduleAsyncEffects(Cluster cluster, ClusterState from, ClusterState to,
+                                      ClusterEventType event) {
+        boolean real = "real".equalsIgnoreCase(iacProperties.getMode());
 
-    private void startAsyncCloudFormation(Cluster cluster) {
+        // === PROVISIONING_PENDING → PROVISIONING ===
+        if (from == ClusterState.PROVISIONING_PENDING && to == ClusterState.PROVISIONING) {
+            if (real) {
+                startAsyncProvisioning(cluster.getId());
+            } else {
+                startAsyncMockProvisioning(cluster.getId());
+            }
+        }
+
+        // === PROVISIONING_FAILED → PROVISIONING_PENDING: restart ===
+        if (from == ClusterState.PROVISIONING_FAILED && to == ClusterState.PROVISIONING_PENDING) {
+            if (real) {
+                scheduleRetry(cluster.getId());
+            } else {
+                scheduleMockRetry(cluster.getId());
+            }
+        }
+
+        // === TERMINATED: reclaim resources in real mode ===
+        if (to == ClusterState.TERMINATED) {
+            if (real) {
+                startAsyncTermination(cluster.getId());
+            }
+            log.warn("[Cluster FSM] cluster {} TERMINATED", cluster.getId());
+        }
+    }
+
+    // ========== Real-mode async effects ==========
+
+    /** Provision infrastructure on a virtual thread and feed the result back. */
+    private void startAsyncProvisioning(ObjectId clusterId) {
+        log.info("[Cluster FSM] scheduling real provisioning for cluster {}", clusterId);
         Thread.ofVirtual().start(() -> {
+            long startedAt = System.currentTimeMillis();
             try {
-                // Simulate CloudFormation stack creation delay (5–15s)
-                long delay = 5000 + secureRandom.nextInt(10000);
-                TimeUnit.MILLISECONDS.sleep(delay);
-
-                Cluster latest = clusterRepository.findById(cluster.getId()).orElse(null);
+                Cluster latest = clusterRepository.findById(clusterId).orElse(null);
                 if (latest == null || latest.getState() != ClusterState.PROVISIONING) {
-                    return; // terminated mid-provision
+                    log.info("[Cluster FSM] real provisioning skipped for cluster {} (state={})",
+                        clusterId, latest == null ? "missing" : latest.getState());
+                    return;
                 }
 
-                // Configurable success rate (default 85%, 100% in IT profile)
-                boolean success = secureRandom.nextInt(100) < provisionSuccessRate;
-                if (success) {
-                    transition(latest.getId(), ClusterEventType.PROVISION_SUCCESS, "system(auto-provision)");
+                ProvisionResult result = clusterProvisioningService.provision(latest);
+                log.info("[Cluster FSM] real provisioning finished for cluster {} in {}ms success={}",
+                    clusterId, System.currentTimeMillis() - startedAt, result.success());
+                if (result.success()) {
+                    transition(clusterId, ClusterEventType.PROVISION_SUCCESS, "system:iac");
                 } else {
-                    transition(latest.getId(), ClusterEventType.PROVISION_FAIL, "system(auto-provision)");
+                    transition(clusterId, ClusterEventType.PROVISION_FAIL, "system:iac");
                 }
             } catch (Exception e) {
-                log.error("[Cluster FSM] auto-provisioning error for cluster {}: {}", cluster.getId(), e.getMessage());
+                log.error("[Cluster FSM] provisioning error for cluster {} after {}ms: {}",
+                    clusterId, System.currentTimeMillis() - startedAt, e.getMessage());
             }
         });
     }
 
+    /** Sweep leftovers from the failed attempt, then re-enter provisioning. */
+    private void scheduleRetry(ObjectId clusterId) {
+        log.info("[Cluster FSM] scheduling real compensation+retry for cluster {}", clusterId);
+        Thread.ofVirtual().start(() -> {
+            try {
+                Cluster latest = clusterRepository.findById(clusterId).orElse(null);
+                if (latest == null) {
+                    log.info("[Cluster FSM] real retry skipped, cluster {} no longer exists", clusterId);
+                    return;
+                }
+                // Idempotent: a fully compensated attempt has no stack and no DNS.
+                clusterProvisioningService.terminate(latest);
+                transition(clusterId, ClusterEventType.START_PROVISION, "system:retry");
+            } catch (Exception e) {
+                log.error("[Cluster FSM] retry restart failed for cluster {}: {}",
+                    clusterId, e.getMessage());
+            }
+        });
+    }
+
+    /** Reclaim cloud resources on a virtual thread. */
+    private void startAsyncTermination(ObjectId clusterId) {
+        log.info("[Cluster FSM] scheduling real resource termination for cluster {}", clusterId);
+        Thread.ofVirtual().start(() -> {
+            long startedAt = System.currentTimeMillis();
+            try {
+                Cluster latest = clusterRepository.findById(clusterId).orElse(null);
+                if (latest == null) {
+                    log.info("[Cluster FSM] resource termination skipped, cluster {} no longer exists", clusterId);
+                    return;
+                }
+                clusterProvisioningService.terminate(latest);
+                log.info("[Cluster FSM] resource termination finished for cluster {} in {}ms",
+                    clusterId, System.currentTimeMillis() - startedAt);
+            } catch (Exception e) {
+                log.error("[Cluster FSM] resource cleanup failed for cluster {} after {}ms: {}",
+                    clusterId, System.currentTimeMillis() - startedAt, e.getMessage());
+            }
+        });
+    }
+
+    // ========== Mock-mode async effects ==========
+
+    /** Simulate the provisioning delay, then succeed or fail at the configured rate. */
+    private void startAsyncMockProvisioning(ObjectId clusterId) {
+        int delayMs = 2_000 + secureRandom.nextInt(3_000);
+        boolean willSucceed = secureRandom.nextInt(100) < provisionSuccessRate;
+        log.info("[Cluster FSM] scheduling mock provisioning for cluster {} delayMs={} successRate={}%",
+            clusterId, delayMs, provisionSuccessRate);
+        Thread.ofVirtual().start(() -> {
+            try {
+                TimeUnit.MILLISECONDS.sleep(delayMs);
+                Cluster latest = clusterRepository.findById(clusterId).orElse(null);
+                if (latest == null || latest.getState() != ClusterState.PROVISIONING) {
+                    log.info("[Cluster FSM] mock provisioning skipped for cluster {} (state={})",
+                        clusterId, latest == null ? "missing" : latest.getState());
+                    return;
+                }
+                log.info("[Cluster FSM] mock provisioning completing cluster {} outcome={}",
+                    clusterId, willSucceed ? "PROVISION_SUCCESS" : "PROVISION_FAIL");
+                if (willSucceed) {
+                    transition(clusterId, ClusterEventType.PROVISION_SUCCESS, "mock:provision");
+                } else {
+                    transition(clusterId, ClusterEventType.PROVISION_FAIL, "mock:provision");
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } catch (Exception e) {
+                log.error("[Cluster FSM] mock provisioning error for cluster {}: {}",
+                    clusterId, e.getMessage());
+            }
+        });
+    }
+
+    /** Re-enter provisioning after a short delay. */
+    private void scheduleMockRetry(ObjectId clusterId) {
+        log.info("[Cluster FSM] scheduling mock retry for cluster {} delayMs=1000", clusterId);
+        Thread.ofVirtual().start(() -> {
+            try {
+                TimeUnit.MILLISECONDS.sleep(1_000);
+                transition(clusterId, ClusterEventType.START_PROVISION, "mock:retry");
+            } catch (Exception e) {
+                log.error("[Cluster FSM] mock retry failed for cluster {}: {}",
+                    clusterId, e.getMessage());
+            }
+        });
+    }
+
+    /** Fill placeholder runtime fields for a simulated READY Cluster. */
+    private void simulateRuntimeFields(Cluster cluster) {
+        cluster.setEc2InstanceId("i-" + cluster.getId().toHexString().substring(0, 12));
+        cluster.setEc2PublicIp("54." + secureRandom.nextInt(256) + "."
+            + secureRandom.nextInt(256) + "." + secureRandom.nextInt(256));
+        cluster.setPublicDns(cluster.getId().toHexString() + ".dev.cloud.tapstate.com");
+        cluster.setLastHeartbeatAt(Instant.now());
+    }
+
     // ========== Result DTO ==========
 
-    /** Transition outcome — returned by {@link #transition(String, ClusterEventType, String)}. */
+    /** Transition outcome — returned by {@link #transition(ObjectId, ClusterEventType, String)}. */
     public record TransitionResult(boolean accepted, ClusterState newState) {
         public static TransitionResult accepted(ClusterState newState) {
             return new TransitionResult(true, newState);

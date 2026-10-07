@@ -67,6 +67,10 @@ spec:
               value: {{ .Values.config.springProfilesActive | quote }}
             - name: CORS_ALLOWED_ORIGINS
               value: {{ .Values.config.corsAllowedOrigins | quote }}
+            - name: SWAGGER_UI_ENABLED
+              value: {{ .Values.config.swaggerUiEnabled | quote }}
+            - name: KNIFE4J_ENABLED
+              value: {{ .Values.config.knife4jEnabled | quote }}
 
             # ========== Tapstate Cloud config from ConfigMap ==========
             - name: CLOUD_JWT_ISSUER
@@ -79,6 +83,40 @@ spec:
               value: {{ .Values.config.defaultRegion | quote }}
             - name: AWS_REGION
               value: {{ .Values.config.awsRegion | quote }}
+
+            # ========== JWKS management ==========
+            - name: CLOUD_JWKS_ROTATION_ENABLED
+              value: {{ .Values.config.jwksRotationEnabled | quote }}
+            - name: CLOUD_JWKS_ENCRYPTION_ENABLED
+              value: {{ .Values.config.jwksEncryptionEnabled | quote }}
+
+            # ========== IaC layer — multi-cloud Cluster provisioning ==========
+            - name: IAC_PROVIDER
+              value: {{ .Values.config.iacProvider | quote }}
+            - name: IAC_MODE
+              value: {{ .Values.config.iacMode | quote }}
+            - name: IAC_ENVIRONMENT
+              value: {{ .Values.config.iacEnvironment | quote }}
+            - name: CLOUD_PUBLIC_BASE_URL
+              value: {{ .Values.config.publicBaseUrl | quote }}
+            - name: TAPSTATE_CLOUD_MDB_ATLAS_MOCK
+              value: {{ .Values.config.atlasMdbMock | quote }}
+            - name: IAC_AWS_INSTANCE_TYPE
+              value: {{ .Values.config.iacAwsInstanceType | quote }}
+            - name: IAC_AWS_DISK_SIZE_GB
+              value: {{ .Values.config.iacAwsDiskSizeGb | quote }}
+            - name: GODADDY_BASE_URL
+              value: {{ .Values.config.godaddyBaseUrl | quote }}
+            - name: GODADDY_DOMAIN
+              value: {{ .Values.config.godaddyDomain | quote }}
+            - name: GODADDY_TTL
+              value: {{ .Values.config.godaddyTtl | quote }}
+
+            # ========== Logging ==========
+            - name: LOG_LEVEL_CLOUD
+              value: {{ .Values.config.logLevelCloud | quote }}
+            - name: LOG_LEVEL_SECURITY
+              value: {{ .Values.config.logLevelSecurity | quote }}
 
             # ========== Secrets from k3s Secret — MONGODB ==========
             # SPRING_DATA_MONGODB_URI maps to spring.data.mongodb.uri via relaxed binding
@@ -93,14 +131,21 @@ spec:
                   name: {{ .Values.secrets.mongoUri.name }}
                   key: {{ .Values.secrets.mongoUri.key }}
 
-            # ========== Secrets from k3s Secret — JWKS Signing Key ==========
+            # ========== Secrets from k3s Secret — JWKS signing key ==========
             - name: CLOUD_JWKS_SIGNING_KEY
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.secrets.jwksSigningKey.name }}
                   key: {{ .Values.secrets.jwksSigningKey.key }}
+            # Optional: only consumed when CLOUD_JWKS_ENCRYPTION_ENABLED=true
+            - name: CLOUD_JWKS_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.jwksEncryptionKey.name }}
+                  key: {{ .Values.secrets.jwksEncryptionKey.key }}
+                  optional: true
 
-            # ========== Secrets from k3s Secret — AWS Credentials ==========
+            # ========== Secrets from k3s Secret — AWS credentials ==========
             - name: AWS_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
@@ -112,17 +157,34 @@ spec:
                   name: {{ .Values.secrets.awsCredentials.name }}
                   key: {{ .Values.secrets.awsCredentials.secretAccessKeyKey }}
 
-            # ========== Secrets from k3s Secret — Atlas Admin API Key ==========
-            - name: ATLAS_ADMIN_API_KEY
+            # ========== Secrets from k3s Secret — IaC (optional, real mode only) ==========
+            # Atlas credentials are NOT injected: the allocation engine reads the
+            # Activated key from the atlas_configs collection. These secrets cover
+            # DNS, SSH-key encryption and the legacy global runtime Atlas URI.
+            - name: GODADDY_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.secrets.atlasAdminKey.name }}
-                  key: {{ .Values.secrets.atlasAdminKey.apiKeyKey }}
-            - name: ATLAS_ADMIN_API_KEY_SECRET
+                  name: {{ .Values.secrets.godaddy.name }}
+                  key: {{ .Values.secrets.godaddy.apiKeyKey }}
+                  optional: true
+            - name: GODADDY_API_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.secrets.atlasAdminKey.name }}
-                  key: {{ .Values.secrets.atlasAdminKey.apiKeySecretKey }}
+                  name: {{ .Values.secrets.godaddy.name }}
+                  key: {{ .Values.secrets.godaddy.apiSecretKeyKey }}
+                  optional: true
+            - name: TAPSTATE_IAC_CRYPTO_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.iacCrypto.name }}
+                  key: {{ .Values.secrets.iacCrypto.masterKeyKey }}
+                  optional: true
+            - name: RUNTIME_ATLAS_URI
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.runtimeAtlasUri.name }}
+                  key: {{ .Values.secrets.runtimeAtlasUri.uriKey }}
+                  optional: true
 
             # ========== JVM config ==========
             - name: JAVA_OPTS

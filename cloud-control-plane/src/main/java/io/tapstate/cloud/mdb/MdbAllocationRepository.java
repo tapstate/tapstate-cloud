@@ -15,5 +15,7 @@ public interface MdbAllocationRepository extends MongoRepository<MdbAllocation, 
 
     List<MdbAllocation> findByStatus(MdbAllocationStatus status);
 
-    List<MdbAllocation> findByAtlasInstanceId(ObjectId atlasInstanceId);
+    List<MdbAllocation> findByMdbClusterId(ObjectId mdbClusterId);
+
+    List<MdbAllocation> findBySubscriptionId(ObjectId subscriptionId);
 }
