@@ -50,7 +50,8 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  *       sso-key also needs {@code GODADDY_API_SECRET})</li>
  *   <li>{@code TAPSTATE_ATLAS_PUBLIC_KEY} / {@code TAPSTATE_ATLAS_PRIVATE_KEY}</li>
  *   <li>{@code TAPSTATE_ATLAS_PROJECT_ID}, {@code TAPSTATE_ATLAS_CLUSTER_NAME},
- *       {@code TAPSTATE_ATLAS_CONNECTION_STRING} (clean mongodb+srv URI)</li>
+ *       {@code TAPSTATE_ATLAS_CONNECTION_STRING} (Atlas SRV URI — a full URI
+ *       embedding admin credentials is accepted and sanitized to host-only)</li>
  * </ul>
  */
 @DisplayName("AwsAtlasFullLifecycleIT — real EC2 + real Atlas joined lifecycle")
@@ -316,8 +317,12 @@ class AwsAtlasFullLifecycleIT extends BaseIT {
     /**
      * Repoint the IT-preserved seed documents at the real Atlas project. The
      * seeders skip when documents already exist, so the real app reads these.
+     * The Atlas connection string is sanitized to {@code scheme://hostList}:
+     * the CI secret carries a full Atlas URI with embedded admin credentials,
+     * which must never land in the seeded document.
      */
     private static void pointSeedsAtRealAtlas() throws Exception {
+        String hostOnlyUri = hostOnlyAtlasUri(env("TAPSTATE_ATLAS_CONNECTION_STRING"));
         String eval =
             "db.atlas_configs.updateMany({status: 'Activated'}, {$set: {"
                 + "publicKey: '" + env("TAPSTATE_ATLAS_PUBLIC_KEY") + "',"
@@ -327,7 +332,7 @@ class AwsAtlasFullLifecycleIT extends BaseIT {
                 + "projectId: '" + env("TAPSTATE_ATLAS_PROJECT_ID") + "',"
                 + "name: '" + env("TAPSTATE_ATLAS_CLUSTER_NAME") + "',"
                 + "region: '" + REGION + "',"
-                + "connectionString: '" + env("TAPSTATE_ATLAS_CONNECTION_STRING") + "',"
+                + "connectionString: '" + hostOnlyUri + "',"
                 + "status: 'ACTIVE', currentAllocations: 0, maxAllocations: 100},"
                 + "$unset: {cluster: ''}});"
                 + "print('seeds repointed')";
@@ -388,22 +393,52 @@ class AwsAtlasFullLifecycleIT extends BaseIT {
         throw new AssertionError("MdbAllocation never reached " + target);
     }
 
+    /**
+     * Reduce any Atlas connection string — clean or a full Atlas URI embedding
+     * admin credentials and a default database — to {@code scheme://hostList}.
+     * Per-allocation credentials are inserted only by the application itself.
+     */
+    static String hostOnlyAtlasUri(String seed) {
+        int schemeEnd = seed.indexOf("://");
+        if (schemeEnd < 0) {
+            throw new IllegalArgumentException(
+                "Invalid Atlas connection string (no scheme): " + seed);
+        }
+        String scheme = seed.substring(0, schemeEnd + 3);
+        String rest = seed.substring(schemeEnd + 3);
+
+        int cut = -1;
+        for (int i = 0; i < rest.length(); i++) {
+            char c = rest.charAt(i);
+            if (c == '?' || c == '#') {
+                cut = i;
+                break;
+            }
+        }
+        String authority = cut >= 0 ? rest.substring(0, cut) : rest;
+
+        int at = authority.lastIndexOf('@');
+        String hostPart = at >= 0 ? authority.substring(at + 1) : authority;
+
+        int slash = hostPart.indexOf('/');
+        if (slash >= 0) {
+            hostPart = hostPart.substring(0, slash);
+        }
+        if (hostPart.isBlank()) {
+            throw new IllegalArgumentException(
+                "Invalid Atlas connection string (no host): " + seed);
+        }
+        return scheme + hostPart;
+    }
+
     /** Reconstruct the same per-allocation URI the node compose file receives. */
     private String buildRuntimeUri(JsonNode allocation, JsonNode mdbCluster) {
-        String clean = mdbCluster.path("connectionString").asText();
-        int schemeEnd = clean.indexOf("://");
-        String scheme = clean.substring(0, schemeEnd + 3);
-        String rest = clean.substring(schemeEnd + 3);
-        int at = rest.indexOf('@');
-        if (at >= 0) {
-            rest = rest.substring(at + 1);
-        }
-        int slash = rest.indexOf('/');
-        if (slash >= 0) {
-            rest = rest.substring(0, slash);
-        }
-        return scheme + allocation.path("dbUsername").asText() + ":"
-            + allocation.path("dbPassword").asText() + "@" + rest + "/"
+        String hostOnly = hostOnlyAtlasUri(mdbCluster.path("connectionString").asText());
+        int schemeEnd = hostOnly.indexOf("://") + 3;
+        return hostOnly.substring(0, schemeEnd)
+            + allocation.path("dbUsername").asText() + ":"
+            + allocation.path("dbPassword").asText() + "@"
+            + hostOnly.substring(schemeEnd) + "/"
             + allocation.path("databaseName").asText() + "?authSource=admin";
     }
 

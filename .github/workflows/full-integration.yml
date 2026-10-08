@@ -25,7 +25,9 @@
 #   TAPSTATE_ATLAS_PRIVATE_KEY
 #   TAPSTATE_ATLAS_PROJECT_ID
 #   TAPSTATE_ATLAS_CLUSTER_NAME
-#   TAPSTATE_ATLAS_CONNECTION_STRING  clean mongodb+srv seed URI
+#   TAPSTATE_ATLAS_CONNECTION_STRING  Atlas mongodb+srv URI; a full URI
+#                                     embedding admin credentials is accepted
+#                                     and sanitized to host-only by the IT
 #   TAPSTATE_CLOUD_SSH_KEY        private key authorized as ubuntu on
 #                                 the fixed-IP allowlist bastion
 #
