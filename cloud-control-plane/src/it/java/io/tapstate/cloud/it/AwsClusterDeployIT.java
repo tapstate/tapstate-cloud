@@ -184,6 +184,19 @@ class AwsClusterDeployIT extends BaseIT {
         assertNull(ready.getProvisionErrorCode(), "READY cluster must carry no error code");
         String publicIp = ready.getEc2PublicIp();
 
+        // ---------- 1b. Install deployment progress fully recorded ----------
+        io.tapstate.cloud.sdk.model.DeploymentProgressResponse installProgress =
+            progressApi.getProgress(orgId, subscriptionId, "INSTALL").getData();
+        assertEquals("SUCCEEDED", installProgress.getOverallStatus());
+        assertEquals(100, installProgress.getPercent());
+        assertEquals(14, installProgress.getOperations().size());
+        assertTrue(installProgress.getOperations().stream()
+            .allMatch(op -> "SUCCEEDED".equals(op.getStatus())));
+        assertTrue(installProgress.getOperations().stream()
+            .allMatch(op -> op.getMessage() != null && op.getFinishedAt() != null));
+        assertNotNull(installProgress.getStartedAt());
+        assertNotNull(installProgress.getFinishedAt());
+
         // ---------- 2. DNS points at the node ----------
         InetAddress[] addresses = InetAddress.getAllByName(domain);
         boolean resolved = false;
@@ -221,6 +234,16 @@ class AwsClusterDeployIT extends BaseIT {
         // ---------- 6. CloudFormation stack removed ----------
         assertTrue(waitForStackGone(),
             "CloudFormation stack for " + clusterId + " must be deleted");
+
+        // ---------- 7. Uninstall deployment progress fully recorded ----------
+        io.tapstate.cloud.sdk.model.DeploymentProgressResponse uninstallProgress =
+            progressApi.getProgress(orgId, subscriptionId, "UNINSTALL").getData();
+        assertEquals("SUCCEEDED", uninstallProgress.getOverallStatus());
+        assertEquals(100, uninstallProgress.getPercent());
+        assertEquals(4, uninstallProgress.getOperations().size());
+        assertTrue(uninstallProgress.getOperations().stream()
+            .allMatch(op -> "SUCCEEDED".equals(op.getStatus())));
+        assertNotNull(uninstallProgress.getFinishedAt());
     }
 
     // ========== Failure safety net ==========
