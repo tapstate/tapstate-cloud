@@ -1,5 +1,7 @@
 package io.tapstate.cloud.it;
 
+import io.tapstate.cloud.it.support.WildcardTlsFixture;
+import io.tapstate.cloud.it.support.WildcardTlsFixture.SeededCertificate;
 import io.tapstate.cloud.sdk.model.CreateSubscriptionRequest;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -69,6 +71,7 @@ class AwsClusterDeployIT extends BaseIT {
     private String clusterName;
     private String clusterId;
     private String domain;
+    private SeededCertificate tlsFixture;
 
     @BeforeAll
     static void startRealApp() throws Exception {
@@ -162,6 +165,10 @@ class AwsClusterDeployIT extends BaseIT {
             "name", "AWS-Deploy-IT",
             "slug", "aws-deploy-" + System.nanoTime())).getData().getId();
 
+        // Provisioning resolves the wildcard certificate before any cloud
+        // resource is created, so the document must exist before subscribing.
+        tlsFixture = WildcardTlsFixture.seed(MONGO_URI, "*.dev.cloud.tapstate.com");
+
         clusterName = "aws-it-" + Long.toHexString(System.nanoTime());
         var created = subscriptionApi.createSubscription(orgId, new CreateSubscriptionRequest()
             .region(REGION).clusterName(clusterName).specKey("basic")).getData();
@@ -210,6 +217,7 @@ class AwsClusterDeployIT extends BaseIT {
         // ---------- 3. HTTPS endpoint answers through Nginx + TLS ----------
         HttpClient.Builder httpsBuilder = HttpClient.newBuilder()
             .followRedirects(HttpClient.Redirect.NORMAL)
+            .sslContext(tlsFixture.sslContext())
             .connectTimeout(Duration.ofSeconds(15));
         if (!"none".equalsIgnoreCase(PROXY_HOST)) {
             httpsBuilder.proxy(java.net.ProxySelector.of(

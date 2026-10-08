@@ -3,6 +3,8 @@ package io.tapstate.cloud.it;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.tapstate.cloud.atlas.AtlasApiClient;
+import io.tapstate.cloud.it.support.WildcardTlsFixture;
+import io.tapstate.cloud.it.support.WildcardTlsFixture.SeededCertificate;
 import io.tapstate.cloud.sdk.model.CreateSubscriptionRequest;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -79,6 +81,7 @@ class AwsAtlasFullLifecycleIT extends BaseIT {
     private String clusterName;
     private String clusterId;
     private String domain;
+    private SeededCertificate tlsFixture;
 
     @BeforeAll
     static void startRealApp() throws Exception {
@@ -155,6 +158,10 @@ class AwsAtlasFullLifecycleIT extends BaseIT {
         orgId = orgsApi.create(Map.of(
             "name", "AWS-Atlas-IT",
             "slug", "aws-atlas-" + System.nanoTime())).getData().getId();
+
+        // Provisioning resolves the wildcard certificate before any cloud
+        // resource is created, so the document must exist before subscribing.
+        tlsFixture = WildcardTlsFixture.seed(MONGO_URI, "*.dev.cloud.tapstate.com");
 
         clusterName = "aws-atlas-" + Long.toHexString(System.nanoTime());
         var created = subscriptionApi.createSubscription(orgId, new CreateSubscriptionRequest()
@@ -453,6 +460,7 @@ class AwsAtlasFullLifecycleIT extends BaseIT {
     private HttpClient buildHttpsClient() {
         HttpClient.Builder builder = HttpClient.newBuilder()
             .followRedirects(HttpClient.Redirect.NORMAL)
+            .sslContext(tlsFixture.sslContext())
             .connectTimeout(Duration.ofSeconds(15));
         if (!"none".equalsIgnoreCase(PROXY_HOST)) {
             builder.proxy(java.net.ProxySelector.of(
