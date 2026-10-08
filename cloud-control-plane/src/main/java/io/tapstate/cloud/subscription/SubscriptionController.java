@@ -11,6 +11,9 @@ import io.tapstate.cloud.common.api.BaseController;
 import io.tapstate.cloud.common.api.BusinessException;
 import io.tapstate.cloud.common.CurrentUser;
 import io.tapstate.cloud.org.OrganizationService;
+import io.tapstate.cloud.progress.DeploymentOpType;
+import io.tapstate.cloud.progress.DeploymentProgressService;
+import io.tapstate.cloud.progress.DeploymentProgressSummary;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -43,6 +46,20 @@ public class SubscriptionController extends BaseController {
 
     private final SubscriptionService subscriptionService;
     private final OrganizationService organizationService;
+    private final DeploymentProgressService progressService;
+
+    /**
+     * Build the API view of one subscription: items plus the INSTALL and
+     * UNINSTALL progress summaries.
+     */
+    private SubscriptionResponse toResponse(Subscription subscription) {
+        List<SubscriptionItem> items = subscriptionService.getItems(subscription.getId());
+        DeploymentProgressSummary install =
+            progressService.summary(subscription.getId(), DeploymentOpType.INSTALL);
+        DeploymentProgressSummary uninstall =
+            progressService.summary(subscription.getId(), DeploymentOpType.UNINSTALL);
+        return SubscriptionResponse.from(subscription, items, install, uninstall);
+    }
 
     @GetMapping("/subscriptions")
     @Operation(
@@ -65,8 +82,7 @@ public class SubscriptionController extends BaseController {
             return fail(AppErrorCode.ORG_NOT_MEMBER, HttpStatus.FORBIDDEN, orgId);
         }
         List<SubscriptionResponse> responses = subscriptionService.listByOrgId(orgId).stream()
-            .map(subscription -> SubscriptionResponse.from(subscription,
-                subscriptionService.getItems(subscription.getId())))
+            .map(this::toResponse)
             .toList();
         return ok(responses);
     }
@@ -104,8 +120,7 @@ public class SubscriptionController extends BaseController {
         Subscription subscription = subscriptionService.createSubscription(
             orgId, request.region(), request.clusterName(), request.specKey(), userEmail);
 
-        List<SubscriptionItem> items = subscriptionService.getItems(subscription.getId());
-        return okCreated(SubscriptionResponse.from(subscription, items));
+        return okCreated(toResponse(subscription));
     }
 
     @GetMapping("/subscriptions/{subscriptionId}")
@@ -133,8 +148,7 @@ public class SubscriptionController extends BaseController {
         }
 
         Subscription subscription = subscriptionService.getByIdAndOrgId(subscriptionId, orgId);
-        List<SubscriptionItem> items = subscriptionService.getItems(subscription.getId());
-        return ok(SubscriptionResponse.from(subscription, items));
+        return ok(toResponse(subscription));
     }
 
     @PostMapping("/subscriptions/{subscriptionId}/status")
@@ -176,8 +190,7 @@ public class SubscriptionController extends BaseController {
         }
 
         Subscription updated = subscriptionService.transitionStatus(subscriptionId, orgId, target);
-        List<SubscriptionItem> items = subscriptionService.getItems(updated.getId());
-        return ok(SubscriptionResponse.from(updated, items));
+        return ok(toResponse(updated));
     }
 
     @PostMapping("/subscriptions/{subscriptionId}/cancel")
@@ -208,8 +221,7 @@ public class SubscriptionController extends BaseController {
         }
 
         Subscription cancelled = subscriptionService.cancelSubscription(subscriptionId, orgId, "gc:" + userEmail);
-        List<SubscriptionItem> items = subscriptionService.getItems(cancelled.getId());
-        return ok(SubscriptionResponse.from(cancelled, items));
+        return ok(toResponse(cancelled));
     }
 
     // ========== Request DTO ==========
@@ -231,6 +243,8 @@ public class SubscriptionController extends BaseController {
         @Schema(description = "Organization UUID") String orgId,
         @Schema(description = "Subscription state: TRIAL / ACTIVE / PAST_DUE / CANCELLED") String status,
         @Schema(description = "Cloud resource state: PROVISIONING / READY (null until resources are provisioned)") String resourceState,
+        @Schema(description = "Initial deployment progress summary") DeploymentProgressSummary installProgress,
+        @Schema(description = "Release/reclamation progress summary") DeploymentProgressSummary uninstallProgress,
         @Schema(description = "When the Cluster and MdbAllocation first became READY (ISO-8601 UTC)") Instant resourcesReadyAt,
         @Schema(description = "Current billing period start (ISO-8601 UTC)") Instant currentPeriodStart,
         @Schema(description = "Current billing period end (ISO-8601 UTC)") Instant currentPeriodEnd,
@@ -241,7 +255,9 @@ public class SubscriptionController extends BaseController {
         @Schema(description = "Last update time (ISO-8601 UTC)") Instant updatedAt,
         @Schema(description = "Subscription item breakdown") List<ItemResponse> items
     ) {
-        public static SubscriptionResponse from(Subscription s, List<SubscriptionItem> items) {
+        public static SubscriptionResponse from(Subscription s, List<SubscriptionItem> items,
+                                                DeploymentProgressSummary installProgress,
+                                                DeploymentProgressSummary uninstallProgress) {
             String clusterId = items.stream()
                 .filter(i -> i.getItemType() == SubscriptionItemType.CLUSTER_PIPELINE_RUNTIME)
                 .map(SubscriptionItem::getClusterId)
@@ -261,6 +277,8 @@ public class SubscriptionController extends BaseController {
                 s.getOrgId() != null ? s.getOrgId().toHexString() : null,
                 s.getStatus().name(),
                 s.getResourceState() != null ? s.getResourceState().name() : null,
+                installProgress,
+                uninstallProgress,
                 s.getResourcesReadyAt(),
                 s.getCurrentPeriodStart(),
                 s.getCurrentPeriodEnd(),

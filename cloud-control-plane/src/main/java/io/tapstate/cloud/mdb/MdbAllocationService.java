@@ -4,6 +4,9 @@ import io.tapstate.cloud.common.api.AppErrorCode;
 import io.tapstate.cloud.common.api.BusinessException;
 import io.tapstate.cloud.mdb.fsm.MdbAllocationEventType;
 import io.tapstate.cloud.mdb.fsm.MdbAllocationStateMachineService;
+import io.tapstate.cloud.progress.DeploymentOpType;
+import io.tapstate.cloud.progress.DeploymentOperation;
+import io.tapstate.cloud.progress.DeploymentStepRecorder;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.bson.types.ObjectId;
@@ -39,6 +42,7 @@ public class MdbAllocationService {
     private final MdbAllocationRepository allocationRepo;
     private final AtlasMdbService atlasMdbService;
     private final MdbAllocationStateMachineService mdbSmService;
+    private final DeploymentStepRecorder recorder;
 
     private final SecureRandom secureRandom = new SecureRandom();
 
@@ -89,9 +93,16 @@ public class MdbAllocationService {
 
         // === Step 1: Pick MdbCluster slot ===
         MdbCluster cluster;
+        recorder.markStart(new ObjectId(orgId), new ObjectId(subscriptionId),
+            DeploymentOpType.INSTALL, DeploymentOperation.RESERVE_MDB_SLOT);
         try {
             cluster = atlasMdbService.createMdb(orgId, clusterId, region);
+            recorder.markSucceed(new ObjectId(orgId), new ObjectId(subscriptionId),
+                DeploymentOpType.INSTALL, DeploymentOperation.RESERVE_MDB_SLOT,
+                "MongoDB cluster slot reserved: " + cluster.getId().toHexString());
         } catch (MdbException e) {
+            recorder.markFail(new ObjectId(orgId), new ObjectId(subscriptionId),
+                DeploymentOpType.INSTALL, DeploymentOperation.RESERVE_MDB_SLOT, e.getMessage());
             log.error("[MdbAllocationService] No MdbCluster capacity for region={}, cluster={}", region, clusterId);
             throw new BusinessException(AppErrorCode.CLUSTER_PROVISION_FAILED, 503,
                 "No Atlas capacity for region " + region);
@@ -162,6 +173,10 @@ public class MdbAllocationService {
                 allocation.setDeletedAt(Instant.now());
                 allocation.setUpdatedAt(Instant.now());
                 allocationRepo.save(allocation);
+                recorder.succeed(allocation, DeploymentOperation.DROP_DATABASE,
+                    "No databases provisioned — nothing to drop");
+                recorder.succeed(allocation, DeploymentOperation.DROP_DATABASE_USER,
+                    "No database user provisioned — nothing to drop");
                 log.info("[MdbAllocationService] reclaimMdb: failed allocation {} — marked DELETED directly", allocation.getId());
             }
         }

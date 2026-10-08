@@ -4,6 +4,7 @@ import io.tapstate.cloud.sdk.ApiClient;
 import io.tapstate.cloud.sdk.ApiException;
 import io.tapstate.cloud.sdk.api.AuthApi;
 import io.tapstate.cloud.sdk.api.ClustersApi;
+import io.tapstate.cloud.sdk.api.DeploymentProgressApi;
 import io.tapstate.cloud.sdk.api.ExchangeApi;
 import io.tapstate.cloud.sdk.api.OrganizationsApi;
 import io.tapstate.cloud.sdk.api.ResolveExchangeApi;
@@ -22,6 +23,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Base class for failsafe integration tests — runs against a LIVE Spring Boot
@@ -81,6 +83,7 @@ public abstract class BaseIT {
     protected ResolveExchangeApi resolveApi;
     protected ExchangeApi exchangeApi;
     protected SubscriptionApi subscriptionApi;
+    protected DeploymentProgressApi progressApi;
 
     @BeforeAll
     static void resolveBaseUrl() {
@@ -117,6 +120,7 @@ public abstract class BaseIT {
         this.resolveApi = new ResolveExchangeApi(client);
         this.exchangeApi = new ExchangeApi(client);
         this.subscriptionApi = new SubscriptionApi(client);
+        this.progressApi = new DeploymentProgressApi(client);
     }
 
     // ---- Auth helpers ----
@@ -172,6 +176,19 @@ public abstract class BaseIT {
     protected LoginResult signupAndLogin(String email, String password) throws ApiException {
         register(email, password);
         return login(email, password);
+    }
+
+    /**
+     * Register + login a fresh user and create one Organization — the common
+     * starting point for single-org ITs. Returns the new Organization id.
+     */
+    protected String signupWithOrg(String orgName) throws Exception {
+        long suffix = System.nanoTime();
+        signupAndLogin("it-" + suffix + "@tapstate.io", "StrongPass123!");
+        return orgsApi.create(Map.of(
+            "name", orgName,
+            "slug", orgName.toLowerCase().replaceAll("[^a-z0-9]+", "-") + "-" + suffix
+        )).getData().getId();
     }
 
     /** Create an anonymous AuthApi (no session cookie) — for unauthenticated endpoint tests. */

@@ -4,7 +4,12 @@ import io.tapstate.cloud.mdb.AtlasMdbService;
 import io.tapstate.cloud.mdb.MdbAllocation;
 import io.tapstate.cloud.mdb.MdbAllocationRepository;
 import io.tapstate.cloud.mdb.MdbAllocationStatus;
+import io.tapstate.cloud.progress.DeploymentOperation;
+import io.tapstate.cloud.progress.DeploymentStepRecorder;
 import io.tapstate.cloud.subscription.MdbAllocationReadyEvent;
+import io.tapstate.cloud.subscription.Subscription;
+import io.tapstate.cloud.subscription.SubscriptionRepository;
+import io.tapstate.cloud.subscription.SubscriptionStatus;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.ApplicationEventPublisher;
@@ -45,17 +50,23 @@ public class MdbAllocationStateMachineService {
     private final MdbAllocationRepository allocationRepo;
     private final AtlasMdbService atlasMdbService;
     private final ApplicationEventPublisher eventPublisher;
+    private final SubscriptionRepository subscriptionRepo;
+    private final DeploymentStepRecorder recorder;
 
     public MdbAllocationStateMachineService(
         @Qualifier("mdbAllocationStateMachineFactory")
         StateMachineFactory<MdbAllocationStatus, MdbAllocationEventType> mdbAllocationStateMachineFactory,
         MdbAllocationRepository allocationRepo,
         AtlasMdbService atlasMdbService,
-        ApplicationEventPublisher eventPublisher) {
+        ApplicationEventPublisher eventPublisher,
+        SubscriptionRepository subscriptionRepo,
+        DeploymentStepRecorder recorder) {
         this.mdbAllocationStateMachineFactory = mdbAllocationStateMachineFactory;
         this.allocationRepo = allocationRepo;
         this.atlasMdbService = atlasMdbService;
         this.eventPublisher = eventPublisher;
+        this.subscriptionRepo = subscriptionRepo;
+        this.recorder = recorder;
     }
 
     /**
@@ -156,9 +167,13 @@ public class MdbAllocationStateMachineService {
                 long startedAt = System.currentTimeMillis();
                 try {
                     // First create database (connectivity check + seed)
+                    recorder.start(allocation, DeploymentOperation.CREATE_DATABASE);
                     atlasMdbService.createDatabase(allocation);
+                    recorder.succeed(allocation, DeploymentOperation.CREATE_DATABASE, "Database created");
                     // Then create database user with readWrite on that DB
+                    recorder.start(allocation, DeploymentOperation.CREATE_DATABASE_USER);
                     atlasMdbService.createDatabaseUser(allocation);
+                    recorder.succeed(allocation, DeploymentOperation.CREATE_DATABASE_USER, "Database user created");
                     log.info("[MdbAllocation FSM] Atlas provisioning succeeded for allocation {} in {}ms",
                         allocation.getId(), System.currentTimeMillis() - startedAt);
                     // READY is written solely by the PROVISION_SUCCESS
@@ -171,15 +186,23 @@ public class MdbAllocationStateMachineService {
                         log.info("[MdbAllocation FSM] allocation {} already in status {} after provisioning; skipping PROVISION_SUCCESS",
                             allocation.getId(), fresh == null ? "missing" : fresh.getStatus());
                     }
+                    // Converge a cancellation that landed while provisioning was running.
+                    convergeCancelIfNeeded(allocation.getId());
                 } catch (Exception e) {
                     log.error("[MdbAllocation FSM] Atlas provisioning failed for allocation {} after {}ms: {}",
                         allocation.getId(), System.currentTimeMillis() - startedAt, e.getMessage());
+                    // Record the failed operation explicitly for progress — the
+                    // failure happened inside either createDatabase or createDatabaseUser.
+                    MdbAllocation latestForFail = allocationRepo.findById(allocation.getId()).orElse(allocation);
+                    markProvisionFailureStep(latestForFail, e.getMessage());
                     // Record error detail before firing PROVISION_FAIL
                     MdbAllocation latest = allocationRepo.findById(allocation.getId()).orElse(allocation);
                     latest.setProvisionErrorCode("ATLAS_PROVISION_FAILED");
                     latest.setProvisionErrorDetail(e.getMessage());
                     allocationRepo.save(latest);
                     transition(allocation.getId(), MdbAllocationEventType.PROVISION_FAIL, "system(atlas-provision)");
+                    // A failed allocation of a CANCELLED subscription is reclaimed directly.
+                    convergeCancelIfNeeded(allocation.getId());
                 }
             });
         }
@@ -195,14 +218,22 @@ public class MdbAllocationStateMachineService {
                     // Order matters: databases are dropped over a Mongo connection
                     // authenticated as the per-allocation dbUser, so the user must
                     // be deleted only AFTER its databases are gone.
+                    recorder.start(allocation, DeploymentOperation.DROP_DATABASE);
                     atlasMdbService.dropDatabase(allocation);
+                    recorder.succeed(allocation, DeploymentOperation.DROP_DATABASE, "Databases dropped");
+                    recorder.start(allocation, DeploymentOperation.DROP_DATABASE_USER);
                     atlasMdbService.dropDatabaseUser(allocation);
+                    recorder.succeed(allocation, DeploymentOperation.DROP_DATABASE_USER, "Database user dropped");
                     log.info("[MdbAllocation FSM] Atlas reclaim succeeded for allocation {} in {}ms",
                         allocation.getId(), System.currentTimeMillis() - startedAt);
                     transition(allocation.getId(), MdbAllocationEventType.RECLAIM_COMPLETE, "system(atlas-reclaim)");
                 } catch (Exception e) {
                     log.warn("[MdbAllocation FSM] Atlas reclaim failed for allocation {} after {}ms: {}",
                         allocation.getId(), System.currentTimeMillis() - startedAt, e.getMessage());
+                    // Record the in-flight operation as failed for progress.
+                    MdbAllocation running = allocationRepo.findById(allocation.getId()).orElse(allocation);
+                    recorder.markRunningFailed(running.getSubscriptionId(),
+                        io.tapstate.cloud.progress.DeploymentOpType.UNINSTALL, e.getMessage());
                     // Keep the failure cause on the record before it becomes a
                     // DELETED tombstone — reclaim is terminal regardless.
                     MdbAllocation latest = allocationRepo.findById(allocation.getId()).orElse(allocation);
@@ -212,6 +243,57 @@ public class MdbAllocationStateMachineService {
                     transition(allocation.getId(), MdbAllocationEventType.RECLAIM_FAILED, "system(atlas-reclaim)");
                 }
             });
+        }
+    }
+
+    // ========== Cancel convergence ==========
+
+    /**
+     * Mark the in-flight INSTALL operation as FAILED after an Atlas provisioning
+     * exception. A not-started CREATE_DATABASE_USER is left PENDING.
+     */
+    private void markProvisionFailureStep(MdbAllocation allocation, String message) {
+        MdbAllocation fresh = allocationRepo.findById(allocation.getId()).orElse(allocation);
+        recorder.markRunningFailed(fresh.getSubscriptionId(),
+            io.tapstate.cloud.progress.DeploymentOpType.INSTALL, message);
+    }
+
+    /**
+     * Converge a subscription that was cancelled while its Atlas provisioning
+     * was in flight: a READY allocation starts the normal reclaim; a
+     * PROVISIONING_FAILED allocation has nothing on Atlas and is finalized as a
+     * DELETED tombstone. No new state-machine states are introduced.
+     */
+    private void convergeCancelIfNeeded(ObjectId allocationId) {
+        MdbAllocation allocation = allocationRepo.findById(allocationId).orElse(null);
+        if (allocation == null || allocation.getSubscriptionId() == null) {
+            return;
+        }
+        Subscription subscription = subscriptionRepo.findById(allocation.getSubscriptionId()).orElse(null);
+        if (subscription == null || subscription.getStatus() != SubscriptionStatus.CANCELLED) {
+            return;
+        }
+
+        MdbAllocation latest = allocationRepo.findById(allocationId).orElse(allocation);
+        switch (latest.getStatus()) {
+            case READY -> {
+                transition(allocationId, MdbAllocationEventType.INITIATE_RECLAIM,
+                    "system:cancel-converge");
+            }
+            case PROVISIONING_FAILED -> {
+                MdbAllocation tombstone = allocationRepo.findById(allocationId).orElse(latest);
+                tombstone.setStatus(MdbAllocationStatus.DELETED);
+                tombstone.setDeletedAt(Instant.now());
+                tombstone.setUpdatedAt(Instant.now());
+                allocationRepo.save(tombstone);
+                recorder.succeed(tombstone, DeploymentOperation.DROP_DATABASE,
+                    "No databases provisioned — nothing to drop");
+                recorder.succeed(tombstone, DeploymentOperation.DROP_DATABASE_USER,
+                    "No database user provisioned — nothing to drop");
+            }
+            default -> {
+                // DELETING/DELETED/PROVISIONING — another path is already converging.
+            }
         }
     }
 

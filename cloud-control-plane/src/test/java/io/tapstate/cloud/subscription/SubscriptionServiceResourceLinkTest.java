@@ -4,6 +4,7 @@ import io.tapstate.cloud.cluster.Cluster;
 import io.tapstate.cloud.cluster.ClusterService;
 import io.tapstate.cloud.mdb.MdbAllocation;
 import io.tapstate.cloud.mdb.MdbAllocationService;
+import io.tapstate.cloud.progress.DeploymentStepRecorder;
 import io.tapstate.cloud.subscription.fsm.SubscriptionStateMachineService;
 import org.bson.types.ObjectId;
 import org.junit.jupiter.api.BeforeEach;
@@ -47,6 +48,8 @@ class SubscriptionServiceResourceLinkTest {
     private ClusterService clusterService;
     @Mock
     private MdbAllocationService mdbAllocationService;
+    @Mock
+    private DeploymentStepRecorder deploymentStepRecorder;
 
     private SubscriptionService subscriptionService;
 
@@ -62,7 +65,7 @@ class SubscriptionServiceResourceLinkTest {
     void setUp() {
         subscriptionService = new SubscriptionService(
             subscriptionRepository, itemRepository, subscriptionStateMachineService,
-            eventPublisher, clusterService, mdbAllocationService);
+            eventPublisher, clusterService, mdbAllocationService, deploymentStepRecorder);
 
         // Every call creates a new subscription; the repository assigns the id
         // and the final PROVISIONING save returns the same entity. Lenient

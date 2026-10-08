@@ -7,8 +7,16 @@ import io.tapstate.cloud.cluster.ProvisionErrorCode;
 import io.tapstate.cloud.iac.ClusterProvisioningService;
 import io.tapstate.cloud.iac.ClusterProvisioningService.ProvisionResult;
 import io.tapstate.cloud.iac.IacProperties;
+import io.tapstate.cloud.progress.DeploymentOpType;
+import io.tapstate.cloud.progress.DeploymentOperation;
+import io.tapstate.cloud.progress.DeploymentStepRecorder;
+import io.tapstate.cloud.progress.MockProvisionFailureService;
 import io.tapstate.cloud.subscription.ClusterReadyEvent;
+import io.tapstate.cloud.subscription.Subscription;
+import io.tapstate.cloud.subscription.SubscriptionRepository;
+import io.tapstate.cloud.subscription.SubscriptionStatus;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
@@ -19,6 +27,9 @@ import org.springframework.stereotype.Service;
 
 import java.security.SecureRandom;
 import java.time.Instant;
+import java.util.EnumSet;
+import java.util.List;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import org.bson.types.ObjectId;
 
@@ -52,8 +63,33 @@ public class ClusterStateMachineService {
     private final ClusterProvisioningService clusterProvisioningService;
     private final IacProperties iacProperties;
     private final ApplicationEventPublisher eventPublisher;
+    private final SubscriptionRepository subscriptionRepository;
+    private final DeploymentStepRecorder recorder;
+    private final ObjectProvider<MockProvisionFailureService> mockFailureProvider;
 
     private final SecureRandom secureRandom = new SecureRandom();
+
+    /**
+     * INSTALL operations executed by the mock Cluster worker. The Atlas-owned
+     * operations (slot reservation, database + user creation) are recorded by
+     * the MDB workers; the mock worker records WAIT_MDB_ALLOCATION itself
+     * because no real resolution happens in mock mode.
+     */
+    private static final Set<DeploymentOperation> MOCK_CLUSTER_OPERATIONS = EnumSet.of(
+        DeploymentOperation.GENERATE_SSH_KEY,
+        DeploymentOperation.PROVISION_EC2,
+        DeploymentOperation.WAIT_SSH_READY,
+        DeploymentOperation.RESTRICT_SSH_INGRESS,
+        DeploymentOperation.CREATE_DNS_RECORD,
+        DeploymentOperation.WAIT_MDB_ALLOCATION,
+        DeploymentOperation.START_RUNTIME_STACK,
+        DeploymentOperation.CONFIGURE_NGINX,
+        DeploymentOperation.WAIT_DNS_PROPAGATION,
+        DeploymentOperation.ISSUE_TLS_CERTIFICATE,
+        DeploymentOperation.HEALTH_CHECK);
+
+    /** Per-step mock delay — keeps a full mock run around one second. */
+    private static final int MOCK_STEP_DELAY_MS = 90;
 
     @Value("${tapstate.cloud.cluster.provision.success-rate:85}")
     private int provisionSuccessRate;
@@ -64,12 +100,18 @@ public class ClusterStateMachineService {
         ClusterRepository clusterRepository,
         ClusterProvisioningService clusterProvisioningService,
         IacProperties iacProperties,
-        ApplicationEventPublisher eventPublisher) {
+        ApplicationEventPublisher eventPublisher,
+        SubscriptionRepository subscriptionRepository,
+        DeploymentStepRecorder recorder,
+        ObjectProvider<MockProvisionFailureService> mockFailureProvider) {
         this.clusterStateMachineFactory = clusterStateMachineFactory;
         this.clusterRepository = clusterRepository;
         this.clusterProvisioningService = clusterProvisioningService;
         this.iacProperties = iacProperties;
         this.eventPublisher = eventPublisher;
+        this.subscriptionRepository = subscriptionRepository;
+        this.recorder = recorder;
+        this.mockFailureProvider = mockFailureProvider;
     }
 
     /**
@@ -192,6 +234,11 @@ public class ClusterStateMachineService {
 
         // === PROVISIONING_FAILED → PROVISIONING_PENDING: restart ===
         if (from == ClusterState.PROVISIONING_FAILED && to == ClusterState.PROVISIONING_PENDING) {
+            // Archive the failed attempts so the progress view exposes the
+            // retry; must happen before the new worker starts the steps again.
+            if (cluster.getSubscriptionId() != null) {
+                recorder.markRetry(cluster.getSubscriptionId(), DeploymentOpType.INSTALL);
+            }
             if (real) {
                 scheduleRetry(cluster.getId());
             } else {
@@ -203,6 +250,8 @@ public class ClusterStateMachineService {
         if (to == ClusterState.TERMINATED) {
             if (real) {
                 startAsyncTermination(cluster.getId());
+            } else {
+                recordMockTermination(cluster);
             }
             log.warn("[Cluster FSM] cluster {} TERMINATED", cluster.getId());
         }
@@ -231,6 +280,8 @@ public class ClusterStateMachineService {
                 } else {
                     transition(clusterId, ClusterEventType.PROVISION_FAIL, "system:iac");
                 }
+                // Converge a cancellation that landed while provisioning was running.
+                convergeCancelIfNeeded(clusterId);
             } catch (Exception e) {
                 log.error("[Cluster FSM] provisioning error for cluster {} after {}ms: {}",
                     clusterId, System.currentTimeMillis() - startedAt, e.getMessage());
@@ -281,35 +332,141 @@ public class ClusterStateMachineService {
 
     // ========== Mock-mode async effects ==========
 
-    /** Simulate the provisioning delay, then succeed or fail at the configured rate. */
+    /**
+     * Simulate provisioning operation by operation, recording progress for
+     * each Cluster-owned step. The attempt outcome is decided first by the
+     * success rate, then overridden deterministically when a one-shot failure
+     * fixture exists for the organization (test injection).
+     */
     private void startAsyncMockProvisioning(ObjectId clusterId) {
-        int delayMs = 2_000 + secureRandom.nextInt(3_000);
-        boolean willSucceed = secureRandom.nextInt(100) < provisionSuccessRate;
-        log.info("[Cluster FSM] scheduling mock provisioning for cluster {} delayMs={} successRate={}%",
-            clusterId, delayMs, provisionSuccessRate);
+        boolean rateSucceed = secureRandom.nextInt(100) < provisionSuccessRate;
+        log.info("[Cluster FSM] scheduling mock provisioning for cluster {} successRate={}%",
+            clusterId, provisionSuccessRate);
         Thread.ofVirtual().start(() -> {
             try {
-                TimeUnit.MILLISECONDS.sleep(delayMs);
                 Cluster latest = clusterRepository.findById(clusterId).orElse(null);
                 if (latest == null || latest.getState() != ClusterState.PROVISIONING) {
                     log.info("[Cluster FSM] mock provisioning skipped for cluster {} (state={})",
                         clusterId, latest == null ? "missing" : latest.getState());
                     return;
                 }
-                log.info("[Cluster FSM] mock provisioning completing cluster {} outcome={}",
-                    clusterId, willSucceed ? "PROVISION_SUCCESS" : "PROVISION_FAIL");
-                if (willSucceed) {
-                    transition(clusterId, ClusterEventType.PROVISION_SUCCESS, "mock:provision");
-                } else {
-                    transition(clusterId, ClusterEventType.PROVISION_FAIL, "mock:provision");
+
+                // Test injection wins over the random rate. The fixture is
+                // consumed here so the retry attempt succeeds.
+                MockProvisionFailureService failureService = mockFailureProvider.getIfAvailable();
+                String injectedFailOperation = failureService != null
+                    ? failureService.consumeFailure(latest.getOrgId()) : null;
+                boolean willSucceed = injectedFailOperation == null && rateSucceed;
+
+                boolean failed = false;
+                List<DeploymentOperation> ordered = DeploymentOperation.byOpType(DeploymentOpType.INSTALL);
+                for (DeploymentOperation operation : ordered) {
+                    if (!MOCK_CLUSTER_OPERATIONS.contains(operation)) {
+                        continue; // recorded by the Atlas workers
+                    }
+                    sleepQuietly(MOCK_STEP_DELAY_MS);
+                    if (!willSucceed && !failed && mustFailAt(operation, injectedFailOperation)) {
+                        recorder.fail(latest, operation,
+                            "Mock provisioning failure injected at " + operation.code());
+                        failed = true;
+                        break;
+                    }
+                    recorder.start(latest, operation);
+                    sleepQuietly(20);
+                    recorder.succeed(latest, operation, operation.displayName());
                 }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
+
+                if (!failed && !willSucceed) {
+                    // An injected code outside the mock cluster operations — fail the last step.
+                    DeploymentOperation healthCheck = DeploymentOperation.HEALTH_CHECK;
+                    recorder.fail(latest, healthCheck,
+                        "Mock provisioning failure injected: " + injectedFailOperation);
+                    failed = true;
+                }
+
+                // Reload before the terminal transition — the state may have
+                // changed while the simulation was sleeping.
+                Cluster current = clusterRepository.findById(clusterId).orElse(null);
+                if (current == null || current.getState() != ClusterState.PROVISIONING) {
+                    log.info("[Cluster FSM] mock provisioning not completing cluster {} (state={})",
+                        clusterId, current == null ? "missing" : current.getState());
+                    return;
+                }
+                log.info("[Cluster FSM] mock provisioning completing cluster {} outcome={}",
+                    clusterId, failed ? "PROVISION_FAIL" : "PROVISION_SUCCESS");
+                if (failed) {
+                    transition(clusterId, ClusterEventType.PROVISION_FAIL, "mock:provision");
+                } else {
+                    transition(clusterId, ClusterEventType.PROVISION_SUCCESS, "mock:provision");
+                }
+                // Converge a cancellation that landed while provisioning was running.
+                convergeCancelIfNeeded(clusterId);
             } catch (Exception e) {
                 log.error("[Cluster FSM] mock provisioning error for cluster {}: {}",
                     clusterId, e.getMessage());
             }
         });
+    }
+
+    /** Whether the simulated failure must happen at this operation. */
+    private static boolean mustFailAt(DeploymentOperation operation, String injectedFailOperation) {
+        if (injectedFailOperation != null) {
+            return injectedFailOperation.equals(operation.code());
+        }
+        // Rate-driven random failure — fail at the last operation for determinism.
+        return operation == DeploymentOperation.HEALTH_CHECK;
+    }
+
+    /** Sleep without throwing — interruptions end the current simulation step. */
+    private static void sleepQuietly(long ms) {
+        try {
+            TimeUnit.MILLISECONDS.sleep(ms);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    /**
+     * Record the simulated UNINSTALL operations when a mock Cluster becomes
+     * TERMINATED — no real EC2 or DNS exists in mock mode.
+     */
+    private void recordMockTermination(Cluster cluster) {
+        if (cluster.getSubscriptionId() == null) {
+            return;
+        }
+        recorder.markStart(cluster.getOrgId(), cluster.getSubscriptionId(),
+            DeploymentOpType.UNINSTALL, DeploymentOperation.TERMINATE_EC2);
+        recorder.succeed(cluster, DeploymentOperation.TERMINATE_EC2, "EC2 node terminated (mock)");
+        recorder.markStart(cluster.getOrgId(), cluster.getSubscriptionId(),
+            DeploymentOpType.UNINSTALL, DeploymentOperation.DELETE_DNS_RECORD);
+        recorder.succeed(cluster, DeploymentOperation.DELETE_DNS_RECORD, "DNS record deleted (mock)");
+    }
+
+    // ========== Cancel convergence ==========
+
+    /**
+     * Converge a subscription that was cancelled while its Cluster was being
+     * provisioned: after the provisioning attempt ended, a READY or
+     * PROVISIONING_FAILED Cluster is immediately driven into termination. No
+     * new Cluster state-machine states are introduced.
+     */
+    private void convergeCancelIfNeeded(ObjectId clusterId) {
+        Cluster cluster = clusterRepository.findById(clusterId).orElse(null);
+        if (cluster == null || cluster.getSubscriptionId() == null) {
+            return;
+        }
+        Subscription subscription =
+            subscriptionRepository.findById(cluster.getSubscriptionId()).orElse(null);
+        if (subscription == null || subscription.getStatus() != SubscriptionStatus.CANCELLED) {
+            return;
+        }
+
+        Cluster latest = clusterRepository.findById(clusterId).orElse(cluster);
+        if (latest.getState() == ClusterState.READY
+            || latest.getState() == ClusterState.PROVISIONING_FAILED) {
+            transition(clusterId, ClusterEventType.INITIATE_TERMINATION,
+                "system:cancel-converge");
+        }
     }
 
     /** Re-enter provisioning after a short delay. */

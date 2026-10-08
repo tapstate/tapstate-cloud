@@ -4,6 +4,8 @@ import io.tapstate.cloud.mdb.AtlasMdbService;
 import io.tapstate.cloud.mdb.MdbAllocation;
 import io.tapstate.cloud.mdb.MdbAllocationRepository;
 import io.tapstate.cloud.mdb.MdbAllocationStatus;
+import io.tapstate.cloud.progress.DeploymentStepRecorder;
+import io.tapstate.cloud.subscription.SubscriptionRepository;
 import org.bson.types.ObjectId;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.ApplicationEventPublisher;
@@ -128,7 +130,8 @@ class MdbAllocationStateMachineServiceTest {
             }).when(repo).findById(any());
 
             service = new MdbAllocationStateMachineService(
-                buildFactory(), repo, atlas, mock(ApplicationEventPublisher.class));
+                buildFactory(), repo, atlas, mock(ApplicationEventPublisher.class),
+                mock(SubscriptionRepository.class), mock(DeploymentStepRecorder.class));
         }
 
         ObjectId seed(MdbAllocationStatus status) {
