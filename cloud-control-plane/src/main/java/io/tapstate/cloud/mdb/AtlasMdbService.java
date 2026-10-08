@@ -50,7 +50,8 @@ import java.util.Map;
  * Up to 3 region-match retries + fallback to any ACTIVE cluster.
  * <p>
  * Production flow: createMdb (reserve slot) → createDatabase (verify cluster reachability)
- * → createDatabaseUser (Atlas Admin API POST /databaseUsers) → markReady →
+ * → createDatabaseUser (Atlas Admin API POST /databaseUsers) → FSM PROVISION_SUCCESS
+ * marks READY →
  * drop path: dropDatabase (authenticated as the dbUser) → dropDatabaseUser →
  * releaseClusterSlot. The order is mandatory: deleting the user first would
  * make the database-drop connection fail authentication and orphan the databases.
@@ -66,7 +67,6 @@ public class AtlasMdbService implements MdbService {
 
     private final MdbClusterRepository mdbClusterRepo;
     private final AtlasConfigRepository atlasConfigRepo;
-    private final MdbAllocationRepository allocationRepo;
     private final MongoTemplate mongoTemplate;
 
     private final SecureRandom secureRandom = new SecureRandom();
@@ -128,9 +128,10 @@ public class AtlasMdbService implements MdbService {
     @Override
     @Transactional
     public void createDatabase(MdbAllocation allocation) {
-        allocation.setStatus(MdbAllocationStatus.PROVISIONING);
-        allocation.setUpdatedAt(Instant.now());
-        allocationRepo.save(allocation);
+        // The FSM transition persisted PROVISIONING before scheduling this
+        // worker, so the status must not be written here again: a save on the
+        // worker's entity would be a second full-document write that can race
+        // the transition writer (lost update).
 
         if (mockMode) {
             log.info("[AtlasMdb] mockMode: skipping Atlas createDatabase for allocation {} (db={})",
@@ -177,7 +178,6 @@ public class AtlasMdbService implements MdbService {
     public void createDatabaseUser(MdbAllocation allocation) {
         if (mockMode) {
             log.info("[AtlasMdb] mockMode: skipping Atlas createDatabaseUser for allocation {}", allocation.getId());
-            markReady(allocation);
             return;
         }
 
@@ -197,7 +197,8 @@ public class AtlasMdbService implements MdbService {
             log.info("[AtlasMdb] AtlasApiClient.createDatabaseUser → createdNew={}, alreadyExists={}, alloc={}, cluster={}",
                 result.createdNew(), result.alreadyExists(), allocation.getId(), cluster.getName());
 
-            markReady(allocation);
+            // READY is written exclusively by the FSM PROVISION_SUCCESS
+            // transition; this method never persists allocation status itself.
         } catch (AtlasApiException e) {
             allocation.setProvisionErrorCode("ATLAS_DBUSER_CREATE_FAILED");
             allocation.setProvisionErrorDetail(e.errorCode() + ": " + e.getMessage());
@@ -250,17 +251,6 @@ public class AtlasMdbService implements MdbService {
         return r;
     }
 
-    private void markReady(MdbAllocation allocation) {
-        allocation.setStatus(MdbAllocationStatus.READY);
-        allocation.setReadyAt(Instant.now());
-        allocation.setUpdatedAt(Instant.now());
-        allocationRepo.save(allocation);
-        log.info("[AtlasMdb] Allocation {} READY — db={}, operatorDb={}, viewsDb={}, user={}",
-            allocation.getId(), allocation.getDatabaseName(),
-            allocation.getOperatorDbName(), allocation.getViewsDbName(),
-            allocation.getDbUsername());
-    }
-
     // ========== dropDatabaseUser — Atlas Admin API DELETE /databaseUsers ==========
 
     @Override
@@ -302,8 +292,10 @@ public class AtlasMdbService implements MdbService {
     //   mongodb+srv://username:password@cluster0.xxx.mongodb.net/?authSource=admin
     //   (roles are scoped with authSource=admin — same as createDatabaseUser)
 
+    // Not @Transactional: a failed drop MUST propagate to the reclaim worker so
+    // the dbUser is not deleted while databases survive, while the slot release
+    // in the finally block still has to commit even on that failure path.
     @Override
-    @Transactional
     public void dropDatabase(MdbAllocation allocation) {
         if (mockMode) {
             log.info("[AtlasMdb] mockMode: skipping Atlas dropDatabase for allocation {}", allocation.getId());
@@ -328,15 +320,11 @@ public class AtlasMdbService implements MdbService {
             log.info("[AtlasMdb] dropDatabase OK — alloc {}, cluster {}, dropped: {}, {}, {}",
                 allocation.getId(), cluster.getName(),
                 allocation.getDatabaseName(), allocation.getOperatorDbName(), allocation.getViewsDbName());
-
-        } catch (MongoException e) {
-            log.warn("[AtlasMdb] dropDatabase MongoClient failure for alloc {}: {}",
-                allocation.getId(), e.getMessage());
-        } catch (Exception e) {
-            log.warn("[AtlasMdb] dropDatabase unexpected error for alloc {}: {}",
-                allocation.getId(), e.getMessage());
         } finally {
-            // MongoClient.close() is called automatically by try-with-resources
+            // MongoClient.close() is called automatically by try-with-resources.
+            // Non-idempotent drop errors propagate to the FSM worker, which
+            // records the failure and skips dropDatabaseUser; the reserved slot
+            // is released on every path.
             releaseClusterSlot(allocation);
         }
     }
@@ -361,44 +349,69 @@ public class AtlasMdbService implements MdbService {
     }
 
     /**
-     * Build an Atlas MongoDB connection URI from a clean connection string
-     * plus dbUser credentials. Atlas connection strings come in two flavors:
+     * Build an Atlas MongoDB connection URI from a stored cluster connection
+     * string plus the per-allocation dbUser credentials. The stored seed may be
+     * either a clean host-only string or a full Atlas URI that already embeds
+     * the admin user's credentials and a default database:
      * <pre>
      *   mongodb+srv://cluster0.xxx.mongodb.net
+     *   mongodb+srv://adminUser:adminPass@cluster0.xxx.mongodb.net/admin?retryWrites=true
      *   mongodb://host1:27017,host2:27017
      * </pre>
-     * Both are converted to {@code scheme://username:password@host[?authSource=admin]}.
+     * Any embedded userinfo, default-auth-db path, query string or fragment is
+     * stripped; the result is always
+     * {@code scheme://username:password@hostPart/?authSource=admin}.
+     * Dropping the embedded userinfo is mandatory: leaving it in place produces
+     * a URI with two userinfo segments
+     * ({@code owner:pass@admin:pass@host}), which the driver rejects with
+     * "connection string contains invalid user information", so every reclaim
+     * drop would fail.
      * Auth source is always {@code admin} — that's where Atlas Admin API
      * created the dbUser.
      */
-    static String buildAtlasMongoUri(String cleanConnStr, String username, String password) {
-        if (cleanConnStr == null || cleanConnStr.isBlank()) {
+    static String buildAtlasMongoUri(String seedConnStr, String username, String password) {
+        if (seedConnStr == null || seedConnStr.isBlank()) {
             throw new MdbException("MdbCluster.connectionString is null — admin must seed it from Atlas Admin API QueryOneCluster");
         }
-
-        // Parse scheme + authority (mongodb+srv://host or mongodb://host1:port,host2:port)
-        // mongodb+srv://cluster0.xxx.mongodb.net  →  mongodb+srv://user:pass@cluster0.xxx.mongodb.net
-        // mongodb://host1:27017,host2:27017      →  mongodb://user:pass@host1:27017,host2:27017
-        int schemeEnd = cleanConnStr.indexOf("://");
-        if (schemeEnd < 0) {
-            throw new MdbException("Invalid connection string (no scheme): " + cleanConnStr);
+        if (username == null || username.isBlank() || password == null || password.isBlank()) {
+            throw new MdbException("dbUser credentials are required to build the Atlas connection URI");
         }
-        String scheme = cleanConnStr.substring(0, schemeEnd + 3);
-        String rest = cleanConnStr.substring(schemeEnd + 3);
 
-        // Insert credentials right after scheme, before host/port
-        // Special chars in password must be percent-encoded for URI safety
+        int schemeEnd = seedConnStr.indexOf("://");
+        if (schemeEnd < 0) {
+            throw new MdbException("Invalid connection string (no scheme): " + seedConnStr);
+        }
+        String scheme = seedConnStr.substring(0, schemeEnd + 3);
+        String rest = seedConnStr.substring(schemeEnd + 3);
+
+        // Drop query and fragment first — they never carry host information.
+        int cut = -1;
+        for (int i = 0; i < rest.length(); i++) {
+            char c = rest.charAt(i);
+            if (c == '?' || c == '#') {
+                cut = i;
+                break;
+            }
+        }
+        String authority = cut >= 0 ? rest.substring(0, cut) : rest;
+
+        // Drop embedded userinfo: the last '@' separates credentials from the
+        // host list (a raw '@' cannot appear inside the host list).
+        int at = authority.lastIndexOf('@');
+        String hostPart = at >= 0 ? authority.substring(at + 1) : authority;
+
+        // Drop any default-auth-db path following the host list.
+        int slash = hostPart.indexOf('/');
+        if (slash >= 0) {
+            hostPart = hostPart.substring(0, slash);
+        }
+        if (hostPart.isBlank()) {
+            throw new MdbException("Invalid connection string (no host): " + seedConnStr);
+        }
+
+        // Special chars in credentials must be percent-encoded for URI safety.
         String safeUser = uriEncode(username);
         String safePass = uriEncode(password);
-
-        // Strip any existing query/fragment from the host part — we'll append authSource=admin
-        String hostPart;
-        int qIdx = rest.indexOf('?');
-        if (qIdx >= 0) {
-            hostPart = rest.substring(0, qIdx);
-        } else {
-            hostPart = rest;
-        }
 
         // authSource=admin is mandatory — Atlas scopes authUser under admin db
         return scheme + safeUser + ":" + safePass + "@" + hostPart + "/?authSource=admin";

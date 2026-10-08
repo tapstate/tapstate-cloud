@@ -17,16 +17,24 @@ import java.time.Instant;
 import org.bson.types.ObjectId;
 
 /**
- * MdbAllocation state machine orchestrator — mirrors the Cluster FSM pattern
- * with DB state reset + event send + persist cycle.
+ * MdbAllocation state machine orchestrator — mirrors the Cluster FSM ordering:
+ * synchronous state/field changes, a single persisted save, and only then the
+ * scheduling of asynchronous side-effects.
  * <p>
- * Every transition fires side-effects:
+ * Persistence ordering is load-bearing. The async provisioning/reclaim workers
+ * persist their own terminal state on freshly loaded entities, so the caller
+ * must never re-save the transition entity after scheduling: without optimistic
+ * locking a blind whole-document save can serialize a stale PROVISIONING and
+ * overwrite the durable READY (lost update). Synchronous effects therefore run
+ * before the one and only save for this transition; every worker then reloads
+ * its own allocation by id and never shares object identity with this document.
+ *
  * <ul>
- *   <li>PROVISIONING_PENDING → PROVISIONING: delegate async Atlas DB + user creation to {@link AtlasMdbService}</li>
- *   <li>PROVISIONING → READY: mark allocation ready (timestamp)</li>
- *   <li>PROVISIONING → PROVISIONING_FAILED: persist error detail</li>
- *   <li>INITIATE_RECLAIM → DELETING: fire async Atlas teardown (drop databases, then db user)</li>
- *   <li>DELETING → DELETED: record deletion timestamp</li>
+ *   <li>PROVISIONING_PENDING → PROVISIONING: async Atlas DB + user creation</li>
+ *   <li>PROVISIONING → READY: ready timestamp</li>
+ *   <li>PROVISIONING → PROVISIONING_FAILED: error detail persisted by the worker</li>
+ *   <li>READY → DELETING: async Atlas teardown (databases, then user)</li>
+ *   <li>DELETING → DELETED: deletion timestamp</li>
  * </ul>
  */
 @Service
@@ -74,13 +82,16 @@ public class MdbAllocationStateMachineService {
             MdbAllocationStatus newStatus = sm.getState().getId();
             MdbAllocationStatus prevStatus = allocation.getStatus();
 
+            // Synchronous field changes go on first, then the document is
+            // persisted exactly once; asynchronous workers are scheduled only
+            // after that save returns and reload their own entity by id. This
+            // ordering is the fix for the lost update where a stale second save
+            // of this document overwrote the worker's durable READY.
             allocation.setStatus(newStatus);
             allocation.setUpdatedAt(Instant.now());
+            applySynchronousEffects(allocation, prevStatus, newStatus);
             allocationRepo.save(allocation);
-
-            applyTransitionEffects(allocation, prevStatus, newStatus, event);
-
-            allocationRepo.save(allocation);
+            scheduleAsyncEffects(allocationId, prevStatus, newStatus);
 
             // Notify the subscription resource-readiness join once READY is durable.
             if (newStatus == MdbAllocationStatus.READY) {
@@ -110,18 +121,38 @@ public class MdbAllocationStateMachineService {
     }
 
     /**
-     * Apply side-effects after a successful state transition.
+     * Apply synchronous side-effects that mutate the transition's entity —
+     * these run before the entity is saved.
      */
-    private void applyTransitionEffects(MdbAllocation allocation,
-                                        MdbAllocationStatus from,
-                                        MdbAllocationStatus to,
-                                        MdbAllocationEventType event) {
+    private void applySynchronousEffects(MdbAllocation allocation,
+                                         MdbAllocationStatus from,
+                                         MdbAllocationStatus to) {
+        // === PROVISIONING → READY ===
+        if (from == MdbAllocationStatus.PROVISIONING && to == MdbAllocationStatus.READY) {
+            allocation.setReadyAt(Instant.now());
+        }
+
+        // === DELETING → DELETED ===
+        if (to == MdbAllocationStatus.DELETED) {
+            allocation.setDeletedAt(Instant.now());
+        }
+    }
+
+    /**
+     * Schedule asynchronous side-effects after the transition document has
+     * been made durable. Every worker loads its own allocation instance so its
+     * writes never share object identity with a caller thread's document.
+     */
+    private void scheduleAsyncEffects(ObjectId allocationId,
+                                      MdbAllocationStatus from,
+                                      MdbAllocationStatus to) {
 
         // === PROVISIONING_PENDING → PROVISIONING: async Atlas DB + user creation ===
         if (from == MdbAllocationStatus.PROVISIONING_PENDING && to == MdbAllocationStatus.PROVISIONING) {
-            log.info("[MdbAllocation FSM] scheduling async Atlas provisioning for allocation {} clusterId={}",
-                allocation.getId(), allocation.getClusterId());
+            log.info("[MdbAllocation FSM] scheduling async Atlas provisioning for allocation {}", allocationId);
             Thread.ofVirtual().start(() -> {
+                MdbAllocation allocation = allocationRepo.findById(allocationId)
+                    .orElseThrow(() -> new IllegalStateException("MdbAllocation not found: " + allocationId));
                 long startedAt = System.currentTimeMillis();
                 try {
                     // First create database (connectivity check + seed)
@@ -130,10 +161,9 @@ public class MdbAllocationStateMachineService {
                     atlasMdbService.createDatabaseUser(allocation);
                     log.info("[MdbAllocation FSM] Atlas provisioning succeeded for allocation {} in {}ms",
                         allocation.getId(), System.currentTimeMillis() - startedAt);
-                    // AtlasMdbService marks READY directly (markReady) after user
-                    // creation, so the persisted state may already be READY. Fire
-                    // the FSM event only when it is still PROVISIONING; otherwise
-                    // the send is rejected as a spurious PROVISION_SUCCESS.
+                    // READY is written solely by the PROVISION_SUCCESS
+                    // transition below. The reload guard keeps a duplicate or
+                    // already-advanced allocation from sending a spurious event.
                     MdbAllocation fresh = allocationRepo.findById(allocation.getId()).orElse(null);
                     if (fresh != null && fresh.getStatus() == MdbAllocationStatus.PROVISIONING) {
                         transition(allocation.getId(), MdbAllocationEventType.PROVISION_SUCCESS, "system(atlas-provision)");
@@ -154,16 +184,12 @@ public class MdbAllocationStateMachineService {
             });
         }
 
-        // === PROVISIONING → READY ===
-        if (from == MdbAllocationStatus.PROVISIONING && to == MdbAllocationStatus.READY) {
-            allocation.setReadyAt(Instant.now());
-        }
-
-        // === INITIATE_RECLAIM → DELETING: async Atlas teardown ===
+        // === READY → DELETING: async Atlas teardown ===
         if (from == MdbAllocationStatus.READY && to == MdbAllocationStatus.DELETING) {
-            log.info("[MdbAllocation FSM] scheduling async Atlas reclaim for allocation {} clusterId={}",
-                allocation.getId(), allocation.getClusterId());
+            log.info("[MdbAllocation FSM] scheduling async Atlas reclaim for allocation {}", allocationId);
             Thread.ofVirtual().start(() -> {
+                MdbAllocation allocation = allocationRepo.findById(allocationId)
+                    .orElseThrow(() -> new IllegalStateException("MdbAllocation not found: " + allocationId));
                 long startedAt = System.currentTimeMillis();
                 try {
                     // Order matters: databases are dropped over a Mongo connection
@@ -177,14 +203,15 @@ public class MdbAllocationStateMachineService {
                 } catch (Exception e) {
                     log.warn("[MdbAllocation FSM] Atlas reclaim failed for allocation {} after {}ms: {}",
                         allocation.getId(), System.currentTimeMillis() - startedAt, e.getMessage());
+                    // Keep the failure cause on the record before it becomes a
+                    // DELETED tombstone — reclaim is terminal regardless.
+                    MdbAllocation latest = allocationRepo.findById(allocation.getId()).orElse(allocation);
+                    latest.setProvisionErrorCode("ATLAS_RECLAIM_FAILED");
+                    latest.setProvisionErrorDetail(e.getMessage());
+                    allocationRepo.save(latest);
                     transition(allocation.getId(), MdbAllocationEventType.RECLAIM_FAILED, "system(atlas-reclaim)");
                 }
             });
-        }
-
-        // === DELETING → DELETED ===
-        if (to == MdbAllocationStatus.DELETED) {
-            allocation.setDeletedAt(Instant.now());
         }
     }
 
