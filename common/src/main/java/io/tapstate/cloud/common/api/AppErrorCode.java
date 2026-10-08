@@ -41,6 +41,8 @@ public enum AppErrorCode implements ErrorCode {
     IAC_HEALTH_CHECK_FAILED("iac.health-check-failed", "Cluster endpoint health check failed: {0}"),
     IAC_CRYPTO_KEY_MISSING("iac.crypto-key-missing", "SSH private-key master key is missing or invalid: {0}"),
     IAC_MDB_NOT_READY("iac.mdb-not-ready", "Allocated MongoDB database is not ready: {0}"),
+    IAC_TLS_CERTIFICATE_UNAVAILABLE("iac.tls-certificate-unavailable", "No usable TLS certificate covering the Cluster domain: {0}"),
+    IAC_TLS_CERTIFICATE_INSTALL_FAILED("iac.tls-certificate-install-failed", "TLS certificate installation on the Cluster node failed: {0}"),
 
     // ---------- Region ----------
     REGION_NOT_FOUND("region.not-found", "Region {0} is not available"),

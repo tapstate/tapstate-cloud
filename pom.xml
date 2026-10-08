@@ -51,6 +51,10 @@
 
     <!-- SSHJ — remote Cluster node configuration -->
     <sshj.version>0.41.1</sshj.version>
+
+    <!-- Bouncy Castle — PEM private key parsing for TLS certificate validation
+         (same release sshj already brings at runtime) -->
+    <bouncycastle.version>1.84</bouncycastle.version>
   </properties>
 
   <dependencyManagement>
