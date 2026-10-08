@@ -84,8 +84,9 @@ paths:
       - Organizations
       summary: Create new organization (user becomes owner automatically)
       description: "Creates a new Organization and adds the caller as its first member\
-        \ with owner role. A default TRIAL subscription is automatically created for\
-        \ the new Org. Organization slug must be unique system-wide (lowercase, hyphenated)."
+        \ with owner role. The Organization starts with no subscriptions — create\
+        \ them explicitly via POST /v1/api/orgs/{orgId}/subscriptions. Organization\
+        \ slug must be unique system-wide (lowercase, hyphenated)."
       operationId: create
       requestBody:
         description: "Organization create payload: {\"name\": \"Acme Corp\", \"slug\"\
@@ -122,18 +123,16 @@ paths:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseOrganizationResponse"
-  /v1/api/orgs/{orgId}/subscription:
+  /v1/api/orgs/{orgId}/subscriptions:
     get:
       tags:
       - Subscription
-      summary: View organization subscription
+      summary: List organization subscriptions
       description: |-
-        Returns the Organization's current subscription status, billing period, and item breakdown.
+        Returns every Subscription owned by the Organization, newest first.
 
-        Subscription states: TRIAL (free trial) / ACTIVE (paid) / PAST_DUE (grace period) / CANCELLED (terminated).
-
-        Poll this endpoint to track async Cluster + MDB provisioning progress.
-      operationId: getSubscription
+        The list may be empty — creating an Organization no longer creates a subscription.
+      operationId: listSubscriptions
       parameters:
       - name: orgId
         in: path
@@ -143,43 +142,37 @@ paths:
           type: string
       responses:
         "200":
-          description: Subscription details
+          description: List of subscriptions (may be empty)
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+                $ref: "#/components/schemas/ApiResponseListSubscriptionResponse"
         "401":
           description: Not authenticated
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+                $ref: "#/components/schemas/ApiResponseListSubscriptionResponse"
         "403":
           description: Not a member of this Organization
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
-        "404":
-          description: Subscription not found
-          content:
-            '*/*':
-              schema:
-                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+                $ref: "#/components/schemas/ApiResponseListSubscriptionResponse"
     post:
       tags:
       - Subscription
-      summary: Create subscription with initial Cluster + MDB allocation
+      summary: Create a subscription with one Cluster + one MDB allocation
       description: |-
-        Creates a new subscription (TRIAL, 30-day period) with the two default billable items, then synchronously provisions an initial Cluster record and Atlas MDB allocation.
+        Creates a new subscription (TRIAL, 30-day period) with the two default billable items, then synchronously provisions its Cluster record and Atlas MDB allocation.
 
         Async provisioning (fired by state machines):
           - Cluster state machine: START_PROVISION → CloudFormation simulation → READY/PROVISIONING_FAILED
           - MDB state machine: START_PROVISION → Atlas createDatabase + createDatabaseUser → READY/PROVISIONING_FAILED
 
-        Both flows run in parallel. Poll GET /subscription to track overall progress.
+        Both flows run in parallel. Poll GET /subscriptions/{subscriptionId} to track progress.
 
-        Idempotency: if the org already has a subscription shell, reuses it and adds one Cluster.
+        An Organization may own many subscriptions; cluster names stay unique within org + region.
       operationId: createSubscription
       parameters:
       - name: orgId
@@ -232,7 +225,57 @@ paths:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
-  /v1/api/orgs/{orgId}/subscription/status:
+  /v1/api/orgs/{orgId}/subscriptions/{subscriptionId}:
+    get:
+      tags:
+      - Subscription
+      summary: Get one subscription
+      description: |-
+        Returns the subscription's status, billing period, provisioned resources and item breakdown.
+
+        Subscription states: TRIAL (free trial) / ACTIVE (paid) / PAST_DUE (grace period) / CANCELLED (terminated).
+
+        Poll this endpoint to track async Cluster + MDB provisioning progress.
+      operationId: getSubscription
+      parameters:
+      - name: orgId
+        in: path
+        description: Organization UUID
+        required: true
+        schema:
+          type: string
+      - name: subscriptionId
+        in: path
+        description: Subscription UUID
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          description: Subscription details
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+        "401":
+          description: Not authenticated
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+        "403":
+          description: Not a member of this Organization
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+        "404":
+          description: Subscription not found in this Organization
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+  /v1/api/orgs/{orgId}/subscriptions/{subscriptionId}/status:
     post:
       tags:
       - Subscription
@@ -248,6 +291,12 @@ paths:
       - name: orgId
         in: path
         description: Organization UUID
+        required: true
+        schema:
+          type: string
+      - name: subscriptionId
+        in: path
+        description: Subscription UUID
         required: true
         schema:
           type: string
@@ -272,21 +321,35 @@ paths:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+        "401":
+          description: Not authenticated
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+        "403":
+          description: Not a member of this Organization
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
         "404":
           description: Subscription not found
           content:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
-  /v1/api/orgs/{orgId}/subscription/cancel:
+  /v1/api/orgs/{orgId}/subscriptions/{subscriptionId}/cancel:
     post:
       tags:
       - Subscription
-      summary: Cancel subscription — auto-terminate all org clusters + reclaim MDB
+      summary: Cancel one subscription — terminate its Cluster + reclaim its MDB
       description: |-
-        Cancels this Organization's subscription (state → CANCELLED) and triggers cascade termination of every non-terminated Cluster + MDB allocation owned by this org.
+        Cancels this subscription (state → CANCELLED) and triggers cascade termination of its Cluster and reclaim of its MdbAllocation.
 
-        Cascade runs asynchronously via Cluster state-machine INITIATE_TERMINATION events and MDB state-machine INITIATE_RECLAIM events. This endpoint returns immediately.
+        Other subscriptions of the same Organization are unaffected.
+
+        Cascade runs asynchronously via the Cluster state-machine INITIATE_TERMINATION event and MDB state-machine INITIATE_RECLAIM event. This endpoint returns immediately.
 
         Safe to call on an already-cancelled subscription (idempotent).
       operationId: cancelSubscription
@@ -294,6 +357,12 @@ paths:
       - name: orgId
         in: path
         description: Organization UUID
+        required: true
+        schema:
+          type: string
+      - name: subscriptionId
+        in: path
+        description: Subscription UUID
         required: true
         schema:
           type: string
@@ -311,7 +380,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
         "403":
-          description: Not Org owner
+          description: Not a member of this Organization
           content:
             '*/*':
               schema:
@@ -969,11 +1038,37 @@ components:
           type: integer
           format: int64
           description: Unit price in cents (100 = $1.00)
+        clusterId:
+          type: string
+          description: Provisioned Cluster ID billed by this item (CLUSTER_PIPELINE_RUNTIME)
+        mdbAllocationId:
+          type: string
+          description: Provisioned MdbAllocation ID billed by this item (ATLAS_DATABASE_STORAGE)
         metadata:
           type: object
           additionalProperties:
             type: string
           description: "Free-form metadata (e.g. unlimited flag, spec key)"
+    ApiResponseListSubscriptionResponse:
+      type: object
+      description: Global API response envelope
+      properties:
+        opId:
+          type: string
+          description: Request correlation ID — unique per request
+          example: 3f2a1b4c-5d6e-7f8a-9b0c-1d2e3f4a5b6c
+        code:
+          type: string
+          description: "Business result code — 'ok' on success, error code on failure"
+          example: ok
+        msg:
+          type: string
+          description: Detailed message — success info or failure reason
+        data:
+          type: array
+          description: "Response payload — object or array, null on void responses"
+          items:
+            $ref: "#/components/schemas/SubscriptionResponse"
     SubscriptionResponse:
       type: object
       properties:
@@ -986,6 +1081,13 @@ components:
         status:
           type: string
           description: "Subscription state: TRIAL / ACTIVE / PAST_DUE / CANCELLED"
+        resourceState:
+          type: string
+          description: "Cloud resource state: PROVISIONING / READY (null until resources are provisioned)"
+        resourcesReadyAt:
+          type: string
+          format: date-time
+          description: When the Cluster and MdbAllocation first became READY (ISO-8601 UTC)
         currentPeriodStart:
           type: string
           format: date-time
@@ -996,8 +1098,14 @@ components:
           description: Current billing period end (ISO-8601 UTC)
         provisioningAllowed:
           type: boolean
-          description: Whether provisioning new Clusters is allowed (TRIAL / ACTIVE
+          description: Whether provisioning new resources is allowed (TRIAL / ACTIVE
             = true)
+        clusterId:
+          type: string
+          description: The subscription's Cluster UUID
+        mdbAllocationId:
+          type: string
+          description: The subscription's Atlas MdbAllocation UUID
         createdAt:
           type: string
           format: date-time

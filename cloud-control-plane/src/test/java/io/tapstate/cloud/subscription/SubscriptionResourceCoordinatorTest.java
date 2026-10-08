@@ -119,7 +119,7 @@ class SubscriptionResourceCoordinatorTest {
             .thenReturn(Optional.of(subscription(SubscriptionStatus.TRIAL, ResourceState.PROVISIONING)));
         when(allocationRepository.findByClusterId(clusterId))
             .thenReturn(Optional.of(allocation(MdbAllocationStatus.READY)));
-        when(clusterRepository.findByOrgId(orgId))
+        when(clusterRepository.findBySubscriptionId(subscriptionId))
             .thenReturn(List.of(cluster(ClusterState.READY)));
         when(allocationRepository.findBySubscriptionId(subscriptionId))
             .thenReturn(List.of(allocation(MdbAllocationStatus.READY)));
@@ -136,7 +136,7 @@ class SubscriptionResourceCoordinatorTest {
             .thenReturn(Optional.of(subscription(SubscriptionStatus.TRIAL, ResourceState.PROVISIONING)));
         when(clusterRepository.findById(clusterId))
             .thenReturn(Optional.of(cluster(ClusterState.READY)));
-        when(clusterRepository.findByOrgId(orgId))
+        when(clusterRepository.findBySubscriptionId(subscriptionId))
             .thenReturn(List.of(cluster(ClusterState.READY)));
         when(allocationRepository.findBySubscriptionId(subscriptionId))
             .thenReturn(List.of(allocation(MdbAllocationStatus.READY)));
@@ -145,6 +145,47 @@ class SubscriptionResourceCoordinatorTest {
             new MdbAllocationReadyEvent(allocationId, clusterId, subscriptionId));
 
         verify(mongoTemplate).updateFirst(any(Query.class), any(Update.class), eq(Subscription.class));
+    }
+
+    @Test
+    void siblingSubscriptionReadyClusterDoesNotFlipSubscriptionWhoseOwnClusterIsStillProvisioning() {
+        // Another subscription in the same org may already have a READY cluster;
+        // it must never enter this subscription's join (the implementation must
+        // not query clusters org-wide). The subscription-scoped lookup returns
+        // only its own still-provisioning cluster → no flip.
+        when(subscriptionRepository.findById(subscriptionId))
+            .thenReturn(Optional.of(subscription(SubscriptionStatus.TRIAL, ResourceState.PROVISIONING)));
+        when(clusterRepository.findById(clusterId))
+            .thenReturn(Optional.of(cluster(ClusterState.READY)));
+        when(clusterRepository.findBySubscriptionId(subscriptionId))
+            .thenReturn(List.of(cluster(ClusterState.PROVISIONING)));
+        when(allocationRepository.findBySubscriptionId(subscriptionId))
+            .thenReturn(List.of(allocation(MdbAllocationStatus.READY)));
+
+        coordinator.onMdbAllocationReady(
+            new MdbAllocationReadyEvent(allocationId, clusterId, subscriptionId));
+
+        verify(mongoTemplate, never()).updateFirst(any(Query.class), any(Update.class),
+            eq(Subscription.class));
+    }
+
+    @Test
+    void joinNeverQueriesClustersOrgWide() {
+        // Guard against regressing to an org-scoped cluster join, which would
+        // cross subscriptions inside a multi-subscription organization.
+        expectSuccessfulFlip();
+        when(subscriptionRepository.findById(subscriptionId))
+            .thenReturn(Optional.of(subscription(SubscriptionStatus.TRIAL, ResourceState.PROVISIONING)));
+        when(allocationRepository.findByClusterId(clusterId))
+            .thenReturn(Optional.of(allocation(MdbAllocationStatus.READY)));
+        when(clusterRepository.findBySubscriptionId(subscriptionId))
+            .thenReturn(List.of(cluster(ClusterState.READY)));
+        when(allocationRepository.findBySubscriptionId(subscriptionId))
+            .thenReturn(List.of(allocation(MdbAllocationStatus.READY)));
+
+        coordinator.onClusterReady(new ClusterReadyEvent(clusterId));
+
+        verify(clusterRepository, never()).findByOrgId(any());
     }
 
     @Test

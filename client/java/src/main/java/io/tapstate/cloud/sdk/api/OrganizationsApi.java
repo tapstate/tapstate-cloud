@@ -44,7 +44,7 @@ public class OrganizationsApi extends BaseApi {
 
   /**
    * Create new organization (user becomes owner automatically)
-   * Creates a new Organization and adds the caller as its first member with owner role. A default TRIAL subscription is automatically created for the new Org. Organization slug must be unique system-wide (lowercase, hyphenated).
+   * Creates a new Organization and adds the caller as its first member with owner role. The Organization starts with no subscriptions — create them explicitly via POST /v1/api/orgs/{orgId}/subscriptions. Organization slug must be unique system-wide (lowercase, hyphenated).
    * @param requestBody Organization create payload: {\&quot;name\&quot;: \&quot;Acme Corp\&quot;, \&quot;slug\&quot;: \&quot;acme-corp\&quot;} (required)
    * @return ApiResponseOrganizationResponse
    * @throws ApiException if fails to make API call
@@ -56,7 +56,7 @@ public class OrganizationsApi extends BaseApi {
 
   /**
    * Create new organization (user becomes owner automatically)
-   * Creates a new Organization and adds the caller as its first member with owner role. A default TRIAL subscription is automatically created for the new Org. Organization slug must be unique system-wide (lowercase, hyphenated).
+   * Creates a new Organization and adds the caller as its first member with owner role. The Organization starts with no subscriptions — create them explicitly via POST /v1/api/orgs/{orgId}/subscriptions. Organization slug must be unique system-wide (lowercase, hyphenated).
    * @param requestBody Organization create payload: {\&quot;name\&quot;: \&quot;Acme Corp\&quot;, \&quot;slug\&quot;: \&quot;acme-corp\&quot;} (required)
    * @param additionalHeaders additionalHeaders for this call
    * @return ApiResponseOrganizationResponse

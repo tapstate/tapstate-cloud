@@ -21,13 +21,16 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for the resource links written onto billable items by
  * {@link SubscriptionService#createSubscription}. The runtime billable item must
- * carry the Cluster ID and the storage item the MdbAllocation ID.
+ * carry the Cluster ID and the storage item the MdbAllocation ID, and each
+ * subscription's links must stay scoped to its own items.
  */
 @ExtendWith(MockitoExtension.class)
 class SubscriptionServiceResourceLinkTest {
@@ -61,19 +64,25 @@ class SubscriptionServiceResourceLinkTest {
             subscriptionRepository, itemRepository, subscriptionStateMachineService,
             eventPublisher, clusterService, mdbAllocationService);
 
-        Subscription shell = Subscription.builder()
-            .id(subscriptionId)
-            .orgId(orgId)
-            .status(SubscriptionStatus.TRIAL)
-            .build();
-        when(subscriptionRepository.findByOrgId(orgId)).thenReturn(Optional.of(shell));
-        when(subscriptionRepository.findById(subscriptionId)).thenReturn(Optional.of(shell));
+        // Every call creates a new subscription; the repository assigns the id
+        // and the final PROVISIONING save returns the same entity. Lenient
+        // because the two-subscription test installs its own sequential-id stub.
+        lenient().when(subscriptionRepository.save(any(Subscription.class))).thenAnswer(inv -> {
+            Subscription s = inv.getArgument(0);
+            if (s.getId() == null) {
+                s.setId(subscriptionId);
+            }
+            return s;
+        });
+        when(subscriptionRepository.findById(subscriptionId)).thenAnswer(inv ->
+            Optional.of(Subscription.builder().id(subscriptionId).orgId(orgId)
+                .status(SubscriptionStatus.TRIAL).resourceState(ResourceState.PROVISIONING).build()));
 
         Cluster cluster = Cluster.builder().build();
         cluster.setId(clusterId);
         cluster.setOrgId(orgId);
-        when(clusterService.createCluster(anyString(), anyString(), anyString(), anyString(), anyString()))
-            .thenReturn(cluster);
+        when(clusterService.createCluster(anyString(), any(ObjectId.class), anyString(),
+            anyString(), anyString(), anyString())).thenReturn(cluster);
 
         MdbAllocation allocation = MdbAllocation.builder().id(allocationId).build();
         when(mdbAllocationService.allocateMdb(anyString(), anyString(), anyString(), anyString()))
@@ -99,9 +108,10 @@ class SubscriptionServiceResourceLinkTest {
 
     @Test
     void createSubscriptionStampsResourceIdsOnBillableItems() {
-        subscriptionService.createSubscription(orgId.toHexString(), "ap-southeast-1",
+        Subscription created = subscriptionService.createSubscription(orgId.toHexString(), "ap-southeast-1",
             "qa-cluster", "basic", "leon.li@tapdata.io");
 
+        assertThat(created.getId()).isEqualTo(subscriptionId);
         assertThat(runtimeItem.getClusterId()).isEqualTo(clusterId);
         assertThat(runtimeItem.getMdbAllocationId()).isNull();
         assertThat(storageItem.getMdbAllocationId()).isEqualTo(allocationId);
@@ -136,7 +146,75 @@ class SubscriptionServiceResourceLinkTest {
         assertThat(storageItem.getMdbAllocationId()).isEqualTo(allocationId);
         verify(itemRepository).save(storageItem);
         ArgumentCaptor<Subscription> subCaptor = ArgumentCaptor.forClass(Subscription.class);
-        verify(subscriptionRepository).save(subCaptor.capture());
-        assertThat(subCaptor.getValue().getResourceState()).isEqualTo(ResourceState.PROVISIONING);
+        verify(subscriptionRepository, org.mockito.Mockito.atLeastOnce()).save(subCaptor.capture());
+        assertThat(subCaptor.getAllValues())
+            .anyMatch(s -> s.getResourceState() == ResourceState.PROVISIONING);
+    }
+
+    @Test
+    void twoSubscriptionsLinkTheirOwnResourcesWithoutOverwritingEachOther() {
+        ObjectId secondSubscriptionId = new ObjectId();
+        ObjectId secondClusterId = new ObjectId();
+        ObjectId secondAllocationId = new ObjectId();
+
+        // Shell saves arrive in creation order: first call = this test's
+        // subscriptionId, second call = secondSubscriptionId.
+        java.util.concurrent.atomic.AtomicInteger shellSaves = new java.util.concurrent.atomic.AtomicInteger();
+        when(subscriptionRepository.save(any(Subscription.class))).thenAnswer(inv -> {
+            Subscription s = inv.getArgument(0);
+            if (s.getId() == null) {
+                s.setId(shellSaves.incrementAndGet() == 1 ? subscriptionId : secondSubscriptionId);
+            }
+            return s;
+        });
+        when(subscriptionRepository.findById(secondSubscriptionId)).thenAnswer(inv ->
+            Optional.of(Subscription.builder().id(secondSubscriptionId).orgId(orgId)
+                .status(SubscriptionStatus.TRIAL).resourceState(ResourceState.PROVISIONING).build()));
+
+        SubscriptionItem secondRuntimeItem = SubscriptionItem.builder()
+            .id(new ObjectId()).subscriptionId(secondSubscriptionId).orgId(orgId)
+            .itemType(SubscriptionItemType.CLUSTER_PIPELINE_RUNTIME).build();
+        SubscriptionItem secondStorageItem = SubscriptionItem.builder()
+            .id(new ObjectId()).subscriptionId(secondSubscriptionId).orgId(orgId)
+            .itemType(SubscriptionItemType.ATLAS_DATABASE_STORAGE).build();
+        when(itemRepository.findBySubscriptionIdAndItemType(secondSubscriptionId,
+            SubscriptionItemType.CLUSTER_PIPELINE_RUNTIME)).thenReturn(Optional.of(secondRuntimeItem));
+        when(itemRepository.findBySubscriptionIdAndItemType(secondSubscriptionId,
+            SubscriptionItemType.ATLAS_DATABASE_STORAGE)).thenReturn(Optional.of(secondStorageItem));
+
+        Cluster secondCluster = Cluster.builder().build();
+        secondCluster.setId(secondClusterId);
+        when(clusterService.createCluster(anyString(), eq(secondSubscriptionId), anyString(),
+            anyString(), anyString(), anyString())).thenReturn(secondCluster);
+        when(mdbAllocationService.allocateMdb(anyString(), eq(secondClusterId.toHexString()),
+            anyString(), eq(secondSubscriptionId.toHexString())))
+            .thenReturn(MdbAllocation.builder().id(secondAllocationId).build());
+
+        // First subscription.
+        subscriptionService.createSubscription(orgId.toHexString(), "ap-southeast-1",
+            "qa-cluster-a", "basic", "leon.li@tapdata.io");
+        // Second subscription — different cluster name, independent shell + items.
+        subscriptionService.createSubscription(orgId.toHexString(), "ap-southeast-1",
+            "qa-cluster-b", "basic", "leon.li@tapdata.io");
+
+        // First subscription's items keep pointing at the first resource pair.
+        assertThat(runtimeItem.getClusterId()).isEqualTo(clusterId);
+        assertThat(storageItem.getMdbAllocationId()).isEqualTo(allocationId);
+        // Second subscription's items point at the second pair, never at the first.
+        assertThat(secondRuntimeItem.getClusterId()).isEqualTo(secondClusterId);
+        assertThat(secondStorageItem.getMdbAllocationId()).isEqualTo(secondAllocationId);
+        assertThat(secondRuntimeItem.getClusterId()).isNotEqualTo(clusterId);
+
+        // The second cluster is created against the second subscription, and the
+        // first subscription's items are never written again.
+        verify(clusterService).createCluster(orgId.toHexString(), secondSubscriptionId,
+            "ap-southeast-1", "qa-cluster-b", "basic", "leon.li@tapdata.io");
+        verify(itemRepository, org.mockito.Mockito.times(1)).save(runtimeItem);
+        verify(itemRepository, org.mockito.Mockito.times(1)).save(storageItem);
+        verify(itemRepository).save(secondRuntimeItem);
+        verify(itemRepository).save(secondStorageItem);
+        verify(itemRepository, never()).save(org.mockito.ArgumentMatchers.argThat(
+            i -> i != null && subscriptionId.equals(i.getSubscriptionId())
+                && secondClusterId.equals(i.getClusterId())));
     }
 }

@@ -9,6 +9,7 @@ import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.mongodb.core.index.CompoundIndex;
+import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.Instant;
@@ -37,6 +38,10 @@ public class Cluster {
 
     @Schema(description = "Organization this Cluster belongs to (isolation boundary)", example = "6475a2b3c1d4e5f6a7b8c9d0")
     private ObjectId orgId;
+
+    @Indexed
+    @Schema(description = "Subscription that owns this Cluster — exactly one Cluster per Subscription")
+    private ObjectId subscriptionId;
 
     @Schema(description = "AWS Region", example = "ap-southeast-1")
     private String region;
