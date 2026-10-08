@@ -55,7 +55,8 @@ public class OrganizationController extends BaseController {
     @Operation(
         summary = "Create new organization (user becomes owner automatically)",
         description = "Creates a new Organization and adds the caller as its first member with owner role. " +
-                      "A default TRIAL subscription is automatically created for the new Org. " +
+                      "The Organization starts with no subscriptions — create them explicitly via " +
+                      "POST /v1/api/orgs/{orgId}/subscriptions. " +
                       "Organization slug must be unique system-wide (lowercase, hyphenated)."
     )
     @ApiResponses(value = {

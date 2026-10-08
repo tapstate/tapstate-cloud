@@ -38,9 +38,13 @@ import java.util.StringJoiner;
   SubscriptionResponse.JSON_PROPERTY_ID,
   SubscriptionResponse.JSON_PROPERTY_ORG_ID,
   SubscriptionResponse.JSON_PROPERTY_STATUS,
+  SubscriptionResponse.JSON_PROPERTY_RESOURCE_STATE,
+  SubscriptionResponse.JSON_PROPERTY_RESOURCES_READY_AT,
   SubscriptionResponse.JSON_PROPERTY_CURRENT_PERIOD_START,
   SubscriptionResponse.JSON_PROPERTY_CURRENT_PERIOD_END,
   SubscriptionResponse.JSON_PROPERTY_PROVISIONING_ALLOWED,
+  SubscriptionResponse.JSON_PROPERTY_CLUSTER_ID,
+  SubscriptionResponse.JSON_PROPERTY_MDB_ALLOCATION_ID,
   SubscriptionResponse.JSON_PROPERTY_CREATED_AT,
   SubscriptionResponse.JSON_PROPERTY_UPDATED_AT,
   SubscriptionResponse.JSON_PROPERTY_ITEMS
@@ -59,6 +63,14 @@ public class SubscriptionResponse {
   @jakarta.annotation.Nullable
   private String status;
 
+  public static final String JSON_PROPERTY_RESOURCE_STATE = "resourceState";
+  @jakarta.annotation.Nullable
+  private String resourceState;
+
+  public static final String JSON_PROPERTY_RESOURCES_READY_AT = "resourcesReadyAt";
+  @jakarta.annotation.Nullable
+  private Date resourcesReadyAt;
+
   public static final String JSON_PROPERTY_CURRENT_PERIOD_START = "currentPeriodStart";
   @jakarta.annotation.Nullable
   private Date currentPeriodStart;
@@ -70,6 +82,14 @@ public class SubscriptionResponse {
   public static final String JSON_PROPERTY_PROVISIONING_ALLOWED = "provisioningAllowed";
   @jakarta.annotation.Nullable
   private Boolean provisioningAllowed;
+
+  public static final String JSON_PROPERTY_CLUSTER_ID = "clusterId";
+  @jakarta.annotation.Nullable
+  private String clusterId;
+
+  public static final String JSON_PROPERTY_MDB_ALLOCATION_ID = "mdbAllocationId";
+  @jakarta.annotation.Nullable
+  private String mdbAllocationId;
 
   public static final String JSON_PROPERTY_CREATED_AT = "createdAt";
   @jakarta.annotation.Nullable
@@ -161,6 +181,56 @@ public class SubscriptionResponse {
     this.status = status;
   }
 
+  public SubscriptionResponse resourceState(@jakarta.annotation.Nullable String resourceState) {
+    
+    this.resourceState = resourceState;
+    return this;
+  }
+
+  /**
+   * Cloud resource state: PROVISIONING / READY (null until resources are provisioned)
+   * @return resourceState
+   */
+  @jakarta.annotation.Nullable
+  @JsonProperty(value = JSON_PROPERTY_RESOURCE_STATE, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+
+  public String getResourceState() {
+    return resourceState;
+  }
+
+
+  @JsonProperty(value = JSON_PROPERTY_RESOURCE_STATE, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+  public void setResourceState(@jakarta.annotation.Nullable String resourceState) {
+    this.resourceState = resourceState;
+  }
+
+  public SubscriptionResponse resourcesReadyAt(@jakarta.annotation.Nullable Date resourcesReadyAt) {
+    
+    this.resourcesReadyAt = resourcesReadyAt;
+    return this;
+  }
+
+  /**
+   * When the Cluster and MdbAllocation first became READY (ISO-8601 UTC)
+   * @return resourcesReadyAt
+   */
+  @jakarta.annotation.Nullable
+  @JsonProperty(value = JSON_PROPERTY_RESOURCES_READY_AT, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+
+  public Date getResourcesReadyAt() {
+    return resourcesReadyAt;
+  }
+
+
+  @JsonProperty(value = JSON_PROPERTY_RESOURCES_READY_AT, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+  public void setResourcesReadyAt(@jakarta.annotation.Nullable Date resourcesReadyAt) {
+    this.resourcesReadyAt = resourcesReadyAt;
+  }
+
   public SubscriptionResponse currentPeriodStart(@jakarta.annotation.Nullable Date currentPeriodStart) {
     
     this.currentPeriodStart = currentPeriodStart;
@@ -218,7 +288,7 @@ public class SubscriptionResponse {
   }
 
   /**
-   * Whether provisioning new Clusters is allowed (TRIAL / ACTIVE &#x3D; true)
+   * Whether provisioning new resources is allowed (TRIAL / ACTIVE &#x3D; true)
    * @return provisioningAllowed
    */
   @jakarta.annotation.Nullable
@@ -234,6 +304,56 @@ public class SubscriptionResponse {
   @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
   public void setProvisioningAllowed(@jakarta.annotation.Nullable Boolean provisioningAllowed) {
     this.provisioningAllowed = provisioningAllowed;
+  }
+
+  public SubscriptionResponse clusterId(@jakarta.annotation.Nullable String clusterId) {
+    
+    this.clusterId = clusterId;
+    return this;
+  }
+
+  /**
+   * The subscription&#39;s Cluster UUID
+   * @return clusterId
+   */
+  @jakarta.annotation.Nullable
+  @JsonProperty(value = JSON_PROPERTY_CLUSTER_ID, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+
+  public String getClusterId() {
+    return clusterId;
+  }
+
+
+  @JsonProperty(value = JSON_PROPERTY_CLUSTER_ID, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+  public void setClusterId(@jakarta.annotation.Nullable String clusterId) {
+    this.clusterId = clusterId;
+  }
+
+  public SubscriptionResponse mdbAllocationId(@jakarta.annotation.Nullable String mdbAllocationId) {
+    
+    this.mdbAllocationId = mdbAllocationId;
+    return this;
+  }
+
+  /**
+   * The subscription&#39;s Atlas MdbAllocation UUID
+   * @return mdbAllocationId
+   */
+  @jakarta.annotation.Nullable
+  @JsonProperty(value = JSON_PROPERTY_MDB_ALLOCATION_ID, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+
+  public String getMdbAllocationId() {
+    return mdbAllocationId;
+  }
+
+
+  @JsonProperty(value = JSON_PROPERTY_MDB_ALLOCATION_ID, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+  public void setMdbAllocationId(@jakarta.annotation.Nullable String mdbAllocationId) {
+    this.mdbAllocationId = mdbAllocationId;
   }
 
   public SubscriptionResponse createdAt(@jakarta.annotation.Nullable Date createdAt) {
@@ -332,9 +452,13 @@ public class SubscriptionResponse {
     return Objects.equals(this.id, subscriptionResponse.id) &&
         Objects.equals(this.orgId, subscriptionResponse.orgId) &&
         Objects.equals(this.status, subscriptionResponse.status) &&
+        Objects.equals(this.resourceState, subscriptionResponse.resourceState) &&
+        Objects.equals(this.resourcesReadyAt, subscriptionResponse.resourcesReadyAt) &&
         Objects.equals(this.currentPeriodStart, subscriptionResponse.currentPeriodStart) &&
         Objects.equals(this.currentPeriodEnd, subscriptionResponse.currentPeriodEnd) &&
         Objects.equals(this.provisioningAllowed, subscriptionResponse.provisioningAllowed) &&
+        Objects.equals(this.clusterId, subscriptionResponse.clusterId) &&
+        Objects.equals(this.mdbAllocationId, subscriptionResponse.mdbAllocationId) &&
         Objects.equals(this.createdAt, subscriptionResponse.createdAt) &&
         Objects.equals(this.updatedAt, subscriptionResponse.updatedAt) &&
         Objects.equals(this.items, subscriptionResponse.items);
@@ -342,7 +466,7 @@ public class SubscriptionResponse {
 
   @Override
   public int hashCode() {
-    return Objects.hash(id, orgId, status, currentPeriodStart, currentPeriodEnd, provisioningAllowed, createdAt, updatedAt, items);
+    return Objects.hash(id, orgId, status, resourceState, resourcesReadyAt, currentPeriodStart, currentPeriodEnd, provisioningAllowed, clusterId, mdbAllocationId, createdAt, updatedAt, items);
   }
 
   @Override
@@ -352,9 +476,13 @@ public class SubscriptionResponse {
     sb.append("    id: ").append(toIndentedString(id)).append("\n");
     sb.append("    orgId: ").append(toIndentedString(orgId)).append("\n");
     sb.append("    status: ").append(toIndentedString(status)).append("\n");
+    sb.append("    resourceState: ").append(toIndentedString(resourceState)).append("\n");
+    sb.append("    resourcesReadyAt: ").append(toIndentedString(resourcesReadyAt)).append("\n");
     sb.append("    currentPeriodStart: ").append(toIndentedString(currentPeriodStart)).append("\n");
     sb.append("    currentPeriodEnd: ").append(toIndentedString(currentPeriodEnd)).append("\n");
     sb.append("    provisioningAllowed: ").append(toIndentedString(provisioningAllowed)).append("\n");
+    sb.append("    clusterId: ").append(toIndentedString(clusterId)).append("\n");
+    sb.append("    mdbAllocationId: ").append(toIndentedString(mdbAllocationId)).append("\n");
     sb.append("    createdAt: ").append(toIndentedString(createdAt)).append("\n");
     sb.append("    updatedAt: ").append(toIndentedString(updatedAt)).append("\n");
     sb.append("    items: ").append(toIndentedString(items)).append("\n");
@@ -432,6 +560,26 @@ public class SubscriptionResponse {
       }
     }
 
+    // add `resourceState` to the URL query string
+    if (getResourceState() != null) {
+      try {
+        joiner.add(String.format(java.util.Locale.ROOT, "%sresourceState%s=%s", prefix, suffix, URLEncoder.encode(String.valueOf(getResourceState()), "UTF-8").replaceAll("\\+", "%20")));
+      } catch (UnsupportedEncodingException e) {
+        // Should never happen, UTF-8 is always supported
+        throw new RuntimeException(e);
+      }
+    }
+
+    // add `resourcesReadyAt` to the URL query string
+    if (getResourcesReadyAt() != null) {
+      try {
+        joiner.add(String.format(java.util.Locale.ROOT, "%sresourcesReadyAt%s=%s", prefix, suffix, URLEncoder.encode(String.valueOf(getResourcesReadyAt()), "UTF-8").replaceAll("\\+", "%20")));
+      } catch (UnsupportedEncodingException e) {
+        // Should never happen, UTF-8 is always supported
+        throw new RuntimeException(e);
+      }
+    }
+
     // add `currentPeriodStart` to the URL query string
     if (getCurrentPeriodStart() != null) {
       try {
@@ -456,6 +604,26 @@ public class SubscriptionResponse {
     if (isProvisioningAllowed() != null) {
       try {
         joiner.add(String.format(java.util.Locale.ROOT, "%sprovisioningAllowed%s=%s", prefix, suffix, URLEncoder.encode(String.valueOf(isProvisioningAllowed()), "UTF-8").replaceAll("\\+", "%20")));
+      } catch (UnsupportedEncodingException e) {
+        // Should never happen, UTF-8 is always supported
+        throw new RuntimeException(e);
+      }
+    }
+
+    // add `clusterId` to the URL query string
+    if (getClusterId() != null) {
+      try {
+        joiner.add(String.format(java.util.Locale.ROOT, "%sclusterId%s=%s", prefix, suffix, URLEncoder.encode(String.valueOf(getClusterId()), "UTF-8").replaceAll("\\+", "%20")));
+      } catch (UnsupportedEncodingException e) {
+        // Should never happen, UTF-8 is always supported
+        throw new RuntimeException(e);
+      }
+    }
+
+    // add `mdbAllocationId` to the URL query string
+    if (getMdbAllocationId() != null) {
+      try {
+        joiner.add(String.format(java.util.Locale.ROOT, "%smdbAllocationId%s=%s", prefix, suffix, URLEncoder.encode(String.valueOf(getMdbAllocationId()), "UTF-8").replaceAll("\\+", "%20")));
       } catch (UnsupportedEncodingException e) {
         // Should never happen, UTF-8 is always supported
         throw new RuntimeException(e);

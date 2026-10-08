@@ -21,9 +21,9 @@ import java.util.List;
  * Cluster read-only + retry endpoints.
  * <p>
  * Cluster creation and cancellation are NOT exposed here — they are managed
- * through the Subscription lifecycle (POST /subscription creates Cluster +
- * MDB allocation; POST /subscription/cancel cascades termination of all
- * org Clusters and MDB allocations).
+ * through the Subscription lifecycle (POST /subscriptions creates the
+ * subscription's Cluster + MDB allocation; POST
+ * /subscriptions/{subscriptionId}/cancel cascades their termination).
  * <p>
  * This controller exposes list, get-by-id, and retry-provisioning_failed.
  * Access requires Cloud Console session (ADR-0122 D2).

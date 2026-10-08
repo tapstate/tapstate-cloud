@@ -75,6 +75,7 @@ class AwsAtlasFullLifecycleIT extends BaseIT {
 
     private final ObjectMapper mapper = new ObjectMapper();
     private String orgId;
+    private String subscriptionId;
     private String clusterName;
     private String clusterId;
     private String domain;
@@ -156,10 +157,11 @@ class AwsAtlasFullLifecycleIT extends BaseIT {
             "slug", "aws-atlas-" + System.nanoTime())).getData().getId();
 
         clusterName = "aws-atlas-" + Long.toHexString(System.nanoTime());
-        subscriptionApi.createSubscription(orgId, new CreateSubscriptionRequest()
-            .region(REGION).clusterName(clusterName).specKey("basic"));
+        var created = subscriptionApi.createSubscription(orgId, new CreateSubscriptionRequest()
+            .region(REGION).clusterName(clusterName).specKey("basic")).getData();
+        subscriptionId = created.getId();
 
-        clusterId = findClusterIdByName(clusterName);
+        clusterId = created.getClusterId();
         assertNotNull(clusterId, "Cluster record must exist after subscription");
         domain = clusterId + ".dev.cloud.tapstate.com";
     }
@@ -206,7 +208,7 @@ class AwsAtlasFullLifecycleIT extends BaseIT {
             "allocation dbUser must authenticate against Atlas with the runtime URI");
 
         // ---------- 4. Cancel cascades to AWS and Atlas ----------
-        subscriptionApi.cancelSubscription(orgId);
+        subscriptionApi.cancelSubscription(orgId, subscriptionId);
         waitForClusterState(orgId, clusterId, "TERMINATED",
             TERMINATED_ATTEMPTS, TERMINATED_POLL_MS);
         assertEquals("DELETED", waitForAllocationState("DELETED").path("status").asText());
@@ -226,7 +228,7 @@ class AwsAtlasFullLifecycleIT extends BaseIT {
     @org.junit.jupiter.api.AfterEach
     void emergencyCleanup() {
         try {
-            subscriptionApi.cancelSubscription(orgId);
+            subscriptionApi.cancelSubscription(orgId, subscriptionId);
         } catch (Exception ignored) {
             // Subscription may already be cancelled.
         }
@@ -538,20 +540,5 @@ class AwsAtlasFullLifecycleIT extends BaseIT {
             Thread.sleep(10_000);
         }
         return false;
-    }
-
-    private String findClusterIdByName(String name) throws Exception {
-        HttpResponse<String> resp = get("/v1/api/orgs/" + orgId + "/clusters",
-            Map.of("Cookie", "TAPSTATE_CLOUD_SESSION=" + sessionCookieValue));
-        JsonNode clusters = mapper.readTree(resp.body()).path("data");
-        if (!clusters.isArray()) {
-            return null;
-        }
-        for (JsonNode cluster : clusters) {
-            if (name.equals(cluster.path("name").asText())) {
-                return cluster.path("id").asText();
-            }
-        }
-        return null;
     }
 }

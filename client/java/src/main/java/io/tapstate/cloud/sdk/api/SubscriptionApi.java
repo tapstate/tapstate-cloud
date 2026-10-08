@@ -20,6 +20,7 @@ import io.tapstate.cloud.sdk.BaseApi;
 import io.tapstate.cloud.sdk.Configuration;
 import io.tapstate.cloud.sdk.Pair;
 
+import io.tapstate.cloud.sdk.model.ApiResponseListSubscriptionResponse;
 import io.tapstate.cloud.sdk.model.ApiResponseSubscriptionResponse;
 import io.tapstate.cloud.sdk.model.CreateSubscriptionRequest;
 
@@ -43,26 +44,28 @@ public class SubscriptionApi extends BaseApi {
   }
 
   /**
-   * Cancel subscription — auto-terminate all org clusters + reclaim MDB
-   * Cancels this Organization&#39;s subscription (state → CANCELLED) and triggers cascade termination of every non-terminated Cluster + MDB allocation owned by this org.  Cascade runs asynchronously via Cluster state-machine INITIATE_TERMINATION events and MDB state-machine INITIATE_RECLAIM events. This endpoint returns immediately.  Safe to call on an already-cancelled subscription (idempotent).
+   * Cancel one subscription — terminate its Cluster + reclaim its MDB
+   * Cancels this subscription (state → CANCELLED) and triggers cascade termination of its Cluster and reclaim of its MdbAllocation.  Other subscriptions of the same Organization are unaffected.  Cascade runs asynchronously via the Cluster state-machine INITIATE_TERMINATION event and MDB state-machine INITIATE_RECLAIM event. This endpoint returns immediately.  Safe to call on an already-cancelled subscription (idempotent).
    * @param orgId Organization UUID (required)
+   * @param subscriptionId Subscription UUID (required)
    * @return ApiResponseSubscriptionResponse
    * @throws ApiException if fails to make API call
    */
-  public ApiResponseSubscriptionResponse cancelSubscription(@jakarta.annotation.Nonnull String orgId) throws ApiException {
-    return this.cancelSubscription(orgId, Collections.emptyMap());
+  public ApiResponseSubscriptionResponse cancelSubscription(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull String subscriptionId) throws ApiException {
+    return this.cancelSubscription(orgId, subscriptionId, Collections.emptyMap());
   }
 
 
   /**
-   * Cancel subscription — auto-terminate all org clusters + reclaim MDB
-   * Cancels this Organization&#39;s subscription (state → CANCELLED) and triggers cascade termination of every non-terminated Cluster + MDB allocation owned by this org.  Cascade runs asynchronously via Cluster state-machine INITIATE_TERMINATION events and MDB state-machine INITIATE_RECLAIM events. This endpoint returns immediately.  Safe to call on an already-cancelled subscription (idempotent).
+   * Cancel one subscription — terminate its Cluster + reclaim its MDB
+   * Cancels this subscription (state → CANCELLED) and triggers cascade termination of its Cluster and reclaim of its MdbAllocation.  Other subscriptions of the same Organization are unaffected.  Cascade runs asynchronously via the Cluster state-machine INITIATE_TERMINATION event and MDB state-machine INITIATE_RECLAIM event. This endpoint returns immediately.  Safe to call on an already-cancelled subscription (idempotent).
    * @param orgId Organization UUID (required)
+   * @param subscriptionId Subscription UUID (required)
    * @param additionalHeaders additionalHeaders for this call
    * @return ApiResponseSubscriptionResponse
    * @throws ApiException if fails to make API call
    */
-  public ApiResponseSubscriptionResponse cancelSubscription(@jakarta.annotation.Nonnull String orgId, Map<String, String> additionalHeaders) throws ApiException {
+  public ApiResponseSubscriptionResponse cancelSubscription(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull String subscriptionId, Map<String, String> additionalHeaders) throws ApiException {
     Object localVarPostBody = null;
     
     // verify the required parameter 'orgId' is set
@@ -70,9 +73,15 @@ public class SubscriptionApi extends BaseApi {
       throw new ApiException(400, "Missing the required parameter 'orgId' when calling cancelSubscription");
     }
     
+    // verify the required parameter 'subscriptionId' is set
+    if (subscriptionId == null) {
+      throw new ApiException(400, "Missing the required parameter 'subscriptionId' when calling cancelSubscription");
+    }
+    
     // create path and map variables
-    String localVarPath = "/v1/api/orgs/{orgId}/subscription/cancel"
-      .replaceAll("\\{" + "orgId" + "\\}", apiClient.escapeString(apiClient.parameterToString(orgId)));
+    String localVarPath = "/v1/api/orgs/{orgId}/subscriptions/{subscriptionId}/cancel"
+      .replaceAll("\\{" + "orgId" + "\\}", apiClient.escapeString(apiClient.parameterToString(orgId)))
+      .replaceAll("\\{" + "subscriptionId" + "\\}", apiClient.escapeString(apiClient.parameterToString(subscriptionId)));
 
     StringJoiner localVarQueryStringJoiner = new StringJoiner("&");
     String localVarQueryParameterBaseName;
@@ -118,8 +127,8 @@ public class SubscriptionApi extends BaseApi {
   }
 
   /**
-   * Create subscription with initial Cluster + MDB allocation
-   * Creates a new subscription (TRIAL, 30-day period) with the two default billable items, then synchronously provisions an initial Cluster record and Atlas MDB allocation.  Async provisioning (fired by state machines):   - Cluster state machine: START_PROVISION → CloudFormation simulation → READY/PROVISIONING_FAILED   - MDB state machine: START_PROVISION → Atlas createDatabase + createDatabaseUser → READY/PROVISIONING_FAILED  Both flows run in parallel. Poll GET /subscription to track overall progress.  Idempotency: if the org already has a subscription shell, reuses it and adds one Cluster.
+   * Create a subscription with one Cluster + one MDB allocation
+   * Creates a new subscription (TRIAL, 30-day period) with the two default billable items, then synchronously provisions its Cluster record and Atlas MDB allocation.  Async provisioning (fired by state machines):   - Cluster state machine: START_PROVISION → CloudFormation simulation → READY/PROVISIONING_FAILED   - MDB state machine: START_PROVISION → Atlas createDatabase + createDatabaseUser → READY/PROVISIONING_FAILED  Both flows run in parallel. Poll GET /subscriptions/{subscriptionId} to track progress.  An Organization may own many subscriptions; cluster names stay unique within org + region.
    * @param orgId Organization UUID (required)
    * @param createSubscriptionRequest  (required)
    * @return ApiResponseSubscriptionResponse
@@ -131,8 +140,8 @@ public class SubscriptionApi extends BaseApi {
 
 
   /**
-   * Create subscription with initial Cluster + MDB allocation
-   * Creates a new subscription (TRIAL, 30-day period) with the two default billable items, then synchronously provisions an initial Cluster record and Atlas MDB allocation.  Async provisioning (fired by state machines):   - Cluster state machine: START_PROVISION → CloudFormation simulation → READY/PROVISIONING_FAILED   - MDB state machine: START_PROVISION → Atlas createDatabase + createDatabaseUser → READY/PROVISIONING_FAILED  Both flows run in parallel. Poll GET /subscription to track overall progress.  Idempotency: if the org already has a subscription shell, reuses it and adds one Cluster.
+   * Create a subscription with one Cluster + one MDB allocation
+   * Creates a new subscription (TRIAL, 30-day period) with the two default billable items, then synchronously provisions its Cluster record and Atlas MDB allocation.  Async provisioning (fired by state machines):   - Cluster state machine: START_PROVISION → CloudFormation simulation → READY/PROVISIONING_FAILED   - MDB state machine: START_PROVISION → Atlas createDatabase + createDatabaseUser → READY/PROVISIONING_FAILED  Both flows run in parallel. Poll GET /subscriptions/{subscriptionId} to track progress.  An Organization may own many subscriptions; cluster names stay unique within org + region.
    * @param orgId Organization UUID (required)
    * @param createSubscriptionRequest  (required)
    * @param additionalHeaders additionalHeaders for this call
@@ -153,7 +162,7 @@ public class SubscriptionApi extends BaseApi {
     }
     
     // create path and map variables
-    String localVarPath = "/v1/api/orgs/{orgId}/subscription"
+    String localVarPath = "/v1/api/orgs/{orgId}/subscriptions"
       .replaceAll("\\{" + "orgId" + "\\}", apiClient.escapeString(apiClient.parameterToString(orgId)));
 
     StringJoiner localVarQueryStringJoiner = new StringJoiner("&");
@@ -200,26 +209,28 @@ public class SubscriptionApi extends BaseApi {
   }
 
   /**
-   * View organization subscription
-   * Returns the Organization&#39;s current subscription status, billing period, and item breakdown.  Subscription states: TRIAL (free trial) / ACTIVE (paid) / PAST_DUE (grace period) / CANCELLED (terminated).  Poll this endpoint to track async Cluster + MDB provisioning progress.
+   * Get one subscription
+   * Returns the subscription&#39;s status, billing period, provisioned resources and item breakdown.  Subscription states: TRIAL (free trial) / ACTIVE (paid) / PAST_DUE (grace period) / CANCELLED (terminated).  Poll this endpoint to track async Cluster + MDB provisioning progress.
    * @param orgId Organization UUID (required)
+   * @param subscriptionId Subscription UUID (required)
    * @return ApiResponseSubscriptionResponse
    * @throws ApiException if fails to make API call
    */
-  public ApiResponseSubscriptionResponse getSubscription(@jakarta.annotation.Nonnull String orgId) throws ApiException {
-    return this.getSubscription(orgId, Collections.emptyMap());
+  public ApiResponseSubscriptionResponse getSubscription(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull String subscriptionId) throws ApiException {
+    return this.getSubscription(orgId, subscriptionId, Collections.emptyMap());
   }
 
 
   /**
-   * View organization subscription
-   * Returns the Organization&#39;s current subscription status, billing period, and item breakdown.  Subscription states: TRIAL (free trial) / ACTIVE (paid) / PAST_DUE (grace period) / CANCELLED (terminated).  Poll this endpoint to track async Cluster + MDB provisioning progress.
+   * Get one subscription
+   * Returns the subscription&#39;s status, billing period, provisioned resources and item breakdown.  Subscription states: TRIAL (free trial) / ACTIVE (paid) / PAST_DUE (grace period) / CANCELLED (terminated).  Poll this endpoint to track async Cluster + MDB provisioning progress.
    * @param orgId Organization UUID (required)
+   * @param subscriptionId Subscription UUID (required)
    * @param additionalHeaders additionalHeaders for this call
    * @return ApiResponseSubscriptionResponse
    * @throws ApiException if fails to make API call
    */
-  public ApiResponseSubscriptionResponse getSubscription(@jakarta.annotation.Nonnull String orgId, Map<String, String> additionalHeaders) throws ApiException {
+  public ApiResponseSubscriptionResponse getSubscription(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull String subscriptionId, Map<String, String> additionalHeaders) throws ApiException {
     Object localVarPostBody = null;
     
     // verify the required parameter 'orgId' is set
@@ -227,9 +238,15 @@ public class SubscriptionApi extends BaseApi {
       throw new ApiException(400, "Missing the required parameter 'orgId' when calling getSubscription");
     }
     
+    // verify the required parameter 'subscriptionId' is set
+    if (subscriptionId == null) {
+      throw new ApiException(400, "Missing the required parameter 'subscriptionId' when calling getSubscription");
+    }
+    
     // create path and map variables
-    String localVarPath = "/v1/api/orgs/{orgId}/subscription"
-      .replaceAll("\\{" + "orgId" + "\\}", apiClient.escapeString(apiClient.parameterToString(orgId)));
+    String localVarPath = "/v1/api/orgs/{orgId}/subscriptions/{subscriptionId}"
+      .replaceAll("\\{" + "orgId" + "\\}", apiClient.escapeString(apiClient.parameterToString(orgId)))
+      .replaceAll("\\{" + "subscriptionId" + "\\}", apiClient.escapeString(apiClient.parameterToString(subscriptionId)));
 
     StringJoiner localVarQueryStringJoiner = new StringJoiner("&");
     String localVarQueryParameterBaseName;
@@ -275,15 +292,91 @@ public class SubscriptionApi extends BaseApi {
   }
 
   /**
+   * List organization subscriptions
+   * Returns every Subscription owned by the Organization, newest first.  The list may be empty — creating an Organization no longer creates a subscription.
+   * @param orgId Organization UUID (required)
+   * @return ApiResponseListSubscriptionResponse
+   * @throws ApiException if fails to make API call
+   */
+  public ApiResponseListSubscriptionResponse listSubscriptions(@jakarta.annotation.Nonnull String orgId) throws ApiException {
+    return this.listSubscriptions(orgId, Collections.emptyMap());
+  }
+
+
+  /**
+   * List organization subscriptions
+   * Returns every Subscription owned by the Organization, newest first.  The list may be empty — creating an Organization no longer creates a subscription.
+   * @param orgId Organization UUID (required)
+   * @param additionalHeaders additionalHeaders for this call
+   * @return ApiResponseListSubscriptionResponse
+   * @throws ApiException if fails to make API call
+   */
+  public ApiResponseListSubscriptionResponse listSubscriptions(@jakarta.annotation.Nonnull String orgId, Map<String, String> additionalHeaders) throws ApiException {
+    Object localVarPostBody = null;
+    
+    // verify the required parameter 'orgId' is set
+    if (orgId == null) {
+      throw new ApiException(400, "Missing the required parameter 'orgId' when calling listSubscriptions");
+    }
+    
+    // create path and map variables
+    String localVarPath = "/v1/api/orgs/{orgId}/subscriptions"
+      .replaceAll("\\{" + "orgId" + "\\}", apiClient.escapeString(apiClient.parameterToString(orgId)));
+
+    StringJoiner localVarQueryStringJoiner = new StringJoiner("&");
+    String localVarQueryParameterBaseName;
+    List<Pair> localVarQueryParams = new ArrayList<Pair>();
+    List<Pair> localVarCollectionQueryParams = new ArrayList<Pair>();
+    Map<String, String> localVarHeaderParams = new HashMap<String, String>();
+    Map<String, String> localVarCookieParams = new HashMap<String, String>();
+    Map<String, Object> localVarFormParams = new HashMap<String, Object>();
+
+    
+    localVarHeaderParams.putAll(additionalHeaders);
+
+    
+    
+    final String[] localVarAccepts = {
+      "*/*"
+    };
+    final String localVarAccept = apiClient.selectHeaderAccept(localVarAccepts);
+
+    final String[] localVarContentTypes = {
+      
+    };
+    final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
+
+    String[] localVarAuthNames = new String[] { "session-cookie" };
+
+    TypeReference<ApiResponseListSubscriptionResponse> localVarReturnType = new TypeReference<ApiResponseListSubscriptionResponse>() {};
+    return apiClient.invokeAPI(
+        localVarPath,
+        "GET",
+        localVarQueryParams,
+        localVarCollectionQueryParams,
+        localVarQueryStringJoiner.toString(),
+        localVarPostBody,
+        localVarHeaderParams,
+        localVarCookieParams,
+        localVarFormParams,
+        localVarAccept,
+        localVarContentType,
+        localVarAuthNames,
+        localVarReturnType
+    );
+  }
+
+  /**
    * Update subscription status (admin/internal)
    * Internal admin endpoint for subscription state transition.  Used in Week 2 to simulate PAST_DUE / CANCELLED states for testing. Production version (Week 12) will be driven by Marketplace billing callbacks.  Accepted status values: TRIAL / ACTIVE / PAST_DUE / CANCELLED.
    * @param orgId Organization UUID (required)
+   * @param subscriptionId Subscription UUID (required)
    * @param requestBody  (required)
    * @return ApiResponseSubscriptionResponse
    * @throws ApiException if fails to make API call
    */
-  public ApiResponseSubscriptionResponse transitionStatus(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull Map<String, String> requestBody) throws ApiException {
-    return this.transitionStatus(orgId, requestBody, Collections.emptyMap());
+  public ApiResponseSubscriptionResponse transitionStatus(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull String subscriptionId, @jakarta.annotation.Nonnull Map<String, String> requestBody) throws ApiException {
+    return this.transitionStatus(orgId, subscriptionId, requestBody, Collections.emptyMap());
   }
 
 
@@ -291,17 +384,23 @@ public class SubscriptionApi extends BaseApi {
    * Update subscription status (admin/internal)
    * Internal admin endpoint for subscription state transition.  Used in Week 2 to simulate PAST_DUE / CANCELLED states for testing. Production version (Week 12) will be driven by Marketplace billing callbacks.  Accepted status values: TRIAL / ACTIVE / PAST_DUE / CANCELLED.
    * @param orgId Organization UUID (required)
+   * @param subscriptionId Subscription UUID (required)
    * @param requestBody  (required)
    * @param additionalHeaders additionalHeaders for this call
    * @return ApiResponseSubscriptionResponse
    * @throws ApiException if fails to make API call
    */
-  public ApiResponseSubscriptionResponse transitionStatus(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull Map<String, String> requestBody, Map<String, String> additionalHeaders) throws ApiException {
+  public ApiResponseSubscriptionResponse transitionStatus(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull String subscriptionId, @jakarta.annotation.Nonnull Map<String, String> requestBody, Map<String, String> additionalHeaders) throws ApiException {
     Object localVarPostBody = requestBody;
     
     // verify the required parameter 'orgId' is set
     if (orgId == null) {
       throw new ApiException(400, "Missing the required parameter 'orgId' when calling transitionStatus");
+    }
+    
+    // verify the required parameter 'subscriptionId' is set
+    if (subscriptionId == null) {
+      throw new ApiException(400, "Missing the required parameter 'subscriptionId' when calling transitionStatus");
     }
     
     // verify the required parameter 'requestBody' is set
@@ -310,8 +409,9 @@ public class SubscriptionApi extends BaseApi {
     }
     
     // create path and map variables
-    String localVarPath = "/v1/api/orgs/{orgId}/subscription/status"
-      .replaceAll("\\{" + "orgId" + "\\}", apiClient.escapeString(apiClient.parameterToString(orgId)));
+    String localVarPath = "/v1/api/orgs/{orgId}/subscriptions/{subscriptionId}/status"
+      .replaceAll("\\{" + "orgId" + "\\}", apiClient.escapeString(apiClient.parameterToString(orgId)))
+      .replaceAll("\\{" + "subscriptionId" + "\\}", apiClient.escapeString(apiClient.parameterToString(subscriptionId)));
 
     StringJoiner localVarQueryStringJoiner = new StringJoiner("&");
     String localVarQueryParameterBaseName;

@@ -63,9 +63,9 @@ class SubscriptionClusterLifecycleIT extends BaseIT {
         return mongoJson("print(JSON.stringify(db.users.findOne({email: '" + email + "'})))");
     }
 
-    private JsonNode rawSubscription() throws Exception {
-        return mongoJson("print(JSON.stringify(db.subscriptions.findOne({orgId: ObjectId('"
-            + orgId + "')})))");
+    private JsonNode rawSubscription(String subscriptionId) throws Exception {
+        return mongoJson("print(JSON.stringify(db.subscriptions.findOne({_id: ObjectId('"
+            + subscriptionId + "')})))");
     }
 
     private JsonNode rawCluster(String clusterId) throws Exception {
@@ -88,11 +88,11 @@ class SubscriptionClusterLifecycleIT extends BaseIT {
             + mdbClusterId + "')}); print(JSON.stringify(c ? c.currentAllocations : -1))").asInt();
     }
 
-    /** Raw GET /subscription — SDK model is only regenerated from a running app. */
-    private JsonNode subscriptionDto() throws Exception {
-        HttpResponse<String> resp = get("/v1/api/orgs/" + orgId + "/subscription",
+    /** Raw GET /subscriptions/{subscriptionId} — SDK model is only regenerated from a running app. */
+    private JsonNode subscriptionDto(String subscriptionId) throws Exception {
+        HttpResponse<String> resp = get("/v1/api/orgs/" + orgId + "/subscriptions/" + subscriptionId,
             Map.of("Cookie", "TAPSTATE_CLOUD_SESSION=" + sessionCookieValue));
-        assertEquals(200, resp.statusCode(), "GET /subscription failed: " + resp.body());
+        assertEquals(200, resp.statusCode(), "GET /subscriptions/{id} failed: " + resp.body());
         return mapper.readTree(resp.body()).path("data");
     }
 
@@ -137,26 +137,32 @@ class SubscriptionClusterLifecycleIT extends BaseIT {
         assertNotEquals("StrongPass123!", passwordHash,
             "plaintext password must never be persisted");
 
-        // ---------- 2. Before explicit subscription: TRIAL shell, no resources ----------
-        JsonNode shell = rawSubscription();
-        assertFalse(shell.isNull(), "Organization creation must persist a subscription shell");
-        assertEquals("TRIAL", shell.path("status").asText());
-        assertTrue(shell.path("resourceState").isMissingNode() || shell.path("resourceState").isNull(),
-            "subscription shell carries no resource state before an explicit subscribe");
+        // ---------- 2. Before explicit subscription: Organization owns nothing ----------
+        assertEquals(0,
+            mongoJson("print(JSON.stringify(db.subscriptions.countDocuments({orgId: ObjectId('"
+                + orgId + "')})))").asInt(),
+            "Organization creation must not create a subscription");
         assertEquals(0, clusterCount(), "No Cluster should exist before subscribing");
 
         // ---------- 3. User creates a subscription with a Cluster ----------
-        subscriptionApi.createSubscription(orgId,
+        io.tapstate.cloud.sdk.model.SubscriptionResponse created = subscriptionApi.createSubscription(orgId,
             new CreateSubscriptionRequest()
-                .region("ap-southeast-1").clusterName("Lifecycle-Cluster").specKey("basic"));
-        String clusterId = findClusterIdByName("Lifecycle-Cluster");
-        assertNotNull(clusterId, "Cluster must be visible right after subscription");
+                .region("ap-southeast-1").clusterName("Lifecycle-Cluster").specKey("basic"))
+            .getData();
+        String subscriptionId = created.getId();
+        String clusterId = created.getClusterId();
+        assertNotNull(clusterId, "create response must carry the provisioned Cluster id");
+        assertNotNull(created.getMdbAllocationId(),
+            "create response must carry the provisioned MdbAllocation id");
+        assertNotNull(findClusterIdByName("Lifecycle-Cluster"),
+            "Cluster must be visible right after subscription");
 
         // ---------- 3a. Raw Subscription document matches expectations ----------
-        JsonNode subscription = rawSubscription();
+        JsonNode subscription = rawSubscription(subscriptionId);
         assertEquals(1,
-            mongoJson("print(JSON.stringify(db.subscriptions.countDocuments({})))").asInt(),
-            "Exactly one subscription document");
+            mongoJson("print(JSON.stringify(db.subscriptions.countDocuments({orgId: ObjectId('"
+                + orgId + "')})))").asInt(),
+            "Exactly one subscription document for this Organization");
         assertEquals(orgId, subscription.path("orgId").asText());
         assertEquals("TRIAL", subscription.path("status").asText());
         // Both mock FSMs can finish within seconds, so by the time this raw
@@ -180,6 +186,8 @@ class SubscriptionClusterLifecycleIT extends BaseIT {
         // ---------- 3b. Raw Cluster document matches expectations ----------
         JsonNode cluster = rawCluster(clusterId);
         assertEquals(orgId, cluster.path("orgId").asText());
+        assertEquals(subscriptionId, cluster.path("subscriptionId").asText(),
+            "Cluster must be linked to its owning subscription");
         assertEquals("ap-southeast-1", cluster.path("region").asText());
         assertEquals("Lifecycle-Cluster", cluster.path("name").asText());
         assertEquals("basic", cluster.path("specKey").asText());
@@ -275,7 +283,7 @@ class SubscriptionClusterLifecycleIT extends BaseIT {
         // 4c. Subscription resources join to READY — only after BOTH are READY.
         JsonNode readySubscription = null;
         for (int i = 0; i < 30; i++) {
-            JsonNode current = rawSubscription();
+            JsonNode current = rawSubscription(subscriptionId);
             if ("READY".equals(current.path("resourceState").asText())) {
                 readySubscription = current;
                 break;
@@ -291,10 +299,10 @@ class SubscriptionClusterLifecycleIT extends BaseIT {
             "resource READY must not predate MdbAllocation READY");
 
         // The same state is exposed through the public subscription DTO.
-        assertEquals("READY", subscriptionDto().path("resourceState").asText());
+        assertEquals("READY", subscriptionDto(subscriptionId).path("resourceState").asText());
 
         // ---------- 5. Cancel → terminal states and resource release ----------
-        subscriptionApi.cancelSubscription(orgId);
+        subscriptionApi.cancelSubscription(orgId, subscriptionId);
 
         boolean terminated = false;
         boolean mdbReclaimed = false;
@@ -332,12 +340,12 @@ class SubscriptionClusterLifecycleIT extends BaseIT {
             "the shared Atlas cluster slot must be released on reclaim");
 
         // Subscription document reflects CANCELLED.
-        JsonNode cancelled = rawSubscription();
+        JsonNode cancelled = rawSubscription(subscriptionId);
         assertEquals("CANCELLED", cancelled.path("status").asText());
 
         // ---------- 6. Repeated cancel is idempotent ----------
-        subscriptionApi.cancelSubscription(orgId);
-        assertEquals("CANCELLED", rawSubscription().path("status").asText());
+        subscriptionApi.cancelSubscription(orgId, subscriptionId);
+        assertEquals("CANCELLED", rawSubscription(subscriptionId).path("status").asText());
         assertEquals("TERMINATED", rawCluster(clusterId).path("state").asText());
         assertEquals("DELETED", rawAllocation(clusterId).path("status").asText());
         assertEquals(0, mdbClusterCapacity(mdbClusterId),

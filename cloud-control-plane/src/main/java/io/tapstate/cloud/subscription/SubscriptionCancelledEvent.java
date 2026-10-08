@@ -5,9 +5,11 @@ package io.tapstate.cloud.subscription;
  * <p>
  * Published by {@link SubscriptionService} after a successful {@code CANCEL_REQUESTED}
  * state-machine transition. Listened to by the Cluster package to cascade
- * termination of all Clusters owned by this Organization (cross-package decoupling —
- * ClusterService must NOT inject SubscriptionService to avoid circular FSM deps).
+ * termination of that subscription's Cluster and reclaim of its MdbAllocation
+ * (cross-package decoupling — ClusterService must NOT inject SubscriptionService
+ * to avoid circular FSM deps). Sibling subscriptions of the same Organization
+ * are not affected.
  *
- * @see SubscriptionService#cancelSubscription(String, String)
+ * @see SubscriptionService#cancelSubscription(String, String, String)
  */
 public record SubscriptionCancelledEvent(String orgId, String subscriptionId, String operator) {}

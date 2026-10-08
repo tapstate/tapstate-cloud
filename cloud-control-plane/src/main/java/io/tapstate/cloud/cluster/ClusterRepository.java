@@ -20,6 +20,10 @@ public interface ClusterRepository extends MongoRepository<Cluster, ObjectId> {
 
     Optional<Cluster> findByIdAndOrgId(ObjectId id, ObjectId orgId);
 
+    List<Cluster> findBySubscriptionId(ObjectId subscriptionId);
+
+    Optional<Cluster> findByIdAndSubscriptionId(ObjectId id, ObjectId subscriptionId);
+
     boolean existsByOrgIdAndRegionAndName(ObjectId orgId, String region, String name);
 
     /**

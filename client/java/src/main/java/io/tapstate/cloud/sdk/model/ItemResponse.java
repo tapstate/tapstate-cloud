@@ -38,6 +38,8 @@ import java.util.StringJoiner;
   ItemResponse.JSON_PROPERTY_BILLING_UNIT,
   ItemResponse.JSON_PROPERTY_INCLUDED_QUANTITY,
   ItemResponse.JSON_PROPERTY_UNIT_PRICE_CENTS,
+  ItemResponse.JSON_PROPERTY_CLUSTER_ID,
+  ItemResponse.JSON_PROPERTY_MDB_ALLOCATION_ID,
   ItemResponse.JSON_PROPERTY_METADATA
 })
 @jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", comments = "Generator version: 7.25.0")
@@ -65,6 +67,14 @@ public class ItemResponse {
   public static final String JSON_PROPERTY_UNIT_PRICE_CENTS = "unitPriceCents";
   @jakarta.annotation.Nullable
   private Long unitPriceCents;
+
+  public static final String JSON_PROPERTY_CLUSTER_ID = "clusterId";
+  @jakarta.annotation.Nullable
+  private String clusterId;
+
+  public static final String JSON_PROPERTY_MDB_ALLOCATION_ID = "mdbAllocationId";
+  @jakarta.annotation.Nullable
+  private String mdbAllocationId;
 
   public static final String JSON_PROPERTY_METADATA = "metadata";
   @jakarta.annotation.Nullable
@@ -223,6 +233,56 @@ public class ItemResponse {
     this.unitPriceCents = unitPriceCents;
   }
 
+  public ItemResponse clusterId(@jakarta.annotation.Nullable String clusterId) {
+    
+    this.clusterId = clusterId;
+    return this;
+  }
+
+  /**
+   * Provisioned Cluster ID billed by this item (CLUSTER_PIPELINE_RUNTIME)
+   * @return clusterId
+   */
+  @jakarta.annotation.Nullable
+  @JsonProperty(value = JSON_PROPERTY_CLUSTER_ID, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+
+  public String getClusterId() {
+    return clusterId;
+  }
+
+
+  @JsonProperty(value = JSON_PROPERTY_CLUSTER_ID, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+  public void setClusterId(@jakarta.annotation.Nullable String clusterId) {
+    this.clusterId = clusterId;
+  }
+
+  public ItemResponse mdbAllocationId(@jakarta.annotation.Nullable String mdbAllocationId) {
+    
+    this.mdbAllocationId = mdbAllocationId;
+    return this;
+  }
+
+  /**
+   * Provisioned MdbAllocation ID billed by this item (ATLAS_DATABASE_STORAGE)
+   * @return mdbAllocationId
+   */
+  @jakarta.annotation.Nullable
+  @JsonProperty(value = JSON_PROPERTY_MDB_ALLOCATION_ID, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+
+  public String getMdbAllocationId() {
+    return mdbAllocationId;
+  }
+
+
+  @JsonProperty(value = JSON_PROPERTY_MDB_ALLOCATION_ID, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+  public void setMdbAllocationId(@jakarta.annotation.Nullable String mdbAllocationId) {
+    this.mdbAllocationId = mdbAllocationId;
+  }
+
   public ItemResponse metadata(@jakarta.annotation.Nullable Map<String, String> metadata) {
     
     this.metadata = metadata;
@@ -272,12 +332,14 @@ public class ItemResponse {
         Objects.equals(this.billingUnit, itemResponse.billingUnit) &&
         Objects.equals(this.includedQuantity, itemResponse.includedQuantity) &&
         Objects.equals(this.unitPriceCents, itemResponse.unitPriceCents) &&
+        Objects.equals(this.clusterId, itemResponse.clusterId) &&
+        Objects.equals(this.mdbAllocationId, itemResponse.mdbAllocationId) &&
         Objects.equals(this.metadata, itemResponse.metadata);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(id, itemType, itemTypeDisplayName, billingUnit, includedQuantity, unitPriceCents, metadata);
+    return Objects.hash(id, itemType, itemTypeDisplayName, billingUnit, includedQuantity, unitPriceCents, clusterId, mdbAllocationId, metadata);
   }
 
   @Override
@@ -290,6 +352,8 @@ public class ItemResponse {
     sb.append("    billingUnit: ").append(toIndentedString(billingUnit)).append("\n");
     sb.append("    includedQuantity: ").append(toIndentedString(includedQuantity)).append("\n");
     sb.append("    unitPriceCents: ").append(toIndentedString(unitPriceCents)).append("\n");
+    sb.append("    clusterId: ").append(toIndentedString(clusterId)).append("\n");
+    sb.append("    mdbAllocationId: ").append(toIndentedString(mdbAllocationId)).append("\n");
     sb.append("    metadata: ").append(toIndentedString(metadata)).append("\n");
     sb.append("}");
     return sb.toString();
@@ -389,6 +453,26 @@ public class ItemResponse {
     if (getUnitPriceCents() != null) {
       try {
         joiner.add(String.format(java.util.Locale.ROOT, "%sunitPriceCents%s=%s", prefix, suffix, URLEncoder.encode(String.valueOf(getUnitPriceCents()), "UTF-8").replaceAll("\\+", "%20")));
+      } catch (UnsupportedEncodingException e) {
+        // Should never happen, UTF-8 is always supported
+        throw new RuntimeException(e);
+      }
+    }
+
+    // add `clusterId` to the URL query string
+    if (getClusterId() != null) {
+      try {
+        joiner.add(String.format(java.util.Locale.ROOT, "%sclusterId%s=%s", prefix, suffix, URLEncoder.encode(String.valueOf(getClusterId()), "UTF-8").replaceAll("\\+", "%20")));
+      } catch (UnsupportedEncodingException e) {
+        // Should never happen, UTF-8 is always supported
+        throw new RuntimeException(e);
+      }
+    }
+
+    // add `mdbAllocationId` to the URL query string
+    if (getMdbAllocationId() != null) {
+      try {
+        joiner.add(String.format(java.util.Locale.ROOT, "%smdbAllocationId%s=%s", prefix, suffix, URLEncoder.encode(String.valueOf(getMdbAllocationId()), "UTF-8").replaceAll("\\+", "%20")));
       } catch (UnsupportedEncodingException e) {
         // Should never happen, UTF-8 is always supported
         throw new RuntimeException(e);
