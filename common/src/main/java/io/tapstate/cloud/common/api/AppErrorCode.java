@@ -59,6 +59,8 @@ public enum AppErrorCode implements ErrorCode {
     // ---------- SDK ----------
     SDK_TOKEN_MISSING("sdk.token-missing", "SDK static token is required (Bearer header)"),
     SDK_TOKEN_INVALID("sdk.token-invalid", "SDK static token is invalid or revoked"),
+    SAMPLE_SOURCE_CREDENTIALS_NOT_CONFIGURED(
+        "sample-source.credentials-not-configured", "Sample source credentials are not configured"),
 
     // ---------- Deployment progress ----------
     DEPLOYMENT_OP_TYPE_INVALID("deployment.op-type-invalid", "Invalid deployment opType {0}"),
