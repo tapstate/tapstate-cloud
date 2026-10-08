@@ -1,310 +1,325 @@
 package io.tapstate.cloud.it;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.tapstate.cloud.sdk.ApiException;
-import io.tapstate.cloud.sdk.api.ClustersApi;
-import io.tapstate.cloud.sdk.api.SubscriptionApi;
-import io.tapstate.cloud.sdk.model.ClusterResponse;
-import io.tapstate.cloud.sdk.model.ClusterResponse.StateEnum;
+import io.tapstate.cloud.sdk.model.ApiResponseSubscriptionResponse;
 import io.tapstate.cloud.sdk.model.CreateSubscriptionRequest;
+import io.tapstate.cloud.sdk.model.ItemResponse;
 import io.tapstate.cloud.sdk.model.SubscriptionResponse;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.MethodOrderer;
+import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestMethodOrder;
 
-import java.net.http.HttpResponse;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 
+import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Subscription → Cluster → MDB allocation full-flow integration tests.
+ * T0–T5: Subscription multi-subscription model + status state machine (SDK + real HTTP).
  * <p>
- * Covers the Week 3 subscription orchestration architecture end-to-end:
- * <pre>
- * POST /subscription
- *   → Subscription shell (TRIAL, 2 default billable items)
- *   → Cluster record + Cluster FSM START_PROVISION
- *   → MdbAllocation record + MDB FSM START_PROVISION
- *   → Two async FSMs run in parallel:
- *       Cluster: PROVISIONING → READY / PROVISIONING_FAILED (85% success, simulated CloudFormation)
- *       MDB:     PROVISIONING → READY / PROVISIONING_FAILED (always READY in mockMode)
- * </pre>
+ * An Organization owns many subscriptions; every subscription owns exactly one
+ * Cluster and one MdbAllocation. Creating an Organization creates no subscription.
  * <p>
- * Uses SDK for subscriptionApi.*, clustersApi.getCluster, clustersApi.retryCluster.
- * <br/>Uses raw HTTP GET for listMyOrganizations / listClusters (OpenAPI SDK return-type bug).
- * <br/>Uses direct MongoDB queries for MdbAllocation records (no SDK model yet).
+ * State machine transitions (Spring Statemachine backend):
+ * TRIAL → ACTIVE (payment confirmed)
+ * ACTIVE → PAST_DUE (payment failed)
+ * PAST_DUE → ACTIVE (payment received)
+ * TRIAL/ACTIVE/PAST_DUE → CANCELLED (cancel requested)
+ * Invalid transitions rejected: subscription record unchanged.
  */
-@DisplayName("SubscriptionFlowIT — subscription → cluster → MDB full flow")
+@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class SubscriptionFlowIT extends BaseIT {
 
-    private final ObjectMapper mapper = new ObjectMapper();
-    private String orgId;
+    private static final String REGION = "ap-southeast-1";
+    private static final String SPEC = "basic";
 
-    @BeforeEach
-    void setUpOrg() throws Exception {
-        signupAndLogin("flow-" + System.nanoTime() + "@tapstate.io", "StrongPass123!");
-        // Register does NOT auto-create org — create explicitly
-        orgId = orgsApi.create(Map.of(
-            "name", "Flow-Test",
-            "slug", "flow-" + System.nanoTime()
-        )).getData().getId();
-        assertNotNull(orgId, "orgId must be resolvable");
-    }
-
-    // ========== Raw helpers (SDK listClusters returns wrong type) ==========
-
-    /** Raw GET /v1/api/orgs/{orgId}/clusters → unwrap ApiResponse envelope. */
-    private JsonNode rawListClusters() throws Exception {
-        HttpResponse<String> resp = get("/v1/api/orgs/" + orgId + "/clusters",
-            Map.of("Cookie", "TAPSTATE_CLOUD_SESSION=" + sessionCookieValue));
-        return mapper.readTree(resp.body()).path("data");
-    }
-
-    private String findClusterIdByName(String name) throws Exception {
-        JsonNode clusters = rawListClusters();
-        if (!clusters.isArray()) return null;
-        for (JsonNode c : clusters) {
-            if (name.equals(c.path("name").asText())) return c.path("id").asText();
-        }
-        return null;
-    }
-
-    private int clusterCount() throws Exception {
-        JsonNode clusters = rawListClusters();
-        return clusters.isArray() ? clusters.size() : 0;
-    }
-
-    // ========== Raw Mongo helpers ==========
-
-    private JsonNode getMdbAllocationForCluster(String clusterId) throws Exception {
-        Process p = new ProcessBuilder("mongosh", "--quiet", "--eval",
-            "const a = db.mdb_allocations.findOne({clusterId: ObjectId('" + clusterId + "')}); print(JSON.stringify(a ? a : {}));",
-            MONGO_DB).redirectErrorStream(true).start();
-        p.waitFor();
-        String out = new String(p.getInputStream().readAllBytes()).trim();
-        return mapper.readTree(out);
-    }
-
-    private String getMdbAllocationStatus(String clusterId) throws Exception {
-        Process p = new ProcessBuilder("mongosh", "--quiet", "--eval",
-            "const a = db.mdb_allocations.findOne({clusterId: ObjectId('" + clusterId + "')}); print(a ? a.status : 'NONE');",
-            MONGO_DB).redirectErrorStream(true).start();
-        p.waitFor();
-        return new String(p.getInputStream().readAllBytes()).trim();
-    }
-
-    private int countMdbAllocationsForCluster(String clusterId) throws Exception {
-        Process p = new ProcessBuilder("mongosh", "--quiet", "--eval",
-            "db.mdb_allocations.countDocuments({clusterId: ObjectId('" + clusterId + "')})",
-            MONGO_DB).redirectErrorStream(true).start();
-        p.waitFor();
-        return Integer.parseInt(new String(p.getInputStream().readAllBytes()).trim().replaceAll("[^0-9]", ""));
-    }
-
-    // ========== T1 — Happy path: POST /subscription → Cluster + MDB records ==========
+    // ========== T0: Organization starts with no subscriptions ==========
 
     @Test
-    @DisplayName("T1 — POST /subscription creates Cluster record + MdbAllocation record")
-    void createSubscription_createsClusterAndMdbRecords() throws Exception {
-        // 1. Before creation: subscription shell exists, no clusters, no MDB
-        SubscriptionResponse before = subscriptionApi.getSubscription(orgId).getData();
-        assertEquals("TRIAL", before.getStatus());
-        assertEquals(2, before.getItems().size());
-        assertEquals(0, clusterCount(), "Should have NO clusters yet");
+    @Order(0)
+    void t0_newOrganizationHasNoSubscriptions() throws Exception {
+        String orgId = createOrg("SubFlow T0");
 
-        // 2. POST /subscription via SDK
-        SubscriptionResponse created = subscriptionApi.createSubscription(orgId,
+        List<SubscriptionResponse> subscriptions =
+            subscriptionApi.listSubscriptions(orgId).getData();
+        assertNotNull(subscriptions, "list payload must not be null");
+        assertTrue(subscriptions.isEmpty(),
+            "a fresh Organization must own zero subscriptions, got: " + subscriptions.size());
+
+        // GET of an unknown subscription id is a 404.
+        ApiException notFound = assertThrows(ApiException.class,
+            () -> subscriptionApi.getSubscription(orgId, "507f1f77bcf86cd799439011"));
+        assertEquals(404, notFound.getCode());
+    }
+
+    // ========== T1: Subscribe creates a complete subscription ==========
+
+    @Test
+    @Order(1)
+    void t1_subscribe_provisionsClusterAndMdb_returnsTrialSubscription() throws Exception {
+        String orgId = createOrg("SubFlow T1");
+
+        ApiResponseSubscriptionResponse httpResp = subscriptionApi.createSubscription(orgId,
             new CreateSubscriptionRequest()
-                .region("ap-southeast-1").clusterName("Happy-Cluster").specKey("basic")).getData();
+                .region(REGION)
+                .clusterName("sub-t1-" + uniqueSuffix())
+                .specKey(SPEC));
 
-        assertNotNull(created.getId());
-        assertEquals("TRIAL", created.getStatus());
-        assertTrue(created.isProvisioningAllowed());
-
-        // 3. Cluster record exists
-        assertEquals(1, clusterCount(), "Should have exactly 1 cluster");
-        String clusterId = findClusterIdByName("Happy-Cluster");
-        assertNotNull(clusterId);
-        assertNotNull(clustersApi.getCluster(orgId, clusterId).getData().getState());
-
-        // 4. MdbAllocation record with correct fields
-        JsonNode alloc = getMdbAllocationForCluster(clusterId);
-        assertFalse(alloc.isNull() || alloc.isEmpty(), "MdbAllocation should exist");
-        assertNotNull(alloc.path("_id").asText(null));
-        assertNotNull(alloc.path("atlasInstanceId").asText(null));
-        assertNotNull(alloc.path("databaseName").asText(null));
-        assertNotNull(alloc.path("dbUsername").asText(null));
-        assertNotNull(alloc.path("dbPassword").asText(null));
-        assertEquals(orgId, alloc.path("orgId").asText());
-        assertEquals(clusterId, alloc.path("clusterId").asText());
-    }
-
-    // ========== T2 — Async: both FSMs reach READY ==========
-
-    @Test
-    @DisplayName("T2 — After POST /subscription: Cluster → READY, MdbAllocation → READY")
-    void createSubscription_bothFsmReachReady() throws Exception {
-        subscriptionApi.createSubscription(orgId,
-            new CreateSubscriptionRequest().region("ap-southeast-1").clusterName("Async-Test").specKey("basic"));
-        String clusterId = findClusterIdByName("Async-Test");
-
-        boolean clusterReady = false, mdbReady = false;
-        for (int i = 0; i < 60; i++) {
-            if (!clusterReady && clustersApi.getCluster(orgId, clusterId).getData().getState() == StateEnum.READY)
-                clusterReady = true;
-            if (!mdbReady && "READY".equals(getMdbAllocationStatus(clusterId)))
-                mdbReady = true;
-            if (clusterReady && mdbReady) break;
-            Thread.sleep(1000);
-        }
-
-        assertTrue(clusterReady, "Cluster FSM should reach READY");
-        assertTrue(mdbReady, "MdbAllocation FSM should reach READY");
-
-        // Cluster runtime fields populated
-        ClusterResponse c = clustersApi.getCluster(orgId, clusterId).getData();
-        assertNotNull(c.getRuntimeId());
-        assertNotNull(c.getPublicDns());
-        assertNotNull(c.getElasticIp());
-    }
-
-    // ========== T3 — Second POST adds second Cluster + MDB ==========
-
-    @Test
-    @DisplayName("T3 — Second POST /subscription adds second cluster + second MdbAllocation")
-    void createSubscription_twice_createsSecondCluster() throws Exception {
-        subscriptionApi.createSubscription(orgId,
-            new CreateSubscriptionRequest().region("ap-southeast-1").clusterName("Cluster-A").specKey("basic"));
-        subscriptionApi.createSubscription(orgId,
-            new CreateSubscriptionRequest().region("ap-southeast-1").clusterName("Cluster-B").specKey("basic"));
-
-        assertEquals(2, clusterCount(), "Should have 2 clusters");
-
-        String aId = findClusterIdByName("Cluster-A");
-        String bId = findClusterIdByName("Cluster-B");
-        assertEquals(1, countMdbAllocationsForCluster(aId), "Cluster-A 1 allocation");
-        assertEquals(1, countMdbAllocationsForCluster(bId), "Cluster-B 1 allocation");
-    }
-
-    // ========== T4 — Validation: missing region → 400 ==========
-
-    @Test
-    @DisplayName("T4 — POST /subscription missing region → 400")
-    void createSubscription_missingRegion_returns400() {
-        ApiException ex = assertThrows(ApiException.class, () ->
-            subscriptionApi.createSubscription(orgId,
-                new CreateSubscriptionRequest().clusterName("NoRegion").specKey("basic")));
-        assertEquals(400, ex.getCode());
-    }
-
-    // ========== T5 — Validation: missing clusterName → 400 ==========
-
-    @Test
-    @DisplayName("T5 — POST /subscription missing clusterName → 400")
-    void createSubscription_missingClusterName_returns400() {
-        ApiException ex = assertThrows(ApiException.class, () ->
-            subscriptionApi.createSubscription(orgId,
-                new CreateSubscriptionRequest().region("ap-southeast-1").specKey("basic")));
-        assertEquals(400, ex.getCode());
-    }
-
-    // ========== T6 — Duplicate name → 409 ==========
-
-    @Test
-    @DisplayName("T6 — POST /subscription duplicate cluster name → 409")
-    void createSubscription_duplicateName_returns409() throws Exception {
-        subscriptionApi.createSubscription(orgId,
-            new CreateSubscriptionRequest().region("ap-southeast-1").clusterName("Dup").specKey("basic"));
-
-        ApiException ex = assertThrows(ApiException.class, () ->
-            subscriptionApi.createSubscription(orgId,
-                new CreateSubscriptionRequest().region("ap-southeast-1").clusterName("Dup").specKey("basic")));
-        assertEquals(409, ex.getCode());
-    }
-
-    // ========== T7 — Unauthenticated → 401 ==========
-
-    @Test
-    @DisplayName("T7 — POST /subscription without session → 401")
-    void createSubscription_noAuth_returns401() {
-        SubscriptionApi anon = new SubscriptionApi();
-        anon.getApiClient().setBasePath(BASE_URL);
-        ApiException ex = assertThrows(ApiException.class, () ->
-            anon.createSubscription(orgId,
-                new CreateSubscriptionRequest().region("ap-southeast-1").clusterName("NoAuth").specKey("basic")));
-        // SDK throws ApiException with actual HTTP status code for error responses
-        // or code=0 for network-level failures; accept both as "not successful"
-        assertTrue(ex.getCode() == 401 || ex.getCode() == 0,
-            "Expected 401 (unauthenticated) or 0 (network), got " + ex.getCode());
-    }
-
-    // ========== T8 — GET subscription after READY ==========
-
-    @Test
-    @DisplayName("T8 — GET /subscription after READY shows TRIAL + provisioningAllowed")
-    void getSubscription_afterReady() throws Exception {
-        subscriptionApi.createSubscription(orgId,
-            new CreateSubscriptionRequest().region("ap-southeast-1").clusterName("Status-Test").specKey("basic"));
-        String clusterId = findClusterIdByName("Status-Test");
-
-        for (int i = 0; i < 60; i++) {
-            if (clustersApi.getCluster(orgId, clusterId).getData().getState() == StateEnum.READY
-                && "READY".equals(getMdbAllocationStatus(clusterId))) break;
-            Thread.sleep(1000);
-        }
-
-        SubscriptionResponse sub = subscriptionApi.getSubscription(orgId).getData();
+        SubscriptionResponse sub = httpResp.getData();
+        assertNotNull(sub.getId(), "Subscription ID should be generated");
+        assertEquals(orgId, sub.getOrgId());
         assertEquals("TRIAL", sub.getStatus());
-        assertTrue(sub.isProvisioningAllowed());
-        assertEquals(2, sub.getItems().size());
+        assertEquals("PROVISIONING", sub.getResourceState(),
+            "resourceState should be PROVISIONING right after create");
+        assertNotNull(sub.getClusterId(), "subscription must carry its provisioned Cluster ID");
+        assertNotNull(sub.getMdbAllocationId(), "subscription must carry its MdbAllocation ID");
         assertNotNull(sub.getCurrentPeriodStart());
         assertNotNull(sub.getCurrentPeriodEnd());
+        assertTrue(Boolean.TRUE.equals(sub.isProvisioningAllowed()),
+            "TRIAL subscriptions allow provisioning");
+
+        // Read it back by its own id.
+        SubscriptionResponse fetched = subscriptionApi.getSubscription(orgId, sub.getId()).getData();
+        assertEquals(sub.getId(), fetched.getId());
+
+        // The org now lists exactly one subscription.
+        List<SubscriptionResponse> listed = subscriptionApi.listSubscriptions(orgId).getData();
+        assertEquals(1, listed.size());
+        assertEquals(sub.getId(), listed.get(0).getId());
+
+        // Two billable items, each linked to this subscription's own resource.
+        assertEquals(2, fetched.getItems().size(), "Should have 2 billable items: CLUSTER + ATLAS");
+        ItemResponse runtimeItem = getItem(fetched, "CLUSTER_PIPELINE_RUNTIME");
+        ItemResponse storageItem = getItem(fetched, "ATLAS_DATABASE_STORAGE");
+        assertNotNull(runtimeItem, "CLUSTER_PIPELINE_RUNTIME item missing");
+        assertNotNull(storageItem, "ATLAS_DATABASE_STORAGE item missing");
+        assertEquals(0, runtimeItem.getIncludedQuantity(), "Trial runtime item should be quantity 0 (unlimited)");
+        assertEquals(0, runtimeItem.getUnitPriceCents(), "Trial runtime item should be free");
+        assertEquals("trial", runtimeItem.getMetadata().get("plan_tier"));
+        assertEquals(sub.getClusterId(), runtimeItem.getClusterId(),
+            "runtime item must bill this subscription's own cluster");
+        assertNull(runtimeItem.getMdbAllocationId());
+        assertEquals(sub.getMdbAllocationId(), storageItem.getMdbAllocationId(),
+            "storage item must bill this subscription's own allocation");
+        assertNull(storageItem.getClusterId());
+
+        // Cluster must reach READY — the subscription's own cluster.
+        String clusterId = sub.getClusterId();
+        waitForClusterState(orgId, clusterId, "READY", Duration.ofMinutes(5));
+
+        // After the cluster reaches READY, the subscription's MdbAllocation READY
+        // joins and the subscription resource state converges to READY.
+        await().atMost(Duration.ofSeconds(90)).pollInterval(Duration.ofSeconds(2)).untilAsserted(() -> {
+            SubscriptionResponse polled = subscriptionApi.getSubscription(orgId, sub.getId()).getData();
+            assertEquals("READY", polled.getResourceState(),
+                "Subscription resources should converge to READY once Cluster + MDB are ready");
+            assertNotNull(polled.getResourcesReadyAt(), "resourcesReadyAt must be set on convergence");
+        });
+
+        // Trial period sanity — 30 days
+        long days = Duration.between(
+            fetched.getCurrentPeriodStart().toInstant(),
+            fetched.getCurrentPeriodEnd().toInstant()).toDays();
+        assertEquals(30, days, "Trial period should be 30 days");
+        assertTrue(fetched.getCurrentPeriodEnd().toInstant().isAfter(Instant.now()),
+            "Trial should end in the future");
     }
 
-    // ========== T9 — Cancel cascades Cluster TERMINATED + MDB DELETED ==========
+    // ========== T2: Input validation (400) + duplicate cluster name (409) ==========
 
     @Test
-    @DisplayName("T9 — Cancel subscription → Cluster TERMINATED + MdbAllocation DELETED")
-    void cancelSubscription_cascadesClusterAndMdb() throws Exception {
-        subscriptionApi.createSubscription(orgId,
-            new CreateSubscriptionRequest().region("ap-southeast-1").clusterName("Cancel-Test").specKey("basic"));
-        String clusterId = findClusterIdByName("Cancel-Test");
+    @Order(2)
+    void t2_subscribe_validationAndDuplicateRejection() throws Exception {
+        String orgId = createOrg("SubFlow T2");
+        String clusterName = "sub-t2-" + uniqueSuffix();
 
-        for (int i = 0; i < 30; i++) {
-            if (clustersApi.getCluster(orgId, clusterId).getData().getState() == StateEnum.READY) break;
-            Thread.sleep(1000);
-        }
+        // Missing region → 400
+        ApiException missingRegion = assertThrows(ApiException.class, () ->
+            subscriptionApi.createSubscription(orgId,
+                new CreateSubscriptionRequest().clusterName(clusterName).specKey(SPEC)));
+        assertEquals(400, missingRegion.getCode());
 
-        subscriptionApi.cancelSubscription(orgId);
+        // Missing clusterName → 400
+        ApiException missingName = assertThrows(ApiException.class, () ->
+            subscriptionApi.createSubscription(orgId,
+                new CreateSubscriptionRequest().region(REGION).specKey(SPEC)));
+        assertEquals(400, missingName.getCode());
 
-        boolean terminated = false, deleted = false;
-        for (int i = 0; i < 30; i++) {
-            if (!terminated) {
-                try {
-                    if (clustersApi.getCluster(orgId, clusterId).getData().getState() == StateEnum.TERMINATED) terminated = true;
-                } catch (Exception ignored) {}
+        // First subscription succeeds.
+        SubscriptionResponse first = subscriptionApi.createSubscription(orgId,
+            new CreateSubscriptionRequest().region(REGION).clusterName(clusterName).specKey(SPEC)).getData();
+        assertNotNull(first.getId());
+
+        // Same cluster name in the same org + region → 409, even on a new subscription.
+        ApiException dup = assertThrows(ApiException.class, () ->
+            subscriptionApi.createSubscription(orgId,
+                new CreateSubscriptionRequest().region(REGION).clusterName(clusterName).specKey(SPEC)));
+        assertEquals(409, dup.getCode());
+        assertTrue(dup.getResponseBody().contains("already exists"),
+            "409 body should mention the duplicate cluster name, got: " + dup.getResponseBody());
+    }
+
+    // ========== T3: Two subscriptions stay independent ==========
+
+    @Test
+    @Order(3)
+    void t3_secondSubscriptionIsIndependentFromTheFirst() throws Exception {
+        String orgId = createOrg("SubFlow T3");
+
+        SubscriptionResponse first = subscriptionApi.createSubscription(orgId,
+            new CreateSubscriptionRequest()
+                .region(REGION)
+                .clusterName("sub-t3a-" + uniqueSuffix())
+                .specKey(SPEC)).getData();
+        SubscriptionResponse second = subscriptionApi.createSubscription(orgId,
+            new CreateSubscriptionRequest()
+                .region(REGION)
+                .clusterName("sub-t3b-" + uniqueSuffix())
+                .specKey(SPEC)).getData();
+
+        assertNotEquals(first.getId(), second.getId(), "each create must produce its own subscription");
+        assertNotEquals(first.getClusterId(), second.getClusterId());
+        assertNotEquals(first.getMdbAllocationId(), second.getMdbAllocationId());
+
+        // The org lists both, newest first.
+        List<SubscriptionResponse> listed = subscriptionApi.listSubscriptions(orgId).getData();
+        assertEquals(2, listed.size());
+        assertEquals(second.getId(), listed.get(0).getId(), "list must be newest-first");
+        assertEquals(first.getId(), listed.get(1).getId());
+
+        // Each subscription's billable items link its own resources — the second
+        // create must never overwrite the first subscription's item links.
+        SubscriptionResponse firstRefetched = subscriptionApi.getSubscription(orgId, first.getId()).getData();
+        assertEquals(first.getClusterId(), getItem(firstRefetched, "CLUSTER_PIPELINE_RUNTIME").getClusterId());
+        assertEquals(first.getMdbAllocationId(), getItem(firstRefetched, "ATLAS_DATABASE_STORAGE").getMdbAllocationId());
+        SubscriptionResponse secondRefetched = subscriptionApi.getSubscription(orgId, second.getId()).getData();
+        assertEquals(second.getClusterId(), getItem(secondRefetched, "CLUSTER_PIPELINE_RUNTIME").getClusterId());
+        assertEquals(second.getMdbAllocationId(), getItem(secondRefetched, "ATLAS_DATABASE_STORAGE").getMdbAllocationId());
+
+        // Each subscription owns exactly one cluster record.
+        assertEquals(1, clustersApi.listClusters(orgId).getData().stream()
+            .filter(c -> first.getClusterId().equals(c.getId())).count());
+        assertEquals(1, clustersApi.listClusters(orgId).getData().stream()
+            .filter(c -> second.getClusterId().equals(c.getId())).count());
+
+        // Both subscriptions converge independently to READY.
+        waitForClusterState(orgId, first.getClusterId(), "READY", Duration.ofMinutes(5));
+        waitForClusterState(orgId, second.getClusterId(), "READY", Duration.ofMinutes(5));
+        await().atMost(Duration.ofSeconds(90)).pollInterval(Duration.ofSeconds(2)).untilAsserted(() -> {
+            assertEquals("READY",
+                subscriptionApi.getSubscription(orgId, first.getId()).getData().getResourceState());
+            assertEquals("READY",
+                subscriptionApi.getSubscription(orgId, second.getId()).getData().getResourceState());
+        });
+    }
+
+    // ========== T4: Payment state machine — valid transitions + invalid rejection ==========
+
+    @Test
+    @Order(4)
+    void t4_paymentFlow_validTransitionsAndInvalidRejection() throws Exception {
+        String orgId = createOrg("SubFlow T4");
+        SubscriptionResponse sub = subscriptionApi.createSubscription(orgId,
+            new CreateSubscriptionRequest()
+                .region(REGION)
+                .clusterName("sub-t4-" + uniqueSuffix())
+                .specKey(SPEC)).getData();
+        String subId = sub.getId();
+
+        // TRIAL → ACTIVE (payment confirmed, trial conversion)
+        transition(orgId, subId, "ACTIVE");
+        assertEquals("ACTIVE", subscriptionApi.getSubscription(orgId, subId).getData().getStatus());
+
+        // ACTIVE → PAST_DUE (payment failed)
+        transition(orgId, subId, "PAST_DUE");
+        assertEquals("PAST_DUE", subscriptionApi.getSubscription(orgId, subId).getData().getStatus());
+
+        // PAST_DUE → ACTIVE (payment recovered) — valid
+        transition(orgId, subId, "ACTIVE");
+        assertEquals("ACTIVE", subscriptionApi.getSubscription(orgId, subId).getData().getStatus());
+
+        // ACTIVE → PROVISIONING (invalid: PROVISIONING is a resource state, not a
+        // subscription status) → must be rejected, status unchanged.
+        ApiException invalid = assertThrows(ApiException.class,
+            () -> transition(orgId, subId, "PROVISIONING"));
+        assertEquals(400, invalid.getCode());
+        assertEquals("ACTIVE", subscriptionApi.getSubscription(orgId, subId).getData().getStatus(),
+            "Invalid transition must not change subscription status");
+    }
+
+    // ========== T5: Cancellation (TRIAL → CANCELLED) + idempotency ==========
+
+    @Test
+    @Order(5)
+    void t5_cancel_trialToCancelled_idempotent() throws Exception {
+        String orgId = createOrg("SubFlow T5");
+        SubscriptionResponse sub = subscriptionApi.createSubscription(orgId,
+            new CreateSubscriptionRequest()
+                .region(REGION)
+                .clusterName("sub-t5-" + uniqueSuffix())
+                .specKey(SPEC)).getData();
+        String subId = sub.getId();
+
+        // TRIAL → CANCELLED
+        SubscriptionResponse cancelled =
+            subscriptionApi.cancelSubscription(orgId, subId).getData();
+        assertEquals("CANCELLED", cancelled.getStatus());
+        assertFalse(Boolean.TRUE.equals(cancelled.isProvisioningAllowed()),
+            "Cancelled subscriptions block provisioning");
+
+        // Verify persisted via GET by id
+        SubscriptionResponse fetched = subscriptionApi.getSubscription(orgId, subId).getData();
+        assertEquals("CANCELLED", fetched.getStatus());
+
+        // Cancelled subscription still appears in the org's list with CANCELLED.
+        boolean stillListed = subscriptionApi.listSubscriptions(orgId).getData().stream()
+            .anyMatch(s -> subId.equals(s.getId()) && "CANCELLED".equals(s.getStatus()));
+        assertTrue(stillListed, "Cancelled subscription must remain visible in the list");
+
+        // Idempotent: calling cancel twice more must not error
+        assertDoesNotThrow(() -> subscriptionApi.cancelSubscription(orgId, subId));
+        assertEquals("CANCELLED", subscriptionApi.getSubscription(orgId, subId).getData().getStatus());
+        assertDoesNotThrow(() -> subscriptionApi.cancelSubscription(orgId, subId));
+        assertEquals("CANCELLED", subscriptionApi.getSubscription(orgId, subId).getData().getStatus());
+    }
+
+    // ========== Helpers ==========
+
+    /** Register + login a fresh user and create its first Organization (no subscriptions yet). */
+    private String createOrg(String name) throws Exception {
+        String suffix = uniqueSuffix();
+        signupAndLogin("subflow-" + suffix + "@tapstate.io", "StrongPass123!");
+        return orgsApi.create(Map.of("name", name, "slug", "subflow-" + suffix))
+            .getData().getId();
+    }
+
+    private static String uniqueSuffix() {
+        return Long.toHexString(System.nanoTime());
+    }
+
+    private void waitForClusterState(String orgId, String clusterId, String targetState, Duration timeout) {
+        await().atMost(timeout).pollInterval(Duration.ofSeconds(2)).untilAsserted(() -> {
+            try {
+                assertEquals(targetState,
+                    clustersApi.getCluster(orgId, clusterId).getData().getState().getValue());
+            } catch (ApiException e) {
+                throw new AssertionError(e);
             }
-            if (!deleted && "DELETED".equals(getMdbAllocationStatus(clusterId))) deleted = true;
-            if (terminated && deleted) break;
-            Thread.sleep(1000);
-        }
-
-        assertTrue(terminated, "Cluster should TERMINATE within 30s");
-        assertTrue(deleted, "MdbAllocation should be DELETED within 30s");
-        assertEquals("CANCELLED", subscriptionApi.getSubscription(orgId).getData().getStatus());
+        });
     }
 
-    // ========== T10 — Cancel already-cancelled is idempotent ==========
+    private void transition(String orgId, String subscriptionId, String targetStatus) throws ApiException {
+        subscriptionApi.transitionStatus(orgId, subscriptionId,
+            Map.of("status", targetStatus));
+    }
 
-    @Test
-    @DisplayName("T10 — Cancel already CANCELLED → idempotent")
-    void cancelAlreadyCancelled_isIdempotent() throws Exception {
-        subscriptionApi.cancelSubscription(orgId);
-        assertEquals("CANCELLED", subscriptionApi.getSubscription(orgId).getData().getStatus());
-
-        subscriptionApi.cancelSubscription(orgId);
-        assertEquals("CANCELLED", subscriptionApi.getSubscription(orgId).getData().getStatus());
+    private ItemResponse getItem(SubscriptionResponse sub, String itemType) {
+        return sub.getItems().stream()
+            .filter(i -> itemType.equals(i.getItemType()))
+            .findFirst().orElse(null);
     }
 }

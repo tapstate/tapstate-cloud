@@ -16,10 +16,17 @@ imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""
 
-# ========== k3s Secrets (must be pre-created in namespace) ==========
-# Per ADR-0121 D4: ALL credentials come from k3s Secrets
+# ========== k3s Secrets (pre-created in namespace by ops) ==========
+# Per ADR-0121 D4: ALL credentials come from k3s Secrets.
+# mongoUri / jwksSigningKey / awsCredentials are REQUIRED — the pod will not
+# start without them. godaddy / iacCrypto / runtimeAtlasUri / jwksEncryptionKey
+# are wired as OPTIONAL env refs: environments that run
+# TAPSTATE_CLOUD_IAC_MODE=mock work without them, and real environments must
+# pre-create them before provisioning
+# Clusters (a missing secret then surfaces as a coded provisioning failure,
+# not a pod start failure).
 secrets:
-  # MongoDB Atlas connection string (read-only Control Plane DB user)
+  # MongoDB connection string (Control Plane metadata DB user)
   mongoUri:
     name: tapstate-cloud-control-mongo-uri
     key: mongo-uri
@@ -27,16 +34,33 @@ secrets:
   jwksSigningKey:
     name: tapstate-cloud-control-jwks-signing-key
     key: signing-key
-  # AWS credentials (CloudFormation API calls)
+  # AWS credentials (EC2/CloudFormation API calls)
   awsCredentials:
     name: tapstate-cloud-control-aws-credentials
     accessKeyIdKey: access-key-id
     secretAccessKeyKey: secret-access-key
-  # Atlas Admin API key (Atlas DB/user auto-provisioning)
-  atlasAdminKey:
-    name: tapstate-cloud-control-atlas-admin-key
+  # GoDaddy DNS API credentials (only needed when TAPSTATE_CLOUD_IAC_MODE=real)
+  godaddy:
+    name: tapstate-cloud-control-dns
     apiKeyKey: api-key
-    apiKeySecretKey: api-key-secret
+    apiSecretKeyKey: api-secret
+  # Base64-encoded 32-byte AES master key protecting generated SSH private
+  # keys at rest (only needed when TAPSTATE_CLOUD_IAC_MODE=real; blank blocks
+  # provisioning)
+  iacCrypto:
+    name: tapstate-cloud-control-iac
+    masterKeyKey: master-key
+  # Optional fixed MongoDB URI for legacy Clusters without a linked MdbAllocation.
+  # Leave the secret absent: new Clusters use the per-allocation Atlas URI and
+  # blank falls back to the on-node MongoDB sidecar.
+  runtimeAtlasUri:
+    name: tapstate-cloud-control-runtime-atlas-uri
+    uriKey: atlas-uri
+  # AES key for JWKS private-key encryption at rest (only when
+  # config.jwksEncryptionEnabled=true)
+  jwksEncryptionKey:
+    name: tapstate-cloud-control-jwks-encryption-key
+    key: encryption-key
   sampleSources:
     name: tapstate-cloud-control-sample-sources
     passwordKey: password
@@ -52,6 +76,38 @@ config:
   awsRegion: ap-southeast-1
   corsAllowedOrigins: "https://cloud.tapstate.io,https://*.cloud.tapstate.io"
   sampleSourcesHost: "113.98.206.139"
+
+  # ----- API docs -----
+  swaggerUiEnabled: "true"
+  knife4jEnabled: "true"
+
+  # ----- JWKS management -----
+  jwksRotationEnabled: "true"
+  jwksEncryptionEnabled: "false"
+
+  # ----- IaC layer (multi-cloud Cluster provisioning) -----
+  # Safe chart default is mock: environments that run real cloud APIs override
+  # these in values-awsdev.yaml / values-aws.yaml.
+  iacProvider: aws
+  iacMode: mock
+  # DNS environment suffix — provisions <id>.<iacEnvironment>.<godaddyDomain>
+  iacEnvironment: dev
+  # Public URL of THIS control plane, handed to Cluster runtimes
+  publicBaseUrl: https://dev.cloud.tapstate.com
+  # "false" enables real Atlas Admin API calls; requires Activated AtlasConfig
+  # and ACTIVE MdbCluster documents in the control-plane store.
+  atlasMdbMock: "true"
+  iacAwsInstanceType: t3.medium
+  iacAwsDiskSizeGb: "40"
+
+  # ----- GoDaddy DNS (non-sensitive parts; credentials come from Secrets) -----
+  godaddyBaseUrl: https://api.godaddy.com
+  godaddyDomain: tapstate.com
+  godaddyTtl: "600"
+
+  # ----- Logging -----
+  logLevelCloud: INFO
+  logLevelSecurity: WARN
 
 # ========== Kubernetes resources ==========
 serviceAccount:

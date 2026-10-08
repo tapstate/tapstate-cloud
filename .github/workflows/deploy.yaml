@@ -3,6 +3,9 @@
 # Per ADR-0124 D6: helm is the single deployment tool
 #
 #   main branch          → awsdev environment  (values-awsdev.yaml,  namespace: tapstate)
+#                           gated: the deploy waits for the CI and Full
+#                           Integration runs of the same pushed SHA to pass
+#                           (see the await-main-gate job below)
 #   release-v*.x.x       → production environment (values-aws.yaml, namespace: tapstate-cloud-control)
 # ============================================================
 # Prerequisites (GitHub Repository Secrets):
@@ -21,7 +24,41 @@ on:
       - main
       - 'release-v*.x.x'
 
+permissions:
+  contents: read
+  # The gate job reads workflow-run state for the pushed SHA.
+  actions: read
+
+# One deploy per ref at a time: a push while another deploy is running
+# queues behind it instead of two helm upgrades racing on the cluster.
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  # ============================================================
+  # main gate — nothing deploys until both the CI workflow and the
+  # Full Integration workflow have passed on THIS commit. GitHub
+  # Actions has no cross-workflow needs, so the script polls the runs
+  # for the pushed SHA. release-v* pushes skip this job and deploy
+  # directly, exactly as before.
+  # ============================================================
+  await-main-gate:
+    name: Gate — CI and Full Integration green
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Merge commits need their first parent for the gate's
+          # path-filter check.
+          fetch-depth: 2
+      - name: Wait for CI and Full Integration on this SHA
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash .github/workflows/scripts/await-green.sh
+
   # ============================================================
   # SDK Publish — Nexus maven repository (client/java only)
   # Runs on both main and release branches. Dynamic version is
@@ -31,7 +68,14 @@ jobs:
   deploy-sdk:
     name: Publish SDK to Nexus
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release-v')
+    needs: [await-main-gate]
+    # release-v* never runs the gate (it is skipped there); on main the
+    # SDK publish is allowed only when the gate succeeded.
+    if: >-
+      always() &&
+      (startsWith(github.ref, 'refs/heads/release-v') ||
+       (github.ref == 'refs/heads/main' &&
+        needs.await-main-gate.result == 'success'))
 
     steps:
       - uses: actions/checkout@v4
@@ -122,7 +166,8 @@ jobs:
   deploy-awsdev:
     name: Deploy to awsdev
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    needs: [await-main-gate]
+    if: ${{ github.ref == 'refs/heads/main' && needs.await-main-gate.result == 'success' }}
     environment:
       name: awsdev
 

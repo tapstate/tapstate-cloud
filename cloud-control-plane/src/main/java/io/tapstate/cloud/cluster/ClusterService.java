@@ -59,20 +59,19 @@ public class ClusterService {
     // ========== Create Cluster (internal — called by SubscriptionService) ==========
 
     /**
-     * Create a new Cluster record and fire the START_PROVISION state-machine event.
+     * Create a new Cluster record. The START_PROVISION state-machine event is
+     * NOT fired here — the caller invokes {@link #startProvisioning(ObjectId, String)}
+     * only after the Cluster -> MdbAllocation link is durable.
      * <p>
      * This is the internal entry point — called by the subscription orchestration
      * flow after {@code SubscriptionService} has validated the subscription is
      * active/valid. No subscription validity gate here (that lives upstream).
-     * <p>
-     * Returns immediately with PROVISIONING_PENDING state — the state machine's
-     * transition effect fires async CloudFormation simulation. MDB allocation
-     * is handled separately by {@link io.tapstate.cloud.mdb.MdbAllocationService}.
      *
-     * @return the persisted Cluster (state PROVISIONING_PENDING, START_PROVISION fired)
+     * @return the persisted Cluster (state PROVISIONING_PENDING, provisioning not yet started)
      */
     @Transactional
-    public Cluster createCluster(String orgId, String region, String name, String specKey, String creatorEmail) {
+    public Cluster createCluster(String orgId, ObjectId subscriptionId, String region,
+                                 String name, String specKey, String creatorEmail) {
         if (!memberRepository.existsByOrgIdAndUserEmail(new ObjectId(orgId), creatorEmail)) {
             throw new BusinessException(AppErrorCode.ORG_NOT_MEMBER, 403, orgId);
         }
@@ -84,6 +83,7 @@ public class ClusterService {
         // ---- Cluster record ----
         Cluster cluster = Cluster.builder()
             .orgId(new ObjectId(orgId))
+            .subscriptionId(subscriptionId)
             .region(region)
             .name(name)
             .specKey(specKey != null ? specKey : "basic")
@@ -101,12 +101,25 @@ public class ClusterService {
         saved.getTags().put("runtime_id", saved.getRuntimeId());
         saved = clusterRepository.save(saved);
 
-        // Fire START_PROVISION event → state machine moves PENDING → PROVISIONING
-        clusterStateMachineService.transition(saved.getId(),
-            ClusterEventType.START_PROVISION, "subscription:" + creatorEmail);
-
-        log.info("Cluster created: {} (sm transition START_PROVISION fired)", saved.getId().toHexString());
+        // The record stays PROVISIONING_PENDING until the caller links the
+        // MdbAllocation and invokes startProvisioning. Firing here would race
+        // the subscription flow, whose allocation link is saved only after this
+        // returns: the async provisioning run can load and persist a snapshot
+        // that predates the link and erase it.
+        log.info("Cluster created: {} (provisioning pending until started)",
+            saved.getId().toHexString());
         return saved;
+    }
+
+    /**
+     * Fire START_PROVISION on a previously created Cluster. The subscription
+     * flow calls this only after the Cluster -> MdbAllocation link is
+     * persisted, so the asynchronous provisioning run observes the link from
+     * its very first document load.
+     */
+    public void startProvisioning(ObjectId clusterId, String trigger) {
+        clusterStateMachineService.transition(clusterId,
+            ClusterEventType.START_PROVISION, trigger);
     }
 
     // ========== Link MDB allocation (called by SubscriptionService after allocation) ==========
@@ -118,7 +131,7 @@ public class ClusterService {
     @Transactional
     public void updateMdbAllocationId(ObjectId clusterId, ObjectId allocationId) {
         clusterRepository.findById(clusterId).ifPresent(cluster -> {
-            cluster.setMdbAllocationId(allocationId.toHexString());
+            cluster.setMdbAllocationId(allocationId);
             clusterRepository.save(cluster);
         });
     }
@@ -127,9 +140,12 @@ public class ClusterService {
 
     public List<Cluster> listOrgClusters(String orgId, String userEmail) {
         if (!memberRepository.existsByOrgIdAndUserEmail(new ObjectId(orgId), userEmail)) {
+            log.warn("[Cluster] list denied: user={} is not a member of org={}", userEmail, orgId);
             throw new BusinessException(AppErrorCode.ORG_NOT_MEMBER, 403, orgId);
         }
-        return clusterRepository.findByOrgId(new ObjectId(orgId));
+        List<Cluster> clusters = clusterRepository.findByOrgId(new ObjectId(orgId));
+        log.debug("[Cluster] list org={} user={} -> {} cluster(s)", orgId, userEmail, clusters.size());
+        return clusters;
     }
 
     public Cluster getCluster(String clusterId, String orgId, String userEmail) {
@@ -285,9 +301,13 @@ public class ClusterService {
         Instant threshold = Instant.now().minus(5, ChronoUnit.MINUTES);
         List<Cluster> expired = clusterRepository.findReadyClustersWithExpiredHeartbeat(
             ClusterState.READY, threshold);
-        if (expired.isEmpty()) return;
+        if (expired.isEmpty()) {
+            log.info("[HeartbeatScanner] tick: 0 READY clusters with stale heartbeat (threshold={})", threshold);
+            return;
+        }
 
-        log.info("[HeartbeatScanner] {} READY clusters with stale heartbeat (>5min)", expired.size());
+        log.info("[HeartbeatScanner] {} READY clusters with stale heartbeat (>5min), firing HEARTBEAT_TIMEOUT",
+            expired.size());
         for (Cluster cluster : expired) {
             clusterStateMachineService.transition(cluster.getId(),
                 ClusterEventType.HEARTBEAT_TIMEOUT, "system:heartbeat-scanner");

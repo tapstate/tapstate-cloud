@@ -44,8 +44,8 @@ public class C2StatusReportApi extends BaseApi {
 
   /**
    * Runtime C2 status report (heartbeat + metrics)
-   * Runtime SDK posts heartbeat + infrastructure-level health metrics.  Authentication: Bearer token in Authorization header — the Cluster&#39;s per-Cluster sdk-static-token (issued at provisioning time).  Nonce replay protection: Every request must carry a unique nonce string. Duplicate nonce → 409 auth.nonce-replay.  Data minimization: Only infrastructure metrics accepted (runtime version, uptime, active pipeline count, last error time). No user data, Source/Pipeline configs, or Atlas credentials flow through this endpoint.  Effects: Updates Cluster.lastHeartbeatAt; auto-transitions state DEGRADED → READY on heartbeat recovery (5min window).
-   * @param clusterId Cluster UUID — must match the Bearer token&#39;s owning Cluster (required)
+   * Runtime SDK posts heartbeat + infrastructure-level health metrics.  Authentication: Bearer token in Authorization header — the Cluster&#39;s per-Cluster sdk-static-token (issued at provisioning time).  Nonce replay protection: Every request must carry a unique nonce string. Duplicate nonce → 409 auth.nonce-replay.  Data minimization: Only infrastructure metrics accepted (runtime version, uptime, active pipeline count, last error time). No user data, Source/Pipeline configs, or Atlas credentials flow through this endpoint.  Effects: Updates Cluster.lastHeartbeatAt; stores full payload as Cluster.lastStatusReport embedded document; auto-transitions state DEGRADED → READY on heartbeat recovery (5min window).
+   * @param clusterId Cluster ObjectId — must match the Bearer token&#39;s owning Cluster (required)
    * @param statusReportRequest  (required)
    * @param authorization  (optional)
    * @return ApiResponseStatusReportResponse
@@ -58,8 +58,8 @@ public class C2StatusReportApi extends BaseApi {
 
   /**
    * Runtime C2 status report (heartbeat + metrics)
-   * Runtime SDK posts heartbeat + infrastructure-level health metrics.  Authentication: Bearer token in Authorization header — the Cluster&#39;s per-Cluster sdk-static-token (issued at provisioning time).  Nonce replay protection: Every request must carry a unique nonce string. Duplicate nonce → 409 auth.nonce-replay.  Data minimization: Only infrastructure metrics accepted (runtime version, uptime, active pipeline count, last error time). No user data, Source/Pipeline configs, or Atlas credentials flow through this endpoint.  Effects: Updates Cluster.lastHeartbeatAt; auto-transitions state DEGRADED → READY on heartbeat recovery (5min window).
-   * @param clusterId Cluster UUID — must match the Bearer token&#39;s owning Cluster (required)
+   * Runtime SDK posts heartbeat + infrastructure-level health metrics.  Authentication: Bearer token in Authorization header — the Cluster&#39;s per-Cluster sdk-static-token (issued at provisioning time).  Nonce replay protection: Every request must carry a unique nonce string. Duplicate nonce → 409 auth.nonce-replay.  Data minimization: Only infrastructure metrics accepted (runtime version, uptime, active pipeline count, last error time). No user data, Source/Pipeline configs, or Atlas credentials flow through this endpoint.  Effects: Updates Cluster.lastHeartbeatAt; stores full payload as Cluster.lastStatusReport embedded document; auto-transitions state DEGRADED → READY on heartbeat recovery (5min window).
+   * @param clusterId Cluster ObjectId — must match the Bearer token&#39;s owning Cluster (required)
    * @param statusReportRequest  (required)
    * @param authorization  (optional)
    * @param additionalHeaders additionalHeaders for this call

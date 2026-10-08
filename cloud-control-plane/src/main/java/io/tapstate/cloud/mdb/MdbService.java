@@ -2,69 +2,70 @@ package io.tapstate.cloud.mdb;
 
 /**
  * Abstract MDB (MongoDB / Materialized Database) service — allocation engine
- * for per-customer database resources on shared infrastructure.
+ * for per-Cluster database resources on shared infrastructure.
  * <p>
- * The default implementation is {@code AtlasMdbService} which carves databases
- * out of pre-administered Atlas instances. Swappable: a future {@code LocalMdbService}
- * could allocate from a local replica set for dev/test.
+ * Default implementation is {@link AtlasMdbService} which carves databases
+ * out of pre-administered Atlas clusters ({@link MdbCluster}). Swappable:
+ * a future LocalMdbService could allocate from a local replica set.
  * <p>
  * Lifecycle (per-Cluster):
  * <ol>
- *   <li>{@link #createMdb(String, String, String)} — pick an Atlas instance by region + capacity</li>
- *   <li>{@link #createDatabase(MdbAllocation)} — call Atlas to create the customer database</li>
- *   <li>{@link #createDatabaseUser(MdbAllocation)} — call Atlas to create the database owner user</li>
- *   <li>{@link #destroyMdb(MdbAllocation)} — release (call {@link #dropDatabase} + {@link #dropDatabaseUser})</li>
+ *   <li>{@link #createMdb(String, String, String)} — pick an MdbCluster by region + capacity</li>
+ *   <li>{@link #createDatabase(MdbAllocation)} — verify Atlas cluster reachability</li>
+ *   <li>{@link #createDatabaseUser(MdbAllocation)} — call Atlas Admin API to create the dbAdmin+readWrite-scoped user</li>
+ *   <li>{@link #destroyMdb(MdbAllocation)} — release via dropDatabase + dropDatabaseUser (shared-instance is admin-managed)</li>
  * </ol>
- * {@link #destroyMdb} is a no-op for shared-instance Atlas because the instance
- * itself is admin-managed; only the per-allocation database + user are torn down.
- * <p>
  * All methods throw {@link MdbException} on failure — callers catch this and
  * transition the allocation record to {@link MdbAllocationStatus#PROVISIONING_FAILED}.
  */
 public interface MdbService {
 
     /**
-     * Step 1: Find the least-loaded ACTIVE Atlas instance matching the given region
-     * and atomically increment its {@code currentCustomers}.
+     * Find the least-loaded ACTIVE MdbCluster matching the given region and
+     * atomically increment its {@code currentAllocations} via findAndModify.
      * <p>
-     * Returns the selected {@link AtlasInstanceConfig} snapshot — caller creates the
-     * {@link MdbAllocation} record from this, then calls {@link #createDatabase} +
-     * {@link #createDatabaseUser} in the async state machine flow.
+     * Returns the reserved MdbCluster snapshot — caller persists the
+     * {@link MdbAllocation} from this, then triggers the async state machine
+     * flow that calls {@link #createDatabase} + {@link #createDatabaseUser}.
      *
-     * @param orgId     owning organization
-     * @param clusterId owning cluster
-     * @param region    required region — matches Atlas instance config's region field
-     * @return selected Atlas instance config
-     * @throws MdbException no ACTIVE instance for this region / all at capacity
+     * @param orgId     owning organization (ISO hex or ObjectId string)
+     * @param clusterId owning cluster (ISO hex or ObjectId string)
+     * @param region    required region — matches MdbCluster.region
+     * @return reserved MdbCluster with incremented currentAllocations
+     * @throws MdbException no ACTIVE MdbCluster for this region / all at capacity
      */
-    AtlasInstanceConfig createMdb(String orgId, String clusterId, String region);
+    MdbCluster createMdb(String orgId, String clusterId, String region);
 
-    /** No-op for shared Atlas instances — instance itself is admin-managed. */
+    /** No-op for shared MdbCluster instances — instance itself is admin-managed. */
     default void destroyMdb(MdbAllocation allocation) {
-        // Atlas instance is shared — nothing to tear down at instance level.
+        // Shared Atlas cluster is admin-provisioned — nothing to tear down at instance level.
         // Per-allocation resources released via dropDatabase + dropDatabaseUser.
     }
 
     /**
-     * Call Atlas API to create the customer database on the allocated instance.
-     * <p>
-     * In Atlas, databases are created implicitly on first write — so this step
-     * verifies connectivity and seeds the database if the implementation chooses
-     * to (e.g. createCollection). Record's {@link MdbAllocation#status} stays
-     * {@link MdbAllocationStatus#PROVISIONING} during the call.
+     * Verify Atlas cluster reachability. Atlas has no explicit create-db endpoint —
+     * databases are created implicitly on first write. This step validates the
+     * MdbCluster.cluster.stateName == "IDLE" and seeds a marker document if needed.
+     * Record's {@link MdbAllocation#status} is {@link MdbAllocationStatus#PROVISIONING}
+     * during the call.
      */
     void createDatabase(MdbAllocation allocation);
 
     /**
-     * Call Atlas API to create the customer database user with {@code readWrite}
-     * on the allocated database. Atlas username + password come from
+     * Call Atlas Admin API to create the database user with {@code dbAdmin} and
+     * {@code readWrite} roles on the three allocation databases
+     * (main + operator + views). readWrite is required for the runtime's data
+     * access and bootstrap migrations; dbAdmin additionally permits dropping the
+     * databases on reclaim. Atlas username / password come from
      * {@link MdbAllocation#getDbUsername()} / {@link MdbAllocation#getDbPassword()}.
+     * <p>
+     * Idempotent: 409 USER_ALREADY_EXISTS treated as success.
      */
     void createDatabaseUser(MdbAllocation allocation);
 
-    /** Drop the allocated database (Atlas admin API deleteCollection on each collection, or admin deleteDatabase). */
+    /** Drop the three allocation databases via MongoClient (dbAdmin role has authority). */
     void dropDatabase(MdbAllocation allocation);
 
-    /** Drop the allocated database user on Atlas. */
+    /** Drop the allocation's database user via Atlas Admin API. 404 treated as success. */
     void dropDatabaseUser(MdbAllocation allocation);
 }

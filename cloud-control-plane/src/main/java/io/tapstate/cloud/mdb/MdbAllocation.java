@@ -5,6 +5,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.bson.types.ObjectId;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.annotation.LastModifiedDate;
@@ -12,21 +13,31 @@ import org.springframework.data.mongodb.core.index.CompoundIndex;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.Instant;
-import org.bson.types.ObjectId;
 
 /**
- * Per-customer database allocation record — tracks which shared Atlas instance
- * a customer's database lives on, plus the runtime credentials the Cluster SDK
- * uses to connect to it.
+ * Per-Cluster database allocation record — tracks which shared Atlas Cluster
+ * ({@link MdbCluster}) a Cluster's per-customer databases live on, plus the
+ * runtime credentials the Cluster SDK uses to connect to them.
  * <p>
- * Lifetime: created when a Customer subscribes (Cluster provisioning), moved to
- * {@link MdbAllocationStatus#READY} once database + user exist on Atlas, and
- * deleted when the subscription is cancelled (release the database + user on Atlas,
- * decrement {@link AtlasInstanceConfig#currentCustomers}).
+ * Lifetime: created when a Subscription is provisioned, transitions to
+ * {@link MdbAllocationStatus#READY} once the Atlas db + dbUser exist, moved to
+ * {@link MdbAllocationStatus#DELETED} on Subscription cancel.
  * <p>
- * Customer database is isolated by database name + database user — both unique
- * per Cluster. Connection uses the parent {@link AtlasInstanceConfig#connectionString}
- * plus the allocated {@link #databaseName} + {@link #dbUsername} + {@link #dbPassword}.
+ * Database naming (PO decision — full 24-char Cluster ObjectId hex):
+ * <pre>
+ *   main db        = mdb_{clusterId.toHexString()}
+ *   operator db    = mdb_{clusterId.toHexString()}_operator
+ *   views db       = mdb_{clusterId.toHexString()}_views
+ * </pre>
+ * <p>
+ * dbUser roles are {@code dbAdmin} + {@code readWrite} on each of the three
+ * databases (plus clusterMonitor / read config / read local). readWrite carries
+ * the runtime's data and migration privileges; dbAdmin additionally authorizes
+ * dropping the allocation's own databases, so the separate admin dbUser
+ * credential path is gone.
+ * <p>
+ * Connection string construction: clean parent {@link MdbCluster#connectionString}
+ * + per-allocation dbUser/dbPassword + main database name ({@code authSource=admin}).
  */
 @Document(collection = "mdb_allocations")
 @Data
@@ -35,50 +46,49 @@ import org.bson.types.ObjectId;
 @AllArgsConstructor
 @CompoundIndex(name = "cluster_unique", def = "{'clusterId': 1}", unique = true)
 @CompoundIndex(name = "org_db_unique", def = "{'orgId': 1, 'databaseName': 1}", unique = true)
-@Schema(description = "Atlas database allocation record — per-Cluster DB + user on a shared Atlas instance")
+@Schema(description = "Atlas database allocation record — per-Cluster DB + user on a shared Atlas Cluster")
 public class MdbAllocation {
 
     @Id
-    @Schema(description = "Allocation ID")
+    @Schema(description = "Allocation ObjectId")
     private ObjectId id;
 
-    /** Owning Organization — allocation belongs to org, not user directly. */
-    @Schema(description = "Organization ID")
+    /** Owning Organization — allocation belongs to the org, not a user directly. */
+    @Schema(description = "Organization ObjectId (isolation boundary)")
     private ObjectId orgId;
 
-    /** Cluster that owns this allocation (one allocation per Cluster). */
-    @Schema(description = "Cluster ID")
-    private ObjectId clusterId;
-
-    /** Parent subscription ID — links allocation to subscription lifecycle. */
-    @Schema(description = "Subscription ID")
+    /** Subscription that owns this allocation — main lifecycle driver. */
+    @Schema(description = "Subscription ObjectId — main lifecycle link")
     private ObjectId subscriptionId;
 
-    // ========== Atlas link ==========
+    /** Cluster that owns this allocation — one allocation per Cluster (enforced by unique index). */
+    @Schema(description = "Cluster ObjectId — unique per Cluster")
+    private ObjectId clusterId;
 
-    @Schema(description = "ID of the parent AtlasInstanceConfig this allocation lives on")
-    private ObjectId atlasInstanceId;
-
-    /** Duplicated from config at creation time so allocation stays self-contained. */
-    @Schema(description = "Atlas Project ID (snapshot from config at creation)")
-    private String atlasProjectId;
-
-    @Schema(description = "Atlas Cluster name (snapshot from config at creation)")
-    private String atlasClusterName;
+    /** Parent MdbCluster this allocation lives on. */
+    @Schema(description = "FK to MdbCluster — the shared Atlas cluster")
+    private ObjectId mdbClusterId;
 
     // ========== Per-allocation DB + user ==========
 
-    @Schema(description = "Allocated MongoDB database name on Atlas", example = "tapstate_cluster_abc123")
+    /** main db: {@code mdb_{clusterId.toHexString()}} (24-char full ObjectId hex). */
+    @Schema(description = "Main database name", example = "mdb_6475a2b3c1d4e5f6a7b8c9d1")
     private String databaseName;
 
-    @Schema(description = "Allocated database username (database owner role)", example = "cluster_abc123_owner")
+    /** operator db: {@code mdb_{clusterId.toHexString()}_operator}. */
+    @Schema(description = "Operator state database name", example = "mdb_6475a2b3c1d4e5f6a7b8c9d1_operator")
+    private String operatorDbName;
+
+    /** views db: {@code mdb_{clusterId.toHexString()}_views}. */
+    @Schema(description = "Views database name", example = "mdb_6475a2b3c1d4e5f6a7b8c9d1_views")
+    private String viewsDbName;
+
+    /** Atlas db username — owner_{databaseName} pattern, ≤ 64 chars. */
+    @Schema(description = "Atlas database username", example = "owner_mdb_6475a2b3c1d4e5f6a7b8c9d1")
     private String dbUsername;
 
-    /**
-     * Database user password — plaintext stored server-side only.
-     * NEVER returned in API responses; the Cluster runtime reads it via internal lookup.
-     */
-    @Schema(description = "Database user password — server-side only", hidden = true)
+    /** Plaintext password — 32-byte SecureRandom → 48-char hex. Stored server-side only. */
+    @Schema(description = "Database user password — SENSITIVE, never serialized", hidden = true)
     private String dbPassword;
 
     // ========== Status ==========
@@ -87,14 +97,11 @@ public class MdbAllocation {
     @Builder.Default
     private MdbAllocationStatus status = MdbAllocationStatus.PROVISIONING_PENDING;
 
-    @Schema(description = "Provisioning failure error code (only when status = PROVISIONING_FAILED)")
+    @Schema(description = "Provisioning failure error code (only when PROVISIONING_FAILED)")
     private String provisionErrorCode;
 
-    @Schema(description = "Diagnostic detail (only when PROVISIONING_FAILED or DELETING)")
+    @Schema(description = "Diagnostic detail (only when PROVISIONING_FAILED / DELETING)")
     private String provisionErrorDetail;
-
-    @Schema(description = "Atlas API response correlation id for last operation")
-    private String atlasRequestId;
 
     // ========== Timestamps ==========
 
@@ -112,25 +119,45 @@ public class MdbAllocation {
 
     /**
      * Build the full MongoDB connection URI the Cluster runtime uses.
-     * Takes the shared instance connection string + allocated db user + db name.
+     * Takes the clean shared-cluster connection string + injects our dbUser/dbPassword
+     * + main database name + {@code authSource=admin} (Atlas default).
      * <p>
-     * Example output: {@code mongodb+srv://cluster_abc_owner:p***@tapstate-shared.mongodb.net/tapstate_cluster_abc}
+     * Supports both Atlas URI flavors:
+     * <pre>
+     *   mongodb+srv://host                       → mongodb+srv://user:pass@host/db?authSource=admin
+     *   mongodb://host1:27017,host2:27017[/...]  → mongodb://user:pass@host1:27017,host2:27017/db?authSource=admin
+     * </pre>
+     * Any credentials or options embedded in the input are replaced: the runtime
+     * authenticates exclusively as this allocation's dbUser against the main db.
+     *
+     * @param instanceConnectionString clean URI from MdbCluster (no credentials embedded)
      */
     public String buildRuntimeConnectionString(String instanceConnectionString) {
         if (instanceConnectionString == null) return null;
-        // Strip existing user:password from the connection string — we inject our own
-        // mongodb+srv://host.tapstate.net/dbname?authSource=admin
-        String stripped = instanceConnectionString.replaceFirst("mongodb\\+srv://[^/@]*@", "mongodb+srv://");
-        // Inject our user:password before the host
-        String userPart = "mongodb+srv://" + dbUsername + ":" + dbPassword + "@";
-        String rest = stripped.substring("mongodb+srv://".length());
-        // Append database name + authSource=admin (Atlas default auth DB)
-        int q = rest.indexOf('?');
-        if (q > 0) {
-            rest = rest.substring(0, q) + "/" + databaseName + "?authSource=admin&" + rest.substring(q + 1);
-        } else {
-            rest = rest + "/" + databaseName + "?authSource=admin";
+
+        int schemeEnd = instanceConnectionString.indexOf("://");
+        if (schemeEnd < 0) {
+            throw new IllegalArgumentException(
+                "Invalid MongoDB connection string (no scheme): " + instanceConnectionString);
         }
-        return userPart + rest;
+        String scheme = instanceConnectionString.substring(0, schemeEnd + 3);
+        String authorityAndPath = instanceConnectionString.substring(schemeEnd + 3);
+
+        // Strip any embedded credentials; keep the host list and preserve any
+        // existing options (authSource is always forced to admin).
+        int at = authorityAndPath.indexOf('@');
+        String rest = at >= 0 ? authorityAndPath.substring(at + 1) : authorityAndPath;
+        int question = rest.indexOf('?');
+        String hostAndPath = question >= 0 ? rest.substring(0, question) : rest;
+        String existingOptions = question >= 0 ? rest.substring(question + 1) : "";
+        int slash = hostAndPath.indexOf('/');
+        String hostList = slash >= 0 ? hostAndPath.substring(0, slash) : hostAndPath;
+
+        String options = existingOptions.isBlank()
+            ? "authSource=admin"
+            : "authSource=admin&" + existingOptions;
+
+        return scheme + dbUsername + ":" + dbPassword + "@" + hostList
+            + "/" + databaseName + "?" + options;
     }
 }

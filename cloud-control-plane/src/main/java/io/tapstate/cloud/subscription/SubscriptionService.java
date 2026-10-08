@@ -6,10 +6,13 @@ import io.tapstate.cloud.common.api.AppErrorCode;
 import io.tapstate.cloud.common.api.BusinessException;
 import io.tapstate.cloud.mdb.MdbAllocation;
 import io.tapstate.cloud.mdb.MdbAllocationService;
+import io.tapstate.cloud.progress.DeploymentOpType;
+import io.tapstate.cloud.progress.DeploymentStepRecorder;
 import io.tapstate.cloud.subscription.fsm.SubscriptionEventType;
 import io.tapstate.cloud.subscription.fsm.SubscriptionStateMachineService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.bson.types.ObjectId;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,32 +21,29 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
-import org.bson.types.ObjectId;
 
 /**
- * Subscription lifecycle management — create subscription with default items,
- * provision initial Cluster + MDB allocation on activation, enforce subscription
- * validity at resource-provisioning gates.
+ * Subscription lifecycle management — create subscriptions with their default
+ * items, provision the one Cluster + one MdbAllocation every subscription owns,
+ * and enforce subscription validity at resource-provisioning gates.
+ * <p>
+ * An Organization owns many Subscriptions; each Subscription owns exactly one
+ * Cluster and one MdbAllocation. Creating an Organization no longer creates a
+ * subscription — every subscription is created explicitly via
+ * {@code POST /v1/api/orgs/{orgId}/subscriptions}.
  * <p>
  * All status transitions (TRIAL↔ACTIVE↔PAST_DUE↔CANCELLED) go through
  * {@link SubscriptionStateMachineService} which wraps Spring Statemachine.
  * This enforces validated transition paths — rejected transitions return
  * the current status unchanged without mutating the DB.
  * <p>
- * <b>Creation flow</b> (POST /subscription):
+ * <b>Creation flow</b> ({@code POST /subscriptions}):
  * <ol>
- *   <li>Create Subscription (TRIAL state) + default billable items</li>
- *   <li>Sync create Cluster record → Cluster state machine fires START_PROVISION</li>
- *   <li>Sync create MdbAllocation record → MDB state machine fires START_PROVISION</li>
+ *   <li>Create Subscription (TRIAL state) + its two default billable items</li>
+ *   <li>Sync create Cluster record (linked to the new subscription)</li>
+ *   <li>Sync create MdbAllocation record (linked to the new subscription)</li>
+ *   <li>Start Cluster provisioning; both state machines then run async</li>
  * </ol>
- * Both state machines run in parallel; the subscription orchestration layer
- * (this service) coordinates them.
- * <p>
- * <b>Org auto-subscription</b> (OrganizationService): calls
- * {@link #createDefaultSubscription(String)} — creates only the subscription
- * shell (no Cluster + MDB). The explicit POST /subscription endpoint is what
- * triggers actual resource provisioning.
  */
 @Service
 @RequiredArgsConstructor
@@ -56,79 +56,71 @@ public class SubscriptionService {
     private final ApplicationEventPublisher eventPublisher;
     private final ClusterService clusterService;
     private final MdbAllocationService mdbAllocationService;
+    private final DeploymentStepRecorder deploymentStepRecorder;
 
     /** Default trial period — 30 days. */
     private static final int TRIAL_DAYS = 30;
 
-    // ========== Org auto-subscription (shell only — no Cluster/MDB) ==========
+    // ========== Create subscription with its Cluster + MDB ==========
 
     /**
-     * Create the default subscription shell for a newly-created Organization.
-     * <p>
-     * Called during organization creation (auto-wired in OrganizationService).
-     * Idempotent: throws if one already exists. Does NOT provision Cluster or MDB —
-     * those happen when the user explicitly subscribes via POST /subscription.
-     */
-    @Transactional
-    public Subscription createDefaultSubscription(String orgId) {
-        subscriptionRepository.findByOrgId(new ObjectId(orgId)).ifPresent(existing -> {
-            throw new IllegalStateException(
-                "Organization " + orgId + " already has a subscription (id=" + existing.getId() + ")");
-        });
-
-        return createSubscriptionShell(orgId);
-    }
-
-    // ========== Explicit subscription with Cluster + MDB ==========
-
-    /**
-     * Create a full subscription with initial Cluster + Atlas MDB allocation.
-     * <p>
-     * This is the entry point for POST /subscription — the user explicitly
-     * subscribes with a Cluster region/name/spec. Creates:
-     * <ol>
-     *   <li>Subscription (TRIAL, 30-day period) + default billable items</li>
-     *   <li>Cluster record → Cluster FSM async CloudFormation simulation</li>
-     *   <li>MdbAllocation record → MDB FSM async Atlas DB + user creation</li>
-     * </ol>
-     * <p>
-     * If the org already has a subscription shell (from OrganizationService),
-     * reuses it instead of creating a duplicate.
+     * Create a new subscription (TRIAL, 30-day period) with its two default
+     * billable items, then provision its one Cluster and one Atlas MdbAllocation.
      *
-     * @param orgId       owning organization
-     * @param region      AWS region for the initial Cluster
-     * @param clusterName Cluster display name
-     * @param specKey     provisioning spec (e.g. "basic")
+     * @param orgId        owning organization
+     * @param region       AWS region for the Cluster
+     * @param clusterName  Cluster display name (unique within org + region)
+     * @param specKey      provisioning spec (e.g. "basic")
      * @param creatorEmail user email for audit
-     * @return the created/updated subscription with Cluster and MDB allocation records
+     * @return the persisted subscription with Cluster and MDB allocation records
      */
     @Transactional
     public Subscription createSubscription(String orgId, String region, String clusterName,
                                            String specKey, String creatorEmail) {
-        // Reuse existing subscription shell or create new one
-        Subscription subscription = subscriptionRepository.findByOrgId(new ObjectId(orgId))
-            .orElseGet(() -> createSubscriptionShell(orgId));
-
+        // 1. Subscription shell + the two default billable items.
+        Subscription subscription = createSubscriptionShell(orgId);
         ObjectId subscriptionId = subscription.getId();
 
-        // Sync: create Cluster record + fire START_PROVISION
+        // Seed every INSTALL operation as PENDING before any worker can start.
+        deploymentStepRecorder.seed(new ObjectId(orgId), subscriptionId, DeploymentOpType.INSTALL);
+
+        // 2. Sync: create Cluster record (provisioning starts only after the
+        //    allocation link below is durable).
         Cluster cluster = clusterService.createCluster(
-            orgId, region, clusterName, specKey, creatorEmail);
+            orgId, subscriptionId, region, clusterName, specKey, creatorEmail);
         log.info("[Subscription] Cluster created: clusterId={}, subscriptionId={}",
             cluster.getId().toHexString(), subscriptionId.toHexString());
 
-        // Sync: create MdbAllocation record + fire START_PROVISION
+        // 3. Sync: create MdbAllocation record + fire its START_PROVISION.
         MdbAllocation allocation = mdbAllocationService.allocateMdb(
             orgId, cluster.getId().toHexString(), region, subscriptionId.toHexString());
         log.info("[Subscription] MdbAllocation created: allocationId={}, clusterId={}, subscriptionId={}",
             allocation.getId().toHexString(), cluster.getId().toHexString(), subscriptionId.toHexString());
 
-        // Link allocation ID to Cluster so the Cluster runtime can find its Atlas DB credentials
-        cluster.setMdbAllocationId(allocation.getId().toHexString());
-        // Note: we need to save cluster — but ClusterService.createCluster already owns the save.
-        // We do a lightweight update here (only setting mdbAllocationId).
-        // Actually, let's use the repo directly since it's a simple add-on.
+        // Link allocation ID to Cluster so the Cluster runtime can find its Atlas DB credentials.
+        cluster.setMdbAllocationId(allocation.getId());
         clusterService.updateMdbAllocationId(cluster.getId(), allocation.getId());
+
+        // Record the provisioned resource IDs on this subscription's own billable
+        // items, so usage aggregation and billing can resolve each line to the
+        // actual Cluster / MdbAllocation instead of inferring the link.
+        linkItemResource(subscriptionId, SubscriptionItemType.CLUSTER_PIPELINE_RUNTIME,
+            cluster.getId(), null);
+        linkItemResource(subscriptionId, SubscriptionItemType.ATLAS_DATABASE_STORAGE,
+            null, allocation.getId());
+
+        // Start Cluster provisioning only now that its allocation link is
+        // durable. The async run loads the Cluster after this point and always
+        // observes the link, so the runtime URI resolves via the allocation
+        // instead of silently falling back to the global URI / local sidecar.
+        clusterService.startProvisioning(cluster.getId(),
+            "subscription:" + creatorEmail);
+
+        // Both FSMs are now running; the subscription resources stay PROVISIONING
+        // until SubscriptionResourceCoordinator observes the Cluster AND allocation READY.
+        subscription.setResourceState(ResourceState.PROVISIONING);
+        subscription.setUpdatedAt(Instant.now());
+        subscriptionRepository.save(subscription);
 
         log.info("[Subscription] Full subscription provisioned: subscriptionId={}, clusterId={}, allocationId={}",
             subscriptionId.toHexString(), cluster.getId().toHexString(), allocation.getId().toHexString());
@@ -138,37 +130,44 @@ public class SubscriptionService {
 
     // ========== Read ==========
 
-    /**
-     * Get the subscription for an Organization, throwing i18n BusinessException if not found.
-     */
-    public Subscription getByOrgId(String orgId) {
-        return subscriptionRepository.findByOrgId(new ObjectId(orgId))
-            .orElseThrow(() -> new BusinessException(AppErrorCode.SUBSCRIPTION_NOT_FOUND, 404, orgId));
+    /** List every Subscription owned by an Organization, newest first. */
+    public List<Subscription> listByOrgId(String orgId) {
+        return subscriptionRepository.findByOrgIdOrderByCreatedAtDesc(new ObjectId(orgId));
     }
 
     /**
-     * Get subscription items for an Organization (denormalized lookup).
+     * Get a subscription scoped by its owning Organization. Throws i18n
+     * BusinessException (404) when it does not exist or belongs to another org.
      */
-    public List<SubscriptionItem> getItemsByOrgId(String orgId) {
-        return itemRepository.findByOrgId(new ObjectId(orgId));
+    public Subscription getByIdAndOrgId(String subscriptionId, String orgId) {
+        return subscriptionRepository
+            .findByIdAndOrgId(new ObjectId(subscriptionId), new ObjectId(orgId))
+            .orElseThrow(() -> new BusinessException(AppErrorCode.SUBSCRIPTION_NOT_FOUND, 404, subscriptionId));
+    }
+
+    /** Get the billable items of one subscription. */
+    public List<SubscriptionItem> getItems(ObjectId subscriptionId) {
+        return itemRepository.findBySubscriptionId(subscriptionId);
     }
 
     // ========== Cancel ==========
 
     /**
-     * Cancel the subscription for an Organization — marks it CANCELLED in the state
-     * machine and publishes {@link SubscriptionCancelledEvent} so listeners can
-     * cascade termination of all Clusters and reclaim all MDB allocations.
+     * Cancel one subscription — mark it CANCELLED through the state machine and
+     * publish {@link SubscriptionCancelledEvent} so listeners cascade the
+     * termination of the subscription's own Cluster and the reclaim of its own
+     * MdbAllocation. Other subscriptions of the same org are untouched.
      * <p>
      * Valid from any of: TRIAL / ACTIVE / PAST_DUE. Already-CANCELLED is a
      * no-op (returns current subscription unchanged).
      *
-     * @param orgId   organization whose subscription to cancel
-     * @param operator who triggered the cancel (e.g. "gc:user-email")
+     * @param subscriptionId subscription to cancel
+     * @param orgId          owning organization (ownership check)
+     * @param operator       who triggered the cancel (e.g. "gc:user-email")
      */
     @Transactional
-    public Subscription cancelSubscription(String orgId, String operator) {
-        Subscription subscription = getByOrgId(orgId);
+    public Subscription cancelSubscription(String subscriptionId, String orgId, String operator) {
+        Subscription subscription = getByIdAndOrgId(subscriptionId, orgId);
         if (subscription.getStatus() == SubscriptionStatus.CANCELLED) {
             return subscription; // idempotent — already cancelled
         }
@@ -179,16 +178,22 @@ public class SubscriptionService {
         if (result.accepted()) {
             Subscription updated = subscriptionRepository.findById(subscription.getId())
                 .orElse(subscription);
-            log.info("Subscription CANCELLED for org={} by operator={}", orgId, operator);
+            log.info("Subscription {} CANCELLED for org={} by operator={}",
+                subscriptionId, orgId, operator);
 
-            // Publish event → listeners cascade Cluster termination + MDB reclaim
+            // Seed every UNINSTALL operation as PENDING so the API can report
+            // release progress even before the cascading workers pick up.
+            deploymentStepRecorder.seed(new ObjectId(orgId), subscription.getId(),
+                DeploymentOpType.UNINSTALL);
+
+            // Publish event → listeners cascade this subscription's Cluster termination + MDB reclaim
             eventPublisher.publishEvent(new SubscriptionCancelledEvent(
                 orgId, subscription.getId().toHexString(), operator));
 
             return updated;
         } else {
-            log.warn("Subscription cancel transition rejected for org={} (current status={})",
-                orgId, subscription.getStatus());
+            log.warn("Subscription cancel transition rejected for subscription={} (current status={})",
+                subscriptionId, subscription.getStatus());
             return subscription;
         }
     }
@@ -202,22 +207,22 @@ public class SubscriptionService {
      * the state machine validates that the transition is allowed from the current state.
      */
     @Transactional
-    public Subscription transitionStatus(String orgId, SubscriptionStatus target) {
-        Subscription subscription = getByOrgId(orgId);
+    public Subscription transitionStatus(String subscriptionId, String orgId, SubscriptionStatus target) {
+        Subscription subscription = getByIdAndOrgId(subscriptionId, orgId);
         SubscriptionStatus from = subscription.getStatus();
         SubscriptionEventType event = mapToEvent(from, target);
 
         if (event == null) {
             log.warn("Subscription {} transition {} → {} has no state-machine edge — ignoring request",
-                orgId, from, target);
+                subscriptionId, from, target);
             return subscription;
         }
 
-        log.info("Subscription {} status transition request: {} → {} (event={})", orgId, from, target, event);
+        log.info("Subscription {} status transition request: {} → {} (event={})", subscriptionId, from, target, event);
         var result = subscriptionStateMachineService.transition(subscription.getId(), event, "api:transitionStatus");
 
         if (!result.accepted()) {
-            log.warn("Subscription {} transition {} rejected by state machine", orgId, event);
+            log.warn("Subscription {} transition {} rejected by state machine", subscriptionId, event);
             return subscriptionRepository.findById(subscription.getId()).orElse(subscription);
         }
         return subscriptionRepository.findById(subscription.getId()).orElse(subscription);
@@ -225,7 +230,29 @@ public class SubscriptionService {
 
     // ========== Private helpers ==========
 
-    /** Create subscription shell (record + default items), return persisted entity. */
+    /**
+     * Stamp one billable item with the resource ID it bills. A subscription
+     * always carries both default items; a missing item means the items were
+     * created by an older path and is logged, not fatal.
+     */
+    private void linkItemResource(ObjectId subscriptionId, SubscriptionItemType itemType,
+                                  ObjectId clusterId, ObjectId mdbAllocationId) {
+        itemRepository.findBySubscriptionIdAndItemType(subscriptionId, itemType)
+            .ifPresentOrElse(
+                item -> {
+                    item.setClusterId(clusterId);
+                    item.setMdbAllocationId(mdbAllocationId);
+                    itemRepository.save(item);
+                    log.info("[Subscription] {} item linked: subscriptionId={}, clusterId={}, mdbAllocationId={}",
+                        itemType, subscriptionId.toHexString(),
+                        clusterId == null ? null : clusterId.toHexString(),
+                        mdbAllocationId == null ? null : mdbAllocationId.toHexString());
+                },
+                () -> log.warn("[Subscription] {} item missing for subscription {} — resource link not recorded",
+                    itemType, subscriptionId.toHexString()));
+    }
+
+    /** Create a subscription record with its two default billable items. */
     private Subscription createSubscriptionShell(String orgId) {
         Instant now = Instant.now();
         Subscription subscription = Subscription.builder()
@@ -257,7 +284,7 @@ public class SubscriptionService {
 
         itemRepository.saveAll(List.of(runtimeItem, storageItem));
 
-        log.info("Subscription shell created: org={}, subscriptionId={}", orgId, subscription.getId().toHexString());
+        log.info("Subscription created: org={}, subscriptionId={}", orgId, subscription.getId().toHexString());
         return subscription;
     }
 

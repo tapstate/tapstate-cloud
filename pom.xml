@@ -45,6 +45,12 @@
 
     <!-- Spring Statemachine — Cluster + Subscription lifecycle state machines -->
     <spring-statemachine.version>4.0.2</spring-statemachine.version>
+
+    <!-- AWS SDK v2 — CloudFormation-driven Cluster provisioning -->
+    <aws-sdk.version>2.55.10</aws-sdk.version>
+
+    <!-- SSHJ — remote Cluster node configuration -->
+    <sshj.version>0.41.1</sshj.version>
   </properties>
 
   <dependencyManagement>
@@ -111,6 +117,15 @@
         <groupId>net.javacrumbs.shedlock</groupId>
         <artifactId>shedlock-provider-mongo</artifactId>
         <version>5.14.0</version>
+      </dependency>
+
+      <!-- AWS SDK v2 BOM — keeps individual SDK module versions aligned -->
+      <dependency>
+        <groupId>software.amazon.awssdk</groupId>
+        <artifactId>bom</artifactId>
+        <version>${aws-sdk.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
       </dependency>
     </dependencies>
   </dependencyManagement>

@@ -1,31 +1,29 @@
 package io.tapstate.cloud.it;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import io.tapstate.cloud.sdk.api.SubscriptionApi;
-import io.tapstate.cloud.sdk.model.ClusterResponse.StateEnum;
 import io.tapstate.cloud.sdk.model.CreateSubscriptionRequest;
 import io.tapstate.cloud.sdk.model.SubscriptionResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-import java.net.http.HttpResponse;
 import java.util.Map;
 
+import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.time.Duration;
+
 /**
- * Subscription cancel cascade IT — Cluster termination + MDB reclaim.
+ * Subscription cancel cascade IT — Cluster termination + MDB reclaim, scoped
+ * strictly to the cancelled subscription.
  * <p>
- * Cluster creation via subscriptionApi.createSubscription (SDK).
- * Cancel via subscriptionApi.cancelSubscription (SDK).
- * Cluster listing via raw HTTP (SDK return-type bug for list).
+ * An Organization owns many subscriptions; cancelling one subscription must
+ * terminate that subscription's own Cluster (and reclaim its own MdbAllocation)
+ * while sibling subscriptions of the same Organization keep running.
  */
-@DisplayName("CancelCascadeIT — subscription cancel cascades Cluster + MDB")
+@DisplayName("CancelCascadeIT — subscription cancel cascades only its own Cluster + MDB")
 class CancelCascadeIT extends BaseIT {
 
-    private final ObjectMapper mapper = new ObjectMapper();
     private String orgId;
 
     @BeforeEach
@@ -37,75 +35,89 @@ class CancelCascadeIT extends BaseIT {
         )).getData().getId();
     }
 
-    private String createWithCluster(String clusterName) throws Exception {
-        subscriptionApi.createSubscription(orgId,
-            new CreateSubscriptionRequest().region("ap-southeast-1").clusterName(clusterName).specKey("basic"));
-        // Poll until visible
-        for (int i = 0; i < 10; i++) {
-            HttpResponse<String> resp = get("/v1/api/orgs/" + orgId + "/clusters",
-                Map.of("Cookie", "TAPSTATE_CLOUD_SESSION=" + sessionCookieValue));
-            JsonNode clusters = mapper.readTree(resp.body()).path("data");
-            if (clusters.isArray()) {
-                for (JsonNode c : clusters) {
-                    if (clusterName.equals(c.path("name").asText())) return c.path("id").asText();
-                }
-            }
-            Thread.sleep(500);
-        }
-        throw new AssertionError("Cluster " + clusterName + " not created");
+    /** Create a subscription (its Cluster id comes back on the response). */
+    private SubscriptionResponse createWithCluster(String clusterName) throws Exception {
+        return subscriptionApi.createSubscription(orgId,
+            new CreateSubscriptionRequest().region("ap-southeast-1").clusterName(clusterName).specKey("basic"))
+            .getData();
+    }
+
+    private void waitForCluster(String clusterId, String targetState) {
+        await().atMost(Duration.ofMinutes(5)).pollInterval(Duration.ofSeconds(2)).untilAsserted(() ->
+            assertEquals(targetState,
+                clustersApi.getCluster(orgId, clusterId).getData().getState().getValue()));
     }
 
     @Test
-    @DisplayName("T1 — Cancel subscription → 1 cluster TERMINATED")
+    @DisplayName("T1 — Cancel subscription → its Cluster TERMINATED")
     void cancelSubscription_cascadesOneCluster() throws Exception {
-        String clusterId = createWithCluster("Single");
-        waitForReady(orgId, clusterId);
+        SubscriptionResponse sub = createWithCluster("Single");
+        String clusterId = sub.getClusterId();
+        waitForCluster(clusterId, "READY");
 
-        subscriptionApi.cancelSubscription(orgId);
+        subscriptionApi.cancelSubscription(orgId, sub.getId());
 
-        boolean ok = false;
-        for (int i = 0; i < 20; i++) {
-            if (clustersApi.getCluster(orgId, clusterId).getData().getState() == StateEnum.TERMINATED) { ok = true; break; }
-            Thread.sleep(1000);
-        }
-        assertTrue(ok, "Cluster should TERMINATE");
-        assertEquals("CANCELLED", subscriptionApi.getSubscription(orgId).getData().getStatus());
+        waitForCluster(clusterId, "TERMINATED");
+        assertEquals("CANCELLED",
+            subscriptionApi.getSubscription(orgId, sub.getId()).getData().getStatus());
     }
 
     @Test
-    @DisplayName("T2 — Cancel subscription → 2 clusters both TERMINATED")
-    void cancelSubscription_cascadesMultipleClusters() throws Exception {
-        String c1 = createWithCluster("Multi-A");
-        String c2 = createWithCluster("Multi-B");
-        waitForReady(orgId, c1);
-        waitForReady(orgId, c2);
+    @DisplayName("T2 — Cancel one subscription → sibling subscription's Cluster stays READY")
+    void cancelOneSubscription_doesNotTouchSiblingSubscription() throws Exception {
+        SubscriptionResponse first = createWithCluster("Multi-A");
+        SubscriptionResponse second = createWithCluster("Multi-B");
+        waitForCluster(first.getClusterId(), "READY");
+        waitForCluster(second.getClusterId(), "READY");
 
-        subscriptionApi.cancelSubscription(orgId);
+        // Cancel only the FIRST subscription.
+        subscriptionApi.cancelSubscription(orgId, first.getId());
 
-        for (int i = 0; i < 20; i++) {
-            if (clustersApi.getCluster(orgId, c1).getData().getState() == StateEnum.TERMINATED
-                && clustersApi.getCluster(orgId, c2).getData().getState() == StateEnum.TERMINATED) break;
-            Thread.sleep(1000);
-        }
-        assertEquals(StateEnum.TERMINATED, clustersApi.getCluster(orgId, c1).getData().getState());
-        assertEquals(StateEnum.TERMINATED, clustersApi.getCluster(orgId, c2).getData().getState());
+        // The first subscription's cluster terminates.
+        waitForCluster(first.getClusterId(), "TERMINATED");
+
+        // The sibling subscription is untouched: still TRIAL, its Cluster READY.
+        // Give the async cascade a generous window in which it must NOT fire.
+        Thread.sleep(10_000);
+        assertEquals("READY",
+            clustersApi.getCluster(orgId, second.getClusterId()).getData().getState().getValue(),
+            "sibling subscription's Cluster must stay READY");
+        SubscriptionResponse sibling = subscriptionApi.getSubscription(orgId, second.getId()).getData();
+        assertEquals("TRIAL", sibling.getStatus(), "sibling subscription must not be cancelled");
+
+        // The org still lists both subscriptions, first CANCELLED, second not.
+        var listed = subscriptionApi.listSubscriptions(orgId).getData();
+        assertEquals(2, listed.size());
+        assertNotNull(listed.stream()
+            .filter(s -> s.getId().equals(first.getId()) && "CANCELLED".equals(s.getStatus()))
+            .findFirst().orElse(null));
+        assertNotNull(listed.stream()
+            .filter(s -> s.getId().equals(second.getId()) && "TRIAL".equals(s.getStatus()))
+            .findFirst().orElse(null));
+
+        // Cancelling the sibling now terminates its own cluster too.
+        subscriptionApi.cancelSubscription(orgId, second.getId());
+        waitForCluster(second.getClusterId(), "TERMINATED");
     }
 
     @Test
     @DisplayName("T3 — Cancel already CANCELLED → idempotent")
     void cancelAlreadyCancelled_isIdempotent() throws Exception {
-        subscriptionApi.cancelSubscription(orgId);
-        SubscriptionResponse first = subscriptionApi.getSubscription(orgId).getData();
+        SubscriptionResponse sub = createWithCluster("Idem");
+        subscriptionApi.cancelSubscription(orgId, sub.getId());
+        SubscriptionResponse first = subscriptionApi.getSubscription(orgId, sub.getId()).getData();
         assertEquals("CANCELLED", first.getStatus());
 
-        subscriptionApi.cancelSubscription(orgId);
-        SubscriptionResponse second = subscriptionApi.getSubscription(orgId).getData();
+        subscriptionApi.cancelSubscription(orgId, sub.getId());
+        SubscriptionResponse second = subscriptionApi.getSubscription(orgId, sub.getId()).getData();
         assertEquals("CANCELLED", second.getStatus());
     }
 
     @Test
-    @DisplayName("T4 — Cancel org with no clusters → safe no-op")
-    void cancelSubscription_noClusters_isSafe() {
-        assertDoesNotThrow(() -> subscriptionApi.cancelSubscription(orgId));
+    @DisplayName("T4 — Unknown subscription id → 404")
+    void cancelUnknownSubscription_is404() {
+        var ex = assertThrows(io.tapstate.cloud.sdk.ApiException.class,
+            () -> subscriptionApi.cancelSubscription(orgId, "507f1f77bcf86cd799439011"));
+        assertEquals(404, ex.getCode());
     }
 }

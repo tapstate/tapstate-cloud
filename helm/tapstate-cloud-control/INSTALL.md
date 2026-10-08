@@ -22,21 +22,50 @@ kubectl create secret generic tapstate-cloud-control-aws-credentials \
   --from-literal=access-key-id='AKIA...' \
   --from-literal=secret-access-key='...'
 
-# ---- Atlas Admin API Key ----
-kubectl create secret generic tapstate-cloud-control-atlas-admin-key \
+# ---- GoDaddy DNS API key (required only when config.iacMode=real) ----
+# A gd_pat_ Personal Access Token works as Bearer with an empty api-secret;
+# a classic sso-key needs both values.
+kubectl create secret generic tapstate-cloud-control-dns \
   -n tapstate-cloud-control \
-  --from-literal=api-key='...' \
-  --from-literal=api-key-secret='...'
+  --from-literal=api-key='gd_pat_...' \
+  --from-literal=api-secret=''
+
+# ---- IaC SSH-key encryption master key (required only when config.iacMode=real) ----
+# Base64-encoded 32 random bytes. A blank value blocks Cluster provisioning.
+kubectl create secret generic tapstate-cloud-control-iac \
+  -n tapstate-cloud-control \
+  --from-literal=master-key="$(head -c32 /dev/urandom | base64)"
+
+# ---- Atlas Admin API credentials (real-mode MDB allocation) ----
+# These are NOT read from the environment. The allocation engine reads the
+# Activated key from the atlas_configs collection and the ACTIVE shared cluster
+# from mdb_clusters — seed both documents into the Control Plane database
+# before enabling TAPSTATE_CLOUD_MDB_ATLAS_MOCK=false.
+
+# ---- Optional: JWKS encryption key / fixed runtime Atlas URI ----
+# tapstate-cloud-control-jwks-encryption-key (encryption-key) — only when
+#   CLOUD_JWKS_ENCRYPTION_ENABLED=true
+# tapstate-cloud-control-runtime-atlas-uri (atlas-uri) — legacy Clusters
+#   without a linked MdbAllocation; leave absent for per-allocation URIs
 
 # ---- Shared sample database password ----
 # Keep this file outside the repository with owner-only permissions.
+# The Secret must be in the same namespace as the Control Plane release.
+# Local installs use tapstate-cloud-control; awsdev uses the tapstate namespace.
 kubectl create secret generic tapstate-cloud-control-sample-sources \
   -n tapstate-cloud-control \
+  --from-file=password=/secure/path/sample-database-password
+
+# For awsdev, create the same Secret in tapstate instead:
+kubectl create secret generic tapstate-cloud-control-sample-sources \
+  -n tapstate \
   --from-file=password=/secure/path/sample-database-password
 
 # This Secret is optional: without it, Cluster Consoles hide the sample-source entry.
 # After creating or rotating it, restart the Control Plane so its environment refreshes.
 kubectl rollout restart deployment/tapstate-cloud-control -n tapstate-cloud-control
+# For awsdev, restart it in the tapstate namespace instead.
+kubectl rollout restart deployment/tapstate-cloud-control -n tapstate
 
 # 3. Helm install (local k3s dev)
 helm install tapstate-cloud-control ./helm/tapstate-cloud-control \

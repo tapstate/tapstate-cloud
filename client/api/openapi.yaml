@@ -36,9 +36,6 @@ tags:
 - name: Exchange
   description: Atomic exchange_code → resolve JWT redemption. Called by Cluster Server
     backend only — JWT never reaches the browser (ADR-0125).
-- name: Subscription
-  description: "Organization subscription — create with initial Cluster, view status\
-    \ and items"
 - name: Organizations
   description: Organization management — isolation boundary for Clusters
 - name: C2 Status Report
@@ -51,10 +48,15 @@ tags:
     verification.
 - name: Auth
   description: "Cloud Console authentication — register, login, session management"
+- name: Subscription
+  description: Organization subscriptions — each subscription provisions one Cluster
+    + one MDB allocation
 - name: Clusters
   description: Cluster read + retry — lifecycle managed via Subscription
 - name: Regions
   description: Available AWS regions for Cluster provisioning
+- name: Deployment Progress
+  description: Subscription deployment/reclamation progress
 - name: Health
   description: Health check endpoints
 paths:
@@ -84,8 +86,9 @@ paths:
       - Organizations
       summary: Create new organization (user becomes owner automatically)
       description: "Creates a new Organization and adds the caller as its first member\
-        \ with owner role. A default TRIAL subscription is automatically created for\
-        \ the new Org. Organization slug must be unique system-wide (lowercase, hyphenated)."
+        \ with owner role. The Organization starts with no subscriptions — create\
+        \ them explicitly via POST /v1/api/orgs/{orgId}/subscriptions. Organization\
+        \ slug must be unique system-wide (lowercase, hyphenated)."
       operationId: create
       requestBody:
         description: "Organization create payload: {\"name\": \"Acme Corp\", \"slug\"\
@@ -122,18 +125,14 @@ paths:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseOrganizationResponse"
-  /v1/api/orgs/{orgId}/subscription:
+  /v1/api/orgs/{orgId}/subscriptions:
     get:
       tags:
       - Subscription
-      summary: View organization subscription
-      description: |-
-        Returns the Organization's current subscription status, billing period, and item breakdown.
-
-        Subscription states: TRIAL (free trial) / ACTIVE (paid) / PAST_DUE (grace period) / CANCELLED (terminated).
-
-        Poll this endpoint to track async Cluster + MDB provisioning progress.
-      operationId: getSubscription
+      summary: List organization subscriptions
+      description: "Returns every Subscription owned by the Organization, newest first.\
+        \ The list may be empty — creating an Organization no longer creates a subscription."
+      operationId: listSubscriptions
       parameters:
       - name: orgId
         in: path
@@ -143,43 +142,37 @@ paths:
           type: string
       responses:
         "200":
-          description: Subscription details
+          description: List of subscriptions (may be empty)
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+                $ref: "#/components/schemas/ApiResponseListSubscriptionResponse"
         "401":
           description: Not authenticated
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+                $ref: "#/components/schemas/ApiResponseListSubscriptionResponse"
         "403":
           description: Not a member of this Organization
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
-        "404":
-          description: Subscription not found
-          content:
-            '*/*':
-              schema:
-                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+                $ref: "#/components/schemas/ApiResponseListSubscriptionResponse"
     post:
       tags:
       - Subscription
-      summary: Create subscription with initial Cluster + MDB allocation
+      summary: Create a subscription with one Cluster + one MDB allocation
       description: |-
-        Creates a new subscription (TRIAL, 30-day period) with the two default billable items, then synchronously provisions an initial Cluster record and Atlas MDB allocation.
+        Creates a new subscription (TRIAL, 30-day period) with the two default billable items, then synchronously provisions one Cluster record and one Atlas MDB allocation.
 
         Async provisioning (fired by state machines):
           - Cluster state machine: START_PROVISION → CloudFormation simulation → READY/PROVISIONING_FAILED
           - MDB state machine: START_PROVISION → Atlas createDatabase + createDatabaseUser → READY/PROVISIONING_FAILED
 
-        Both flows run in parallel. Poll GET /subscription to track overall progress.
+        Both flows run in parallel. Poll GET /subscriptions/{subscriptionId} to track progress.
 
-        Idempotency: if the org already has a subscription shell, reuses it and adds one Cluster.
+        An Organization may own many subscriptions; cluster names stay unique within org + region.
       operationId: createSubscription
       parameters:
       - name: orgId
@@ -232,7 +225,7 @@ paths:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
-  /v1/api/orgs/{orgId}/subscription/status:
+  /v1/api/orgs/{orgId}/subscriptions/{subscriptionId}/status:
     post:
       tags:
       - Subscription
@@ -248,6 +241,12 @@ paths:
       - name: orgId
         in: path
         description: Organization UUID
+        required: true
+        schema:
+          type: string
+      - name: subscriptionId
+        in: path
+        description: Subscription UUID
         required: true
         schema:
           type: string
@@ -272,21 +271,27 @@ paths:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+        "403":
+          description: Not a member of this Organization
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
         "404":
           description: Subscription not found
           content:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
-  /v1/api/orgs/{orgId}/subscription/cancel:
+  /v1/api/orgs/{orgId}/subscriptions/{subscriptionId}/cancel:
     post:
       tags:
       - Subscription
-      summary: Cancel subscription — auto-terminate all org clusters + reclaim MDB
+      summary: Cancel one subscription — terminate its Cluster + reclaim its MDB
       description: |-
-        Cancels this Organization's subscription (state → CANCELLED) and triggers cascade termination of every non-terminated Cluster + MDB allocation owned by this org.
+        Cancels this subscription (state → CANCELLED) and triggers cascade termination of its Cluster and reclaim of its MdbAllocation. Other subscriptions of the same Organization are unaffected.
 
-        Cascade runs asynchronously via Cluster state-machine INITIATE_TERMINATION events and MDB state-machine INITIATE_RECLAIM events. This endpoint returns immediately.
+        Cascade runs asynchronously via the Cluster state-machine INITIATE_TERMINATION event and MDB state-machine INITIATE_RECLAIM event. This endpoint returns immediately.
 
         Safe to call on an already-cancelled subscription (idempotent).
       operationId: cancelSubscription
@@ -294,6 +299,12 @@ paths:
       - name: orgId
         in: path
         description: Organization UUID
+        required: true
+        schema:
+          type: string
+      - name: subscriptionId
+        in: path
+        description: Subscription UUID
         required: true
         schema:
           type: string
@@ -311,7 +322,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
         "403":
-          description: Not Org owner
+          description: Not a member of this Organization
           content:
             '*/*':
               schema:
@@ -392,12 +403,12 @@ paths:
 
         Data minimization: Only infrastructure metrics accepted (runtime version, uptime, active pipeline count, last error time). No user data, Source/Pipeline configs, or Atlas credentials flow through this endpoint.
 
-        Effects: Updates Cluster.lastHeartbeatAt; auto-transitions state DEGRADED → READY on heartbeat recovery (5min window).
+        Effects: Updates Cluster.lastHeartbeatAt; stores full payload as Cluster.lastStatusReport embedded document; auto-transitions state DEGRADED → READY on heartbeat recovery (5min window).
       operationId: report
       parameters:
       - name: clusterId
         in: path
-        description: Cluster UUID — must match the Bearer token's owning Cluster
+        description: Cluster ObjectId — must match the Bearer token's owning Cluster
         required: true
         schema:
           type: string
@@ -653,6 +664,117 @@ paths:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseOrganizationResponse"
+  /v1/api/orgs/{orgId}/subscriptions/{subscriptionId}:
+    get:
+      tags:
+      - Subscription
+      summary: Get one subscription
+      description: |-
+        Returns the subscription's status, billing period, provisioned resources and item breakdown.
+
+        Subscription states: TRIAL (free trial) / ACTIVE (paid) / PAST_DUE (grace period) / CANCELLED (terminated).
+
+        Poll this endpoint to track async Cluster + MDB provisioning progress.
+      operationId: getSubscription
+      parameters:
+      - name: orgId
+        in: path
+        description: Organization UUID
+        required: true
+        schema:
+          type: string
+      - name: subscriptionId
+        in: path
+        description: Subscription UUID
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          description: Subscription details
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+        "401":
+          description: Not authenticated
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+        "403":
+          description: Not a member of this Organization
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+        "404":
+          description: Subscription not found in this Organization
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+  /v1/api/orgs/{orgId}/subscriptions/{subscriptionId}/progress:
+    get:
+      tags:
+      - Deployment Progress
+      summary: Get the deployment progress of one subscription
+      description: Returns the aggregate completion percentage and overall status
+        plus the detail of every operation. Use opType=INSTALL for the initial deployment
+        (default) and opType=UNINSTALL for the release/reclamation after cancellation.
+        Operations not started yet are returned as PENDING.
+      operationId: getProgress
+      parameters:
+      - name: orgId
+        in: path
+        description: Organization UUID
+        required: true
+        schema:
+          type: string
+      - name: subscriptionId
+        in: path
+        description: Subscription UUID
+        required: true
+        schema:
+          type: string
+      - name: opType
+        in: query
+        description: "Operation category: INSTALL (default) / UNINSTALL"
+        required: false
+        schema:
+          type: string
+          default: INSTALL
+      responses:
+        "200":
+          description: Aggregated deployment progress
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseDeploymentProgressResponse"
+        "400":
+          description: Invalid opType
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseDeploymentProgressResponse"
+        "401":
+          description: Not authenticated
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseDeploymentProgressResponse"
+        "403":
+          description: Not a member of this Organization
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseDeploymentProgressResponse"
+        "404":
+          description: Subscription not found in this Organization
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseDeploymentProgressResponse"
   /v1/api/orgs/{orgId}/clusters:
     get:
       tags:
@@ -946,6 +1068,14 @@ components:
         data:
           $ref: "#/components/schemas/SubscriptionResponse"
           description: "Response payload — object or array, null on void responses"
+    DeploymentProgressSummary:
+      type: object
+      properties:
+        overallStatus:
+          type: string
+        percent:
+          type: integer
+          format: int32
     ItemResponse:
       type: object
       properties:
@@ -969,6 +1099,12 @@ components:
           type: integer
           format: int64
           description: Unit price in cents (100 = $1.00)
+        clusterId:
+          type: string
+          description: Provisioned Cluster ID billed by this item (CLUSTER_PIPELINE_RUNTIME)
+        mdbAllocationId:
+          type: string
+          description: Provisioned MdbAllocation ID billed by this item (ATLAS_DATABASE_STORAGE)
         metadata:
           type: object
           additionalProperties:
@@ -986,6 +1122,21 @@ components:
         status:
           type: string
           description: "Subscription state: TRIAL / ACTIVE / PAST_DUE / CANCELLED"
+        resourceState:
+          type: string
+          description: "Cloud resource state: PROVISIONING / READY (null until resources\
+            \ are provisioned)"
+        installProgress:
+          $ref: "#/components/schemas/DeploymentProgressSummary"
+          description: Initial deployment progress summary
+        uninstallProgress:
+          $ref: "#/components/schemas/DeploymentProgressSummary"
+          description: Release/reclamation progress summary
+        resourcesReadyAt:
+          type: string
+          format: date-time
+          description: When the Cluster and MdbAllocation first became READY (ISO-8601
+            UTC)
         currentPeriodStart:
           type: string
           format: date-time
@@ -996,8 +1147,14 @@ components:
           description: Current billing period end (ISO-8601 UTC)
         provisioningAllowed:
           type: boolean
-          description: Whether provisioning new Clusters is allowed (TRIAL / ACTIVE
+          description: Whether provisioning new resources is allowed (TRIAL / ACTIVE
             = true)
+        clusterId:
+          type: string
+          description: The subscription's Cluster UUID
+        mdbAllocationId:
+          type: string
+          description: The subscription's Atlas MdbAllocation UUID
         createdAt:
           type: string
           format: date-time
@@ -1075,10 +1232,10 @@ components:
           description: Pipeline Runtime ID (EC2 instance identifier)
         publicDns:
           type: string
-          description: Public DNS name (Route53 alias) for Cluster Console
-        elasticIp:
+          description: Public DNS name for Cluster Console
+        ec2PublicIp:
           type: string
-          description: Elastic IP — used for Atlas allowlist
+          description: EC2 node public IPv4 address
         lastHeartbeatAt:
           type: string
           description: Last C2 heartbeat timestamp (ISO-8601 UTC)
@@ -1090,19 +1247,28 @@ components:
           description: Ready timestamp (ISO-8601 UTC) — null until state = READY
     StatusReportRequest:
       type: object
+      description: C2 status report payload — runtime heartbeat + infrastructure metrics
       properties:
         nonce:
           type: string
+          description: Unique nonce per request — MUST change every call. Same value
+            twice → 409 auth.nonce-replay
         runtimeVersion:
           type: string
+          description: Tapstate runtime version (e.g. '2.1.0')
         uptimeMs:
           type: integer
           format: int64
+          description: Milliseconds since runtime process started
         activePipelines:
           type: integer
           format: int32
+          description: Currently running pipeline count
         lastErrorAt:
           type: string
+          description: "ISO-8601 UTC instant of last runtime error, null if none"
+      required:
+      - nonce
     ApiResponseStatusReportResponse:
       type: object
       description: Global API response envelope
@@ -1389,6 +1555,117 @@ components:
           description: "Response payload — object or array, null on void responses"
           items:
             $ref: "#/components/schemas/OrganizationResponse"
+    ApiResponseListSubscriptionResponse:
+      type: object
+      description: Global API response envelope
+      properties:
+        opId:
+          type: string
+          description: Request correlation ID — unique per request
+          example: 3f2a1b4c-5d6e-7f8a-9b0c-1d2e3f4a5b6c
+        code:
+          type: string
+          description: "Business result code — 'ok' on success, error code on failure"
+          example: ok
+        msg:
+          type: string
+          description: Detailed message — success info or failure reason
+        data:
+          type: array
+          description: "Response payload — object or array, null on void responses"
+          items:
+            $ref: "#/components/schemas/SubscriptionResponse"
+    ApiResponseDeploymentProgressResponse:
+      type: object
+      description: Global API response envelope
+      properties:
+        opId:
+          type: string
+          description: Request correlation ID — unique per request
+          example: 3f2a1b4c-5d6e-7f8a-9b0c-1d2e3f4a5b6c
+        code:
+          type: string
+          description: "Business result code — 'ok' on success, error code on failure"
+          example: ok
+        msg:
+          type: string
+          description: Detailed message — success info or failure reason
+        data:
+          $ref: "#/components/schemas/DeploymentProgressResponse"
+          description: "Response payload — object or array, null on void responses"
+    DeploymentProgressResponse:
+      type: object
+      description: Aggregated deployment progress of one subscription
+      properties:
+        subscriptionId:
+          type: string
+          description: Subscription UUID
+        orgId:
+          type: string
+          description: Owning organization UUID
+        opType:
+          type: string
+          description: "Operation category: INSTALL / UNINSTALL"
+        overallStatus:
+          type: string
+          description: "Aggregate status: PENDING / IN_PROGRESS / FAILED / SUCCEEDED"
+        percent:
+          type: integer
+          format: int32
+          description: "Completion percentage, 0-100"
+        startedAt:
+          type: string
+          format: date-time
+          description: Earliest operation start time (ISO-8601 UTC)
+        finishedAt:
+          type: string
+          format: date-time
+          description: "Completion time, only when SUCCEEDED (ISO-8601 UTC)"
+        message:
+          type: string
+          description: Overall success message or aggregated failure detail
+        operations:
+          type: array
+          description: Operation details in sequence order
+          items:
+            $ref: "#/components/schemas/DeploymentStepResponse"
+    DeploymentStepResponse:
+      type: object
+      description: Detailed status of one deployment operation
+      properties:
+        operation:
+          type: string
+          description: Stable operation code
+        displayName:
+          type: string
+          description: Human-readable operation name
+        sequence:
+          type: integer
+          format: int32
+          description: Presentation/dependency order
+        weight:
+          type: integer
+          format: int32
+          description: Weight in the aggregate percentage
+        status:
+          type: string
+          description: "Current status: PENDING / RUNNING / RETRYING / SUCCEEDED /\
+            \ FAILED / SKIPPED"
+        message:
+          type: string
+          description: Success message or failure error detail
+        startedAt:
+          type: string
+          format: date-time
+          description: Most recent attempt start time (ISO-8601 UTC)
+        finishedAt:
+          type: string
+          format: date-time
+          description: Most recent attempt end time (ISO-8601 UTC)
+        attemptsCount:
+          type: integer
+          format: int32
+          description: Number of attempts made (1 = the current attempt only)
     ApiResponseListClusterResponse:
       type: object
       description: Global API response envelope

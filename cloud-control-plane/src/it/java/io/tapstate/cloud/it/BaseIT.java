@@ -4,6 +4,7 @@ import io.tapstate.cloud.sdk.ApiClient;
 import io.tapstate.cloud.sdk.ApiException;
 import io.tapstate.cloud.sdk.api.AuthApi;
 import io.tapstate.cloud.sdk.api.ClustersApi;
+import io.tapstate.cloud.sdk.api.DeploymentProgressApi;
 import io.tapstate.cloud.sdk.api.ExchangeApi;
 import io.tapstate.cloud.sdk.api.OrganizationsApi;
 import io.tapstate.cloud.sdk.api.ResolveExchangeApi;
@@ -22,6 +23,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Base class for failsafe integration tests — runs against a LIVE Spring Boot
@@ -43,9 +45,32 @@ public abstract class BaseIT {
     /** Server base URL — resolved from System property or default. */
     protected static String BASE_URL;
 
-    /** MongoDB URI for direct cleanup between tests. */
-    protected static String MONGO_URI = "mongodb://localhost:27017";
-    protected static String MONGO_DB = "tapstate_cloud_it";
+    /**
+     * Control-plane store for the IT run. Local mongod by default; CI injects a
+     * full Atlas connection string (database name included) via
+     * {@code TAPSTATE_CLOUD_MONGO_URI}. The forked application and every
+     * mongosh invocation in the ITs use the same value.
+     */
+    protected static final String MONGO_URI = System.getenv()
+        .getOrDefault("TAPSTATE_CLOUD_MONGO_URI", "mongodb://localhost:27017/tapstate_cloud_it");
+    protected static final String MONGO_DB = resolveDatabaseName();
+
+    private static String resolveDatabaseName() {
+        String override = System.getenv("TAPSTATE_CLOUD_MONGO_DB");
+        if (override != null && !override.isBlank()) {
+            return override;
+        }
+        // Take the path component of a full URI: mongodb://host[:port]/<db>[?opts]
+        String afterHost = MONGO_URI.substring(MONGO_URI.indexOf("://") + 3);
+        int slash = afterHost.indexOf('/');
+        if (slash < 0) {
+            return "tapstate_cloud_it";
+        }
+        String dbAndOptions = afterHost.substring(slash + 1);
+        int question = dbAndOptions.indexOf('?');
+        String db = question >= 0 ? dbAndOptions.substring(0, question) : dbAndOptions;
+        return db.isBlank() ? "tapstate_cloud_it" : db;
+    }
 
     /** One shared HttpClient for raw HTTP calls (fallback where SDK doesn't cover). */
     protected static HttpClient httpClient;
@@ -58,18 +83,23 @@ public abstract class BaseIT {
     protected ResolveExchangeApi resolveApi;
     protected ExchangeApi exchangeApi;
     protected SubscriptionApi subscriptionApi;
+    protected DeploymentProgressApi progressApi;
 
     @BeforeAll
     static void resolveBaseUrl() {
         String port = System.getProperty("it.server.port", "8081");
         BASE_URL = "http://localhost:" + port;
-        // Install a default CookieManager so HttpClient.newBuilder().cookieHandler(...) works
-        if (java.net.CookieManager.getDefault() == null) {
-            java.net.CookieManager.setDefault(new java.net.CookieManager());
-        }
+        // Deliberately NO CookieHandler/CookieManager: every test manages its
+        // TAPSTATE_CLOUD_SESSION explicitly via the Cookie header. A shared jar
+        // here silently stores Set-Cookie values from other responses — and the
+        // server even issues a fresh session cookie on anonymous 401 responses
+        // (e.g. JwksIT probing a protected endpoint). The JDK client then sends
+        // the jar cookie AHEAD of the explicit one, producing two session
+        // cookies in one request; Spring Session resolves the wrong (anonymous
+        // or another test's) identity and every later protected GET fails with
+        // 403 org.not-member. Keep this client cookie-jar free.
         httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(3))
-            .cookieHandler(java.net.CookieManager.getDefault())
             .build();
     }
 
@@ -90,6 +120,7 @@ public abstract class BaseIT {
         this.resolveApi = new ResolveExchangeApi(client);
         this.exchangeApi = new ExchangeApi(client);
         this.subscriptionApi = new SubscriptionApi(client);
+        this.progressApi = new DeploymentProgressApi(client);
     }
 
     // ---- Auth helpers ----
@@ -147,6 +178,19 @@ public abstract class BaseIT {
         return login(email, password);
     }
 
+    /**
+     * Register + login a fresh user and create one Organization — the common
+     * starting point for single-org ITs. Returns the new Organization id.
+     */
+    protected String signupWithOrg(String orgName) throws Exception {
+        long suffix = System.nanoTime();
+        signupAndLogin("it-" + suffix + "@tapstate.io", "StrongPass123!");
+        return orgsApi.create(Map.of(
+            "name", orgName,
+            "slug", orgName.toLowerCase().replaceAll("[^a-z0-9]+", "-") + "-" + suffix
+        )).getData().getId();
+    }
+
     /** Create an anonymous AuthApi (no session cookie) — for unauthenticated endpoint tests. */
     protected AuthApi createAnonymousAuthApi() {
         ApiClient anonymous = new ApiClient();
@@ -162,7 +206,9 @@ public abstract class BaseIT {
                 .uri(URI.create(BASE_URL + path))
                 .GET();
             if (headers != null) headers.forEach(req::header);
-            return httpClient.send(req.build(), HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> resp = httpClient.send(req.build(), HttpResponse.BodyHandlers.ofString());
+            traceResponse("GET", path, resp);
+            return resp;
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -175,47 +221,114 @@ public abstract class BaseIT {
                 .POST(HttpRequest.BodyPublishers.ofString(body))
                 .header("Content-Type", "application/json");
             if (headers != null) headers.forEach(req::header);
-            return httpClient.send(req.build(), HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> resp = httpClient.send(req.build(), HttpResponse.BodyHandlers.ofString());
+            traceResponse("POST", path, resp);
+            return resp;
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
     }
 
+    /**
+     * Surface non-2xx raw responses in failsafe output. Polling helpers used to
+     * treat every error envelope as "resource not visible yet", which hid the
+     * real cause (401/403/500) behind an assertion timeout. Bodies are capped so
+     * an unexpected HTML error page cannot flood the log.
+     */
+    private static void traceResponse(String method, String path, HttpResponse<String> resp) {
+        if (resp.statusCode() / 100 == 2) return;
+        String body = resp.body() == null ? "" : resp.body();
+        if (body.length() > 300) {
+            body = body.substring(0, 300) + "...";
+        }
+        System.out.println("[it-http] " + method + " " + path + " -> " + resp.statusCode() + " body=" + body);
+    }
+
+    // ---- MongoDB shell helpers ----
+
+    /**
+     * Run a mongosh script against the IT control-plane store ({@link #MONGO_URI},
+     * which may be a local mongod or an Atlas cluster) and return merged output.
+     * Scripts print their own result; prefer {@code print(JSON.stringify(...))}
+     * because plain {@code printjson} emits shell-style EJSON (unquoted keys,
+     * Long("...")) that is not valid JSON.
+     */
+    protected static String mongoshEval(String eval) throws Exception {
+        return mongoshUri(MONGO_URI, eval);
+    }
+
+    /**
+     * Run a mongosh script against an explicit connection string (e.g. a
+     * per-allocation Atlas URI). A non-zero exit (connection refused, auth
+     * failure, SRV resolution error, ...) throws with the merged shell output
+     * so a broken helper never looks like a successful test setup.
+     */
+    protected static String mongoshUri(String connectionUri, String eval) throws Exception {
+        Process p = new ProcessBuilder("mongosh", "--quiet", connectionUri, "--eval", eval)
+            .redirectErrorStream(true).start();
+        String out = new String(p.getInputStream().readAllBytes());
+        int exit = p.waitFor();
+        if (exit != 0) {
+            String redacted = connectionUri.replaceAll("://[^@/]+@", "://***:***@");
+            throw new IllegalStateException(
+                "mongosh failed (exit " + exit + ") against " + redacted + ":\n" + out.strip());
+        }
+        return out;
+    }
+
     // ---- MongoDB cleanup ----
 
-    /** Wipes all collections in the test DB before each IT class. Idempotent. */
+    /**
+     * Wipe business collections before each test. Failures propagate: a wipe
+     * that silently no-ops (wrong database, lost credentials) makes every test
+     * fail with confusing duplicate-data errors instead of the real cause.
+     */
     protected static void wipeTestDatabase() {
+        // Drop business collections but preserve:
+        //   sessions — Spring Session store
+        //   regions — seeded once by RegionSeeder on app startup
+        //   mdb_clusters + atlas_configs — seeded by MdbClusterSeeder / AtlasConfigSeeder
+        //   jwks_keys — seeded by JwksRotationService on startup
+        //   cluster_status_report_history — time-series collection, must NOT be dropped
+        //       (MongoInitListener only creates it on app startup — a drop would
+        //       silently recreate it as a plain collection on next insert)
+        //   system.buckets.* — physical buckets backing time-series collections
+        //       (getCollectionNames lists them; their logical name is not enough
+        //       to protect them). They must be kept for the same startup-only reason.
+        //   system.views — dropping it is rejected while any time-series
+        //       collection exists, and listCollections order is not stable, so
+        //       never rely on dropping the buckets first.
+        //   system.indexes — internal MongoDB
+        // After dropping, reset currentAllocations on preserved MdbClusters
+        //   so each IT test starts with a clean capacity count.
+        long startedAt = System.currentTimeMillis();
+        System.out.println("[it-wipe] start database=" + MONGO_DB);
         try {
-            Process p = new ProcessBuilder("mongosh", "--quiet", "--eval",
-                // Drop business collections but preserve:
-                //   sessions — Spring Session store
-                //   regions — seeded once by RegionSeeder on app startup
-                //   atlas_instance_configs — seeded once by AtlasInstanceConfigSeeder
-                //   cluster_status_report_history — time-series collection, must NOT be dropped
-                //       (MongoInitListener only creates it on app startup — a drop would
-                //       silently recreate it as a plain collection on next insert)
-                //   system.indexes — internal MongoDB
-                // After dropping, reset currentCustomers on preserved Atlas instances
-                //   so each IT test starts with a clean capacity count.
-                "const keep = new Set(['sessions','regions','atlas_instance_configs','jwks_keys'," +
+            String output = mongoshEval(
+                "print(' [wipe] database=' + db.getName());" +
+                "const keep = new Set(['sessions','regions','mdb_clusters','atlas_configs','jwks_keys'," +
                 "'cluster_status_report_history','system.indexes']);" +
-                "db.getCollectionNames().filter(c => !keep.has(c)).forEach(c => db.getCollection(c).drop());" +
-                "db.atlas_instance_configs.updateMany({}, {$set: {currentCustomers: 0, updatedAt: new Date()}});" +
-                "db.cluster_status_report_history.deleteMany({});" +
-                "db.atlas_instance_configs.find().forEach(c => print(' [wipe] Atlas instance ' + c._id + ' capacity reset ' + c.currentCustomers + '/' + c.maxCustomers));",
-                MONGO_DB)
-                .redirectErrorStream(true)
-                .start();
-            // Consume stdout so it doesn't block the pipe
-            new Thread(() -> {
-                try { p.getInputStream().readAllBytes(); } catch (Exception ignored) {}
-            }).start();
-            int rc = p.waitFor();
-            if (rc != 0) {
-                System.err.println("[BaseIT] mongosh wipe exit code=" + rc);
+                // Time-series logical names are discovered at runtime (their physical
+                // system.buckets.* collections are filtered by prefix) so the
+                // wipe never depends on listCollections ordering.
+                "const tsNames = new Set(db.getCollectionInfos({type: 'timeseries'}).map(i => i.name));" +
+                "let dropped = 0;" +
+                "db.getCollectionNames().filter(c => !keep.has(c) && !tsNames.has(c) && " +
+                "!c.startsWith('system.buckets.') && c !== 'system.views')" +
+                ".forEach(c => { if (db.getCollection(c).drop()) dropped++; });" +
+                "print(' [wipe] droppedCollections=' + dropped);" +
+                "db.mdb_clusters.updateMany({}, {$set: {currentAllocations: 0, updatedAt: new Date()}});" +
+                "print(' [wipe] historyRemoved=' + db.cluster_status_report_history.deleteMany({}).deletedCount);" +
+                "db.mdb_clusters.find().forEach(c => print(' [wipe] MdbCluster ' + c._id + ' capacity reset ' + c.currentAllocations + '/' + c.maxAllocations));");
+            if (output.toLowerCase().contains("error")) {
+                throw new IllegalStateException("mongosh wipe reported an error:\n" + output.strip());
             }
+            System.out.println("[it-wipe] done database=" + MONGO_DB
+                + " elapsedMs=" + (System.currentTimeMillis() - startedAt) + "\n" + output.strip().indent(2));
+        } catch (RuntimeException e) {
+            throw e;
         } catch (Exception e) {
-            System.err.println("[BaseIT] MongoDB cleanup error: " + e.getMessage());
+            throw new IllegalStateException("IT control-plane wipe failed against " + MONGO_URI, e);
         }
     }
 

@@ -80,12 +80,9 @@ class C2StatusReportIT extends BaseIT {
         waitForReady(orgId, clusterId);
 
         // Fetch sdkStaticToken from Mongo — response DTO intentionally hides it
-        Process p = new ProcessBuilder("mongosh", "--quiet", "--eval",
-            "db.clusters.findOne({_id: ObjectId('" + clusterId + "')}, {sdkStaticToken:1}).sdkStaticToken",
-            MONGO_DB)
-            .redirectErrorStream(true).start();
-        String token = new String(p.getInputStream().readAllBytes()).trim();
-        p.waitFor();
+        String token = mongoshEval(
+            "db.clusters.findOne({_id: ObjectId('" + clusterId + "')}, {sdkStaticToken:1}).sdkStaticToken")
+            .trim();
         assertFalse(token.isBlank(), "SDK static token should not be blank");
         return new String[]{orgId, clusterId, token};
     }
@@ -120,14 +117,12 @@ class C2StatusReportIT extends BaseIT {
 
     /** Query Cluster.lastStatusReport embedded document from MongoDB, return as JsonNode. */
     private JsonNode fetchLastStatusReport(String clusterId) throws Exception {
-        Process p = new ProcessBuilder("mongosh", "--quiet", "--eval",
+        String output = mongoshEval(
             "const d = db.clusters.findOne({_id: ObjectId('" + clusterId + "')}, {lastStatusReport:1});" +
             "if (!d || !d.lastStatusReport) print('NOT_FOUND');" +
-            "else printjson(d.lastStatusReport);",
-            MONGO_DB)
-            .redirectErrorStream(true).start();
-        String output = new String(p.getInputStream().readAllBytes()).trim();
-        p.waitFor();
+            // EJSON.stringify emits strict JSON; printjson emits shell syntax
+            // (unquoted keys, Long("...")) that Jackson cannot parse.
+            "else print(JSON.stringify(d.lastStatusReport));").trim();
         if (output.equals("NOT_FOUND")) return null;
         return mapper.readTree(output);
     }
@@ -137,15 +132,11 @@ class C2StatusReportIT extends BaseIT {
      * Returns a JsonNode array or empty array if none found.
      */
     private JsonNode fetchHistoryRecords(String clusterId) throws Exception {
-        Process p = new ProcessBuilder("mongosh", "--quiet", "--eval",
+        String output = mongoshEval(
             "const recs = db.cluster_status_report_history" +
             ".find({clusterId: '" + clusterId + "'})" +
             ".sort({timestamp: 1}).toArray();" +
-            "printjson(recs);",
-            MONGO_DB)
-            .redirectErrorStream(true).start();
-        String output = new String(p.getInputStream().readAllBytes()).trim();
-        p.waitFor();
+            "print(JSON.stringify(recs));").trim();
         if (output.isBlank()) return mapper.createArrayNode();
         return mapper.readTree(output);
     }

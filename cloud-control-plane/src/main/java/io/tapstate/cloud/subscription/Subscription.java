@@ -11,20 +11,22 @@ import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.Instant;
-import java.util.List;
 import org.bson.types.ObjectId;
 
 /**
- * Organization-level subscription — the billing/usage anchor for all Cloud resources.
+ * Subscription — the billing/usage anchor for one Cluster and one MdbAllocation.
  * <p>
- * Every Organization gets exactly one Subscription. Its {@link SubscriptionStatus}
- * drives what operations are allowed at enforcement gates (provisioning, new cluster
- * creation, etc.). {@link SubscriptionItem} entries carry the billable items
- * (cluster runtime, Atlas storage) and are stored as a separate collection
- * for efficient usage aggregation queries.
+ * An Organization owns many Subscriptions; every Subscription owns exactly one
+ * Cluster and one MdbAllocation. Its {@link SubscriptionStatus} drives what
+ * operations are allowed at enforcement gates (provisioning, cancellation).
+ * {@link SubscriptionItem} entries carry the billable items (cluster runtime,
+ * Atlas storage) and are stored as a separate collection for efficient usage
+ * aggregation queries.
  * <p>
- * Week 2 scaffold: subscriptions start in {@code TRIAL} with a 30-day period.
- * Payment callbacks and invoice generation are Week 3+ work.
+ * Subscriptions start in {@code TRIAL} with a 30-day period and are created
+ * explicitly through {@code POST /orgs/{orgId}/subscriptions} — creating an
+ * Organization no longer creates a subscription. Payment callbacks and invoice
+ * generation are Week 3+ work.
  */
 @Document(collection = "subscriptions")
 @Data
@@ -44,6 +46,18 @@ public class Subscription {
     @Builder.Default
     @Schema(description = "Subscription lifecycle status", example = "TRIAL")
     private SubscriptionStatus status = SubscriptionStatus.TRIAL;
+
+    /**
+     * Provisioning state of the Subscription's cloud resources —
+     * {@link ResourceState#PROVISIONING} while the Cluster + Atlas deployment is
+     * in flight, {@link ResourceState#READY} once the Cluster and its
+     * MdbAllocation are both ready.
+     */
+    @Schema(description = "Cloud resource provisioning state: PROVISIONING / READY (null until resources are provisioned)")
+    private ResourceState resourceState;
+
+    @Schema(description = "When the Cluster and MdbAllocation first became READY")
+    private Instant resourcesReadyAt;
 
     @Schema(description = "Trial / billing period start")
     private Instant currentPeriodStart;

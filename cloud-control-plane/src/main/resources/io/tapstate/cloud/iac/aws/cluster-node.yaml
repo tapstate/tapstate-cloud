@@ -1,0 +1,127 @@
+# ============================================================
+# Tapstate Cloud Cluster node — single EC2 instance + security group.
+# One stack is created per Cluster; deleting the stack reclaims every
+# resource (instance, firewall rules, root disk) together.
+# ============================================================
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Tapstate Cloud Cluster node with Nginx, Docker and Certbot
+
+Parameters:
+  ClusterId:
+    Type: String
+    Description: Cluster id hex — identifies and tags every resource
+    AllowedPattern: '[0-9a-f]{24}'
+    MinLength: 24
+    MaxLength: 24
+  InstanceType:
+    Type: String
+    Default: t3.medium
+    Description: EC2 instance type
+  DiskSize:
+    Type: Number
+    Default: 40
+    Description: Root disk size in GB
+  SshPublicKey:
+    Type: String
+    Description: OpenSSH public key injected into the ubuntu user authorized_keys
+  AmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id
+    Description: Ubuntu 24.04 LTS amd64 EBS-gp3 AMI, resolved per region
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC containing the node; security groups cannot declare egress without it
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: Subnet to launch the node in (a public subnet with an internet route)
+
+Resources:
+
+  ClusterSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Tapstate Cluster node firewall
+      VpcId: !Ref VpcId
+      # Port-22 ingress rules are attached after stack creation through the EC2
+      # API, since their count and values vary with the control-plane egress.
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub tapstate-cluster-${ClusterId}
+        - Key: io.tapstate/cluster-id
+          Value: !Ref ClusterId
+
+  ClusterInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref AmiId
+      InstanceType: !Ref InstanceType
+      NetworkInterfaces:
+        - DeviceIndex: '0'
+          AssociatePublicIpAddress: true
+          SubnetId: !Ref SubnetId
+          GroupSet:
+            - !Ref ClusterSecurityGroup
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeType: gp3
+            VolumeSize: !Ref DiskSize
+            DeleteOnTermination: true
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -ex
+          # Machine-level bootstrap only: package installation and the SSH key.
+          # Service configuration and certificate issuance run over the SSH
+          # session opened by the control plane, never from this script.
+          export DEBIAN_FRONTEND=noninteractive
+
+          apt-get update
+          apt-get install -y ca-certificates curl gnupg lsb-release
+
+          install -m 0755 -d /etc/apt/keyrings
+          curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+          chmod a+r /etc/apt/keyrings/docker.asc
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" > /etc/apt/sources.list.d/docker.list
+
+          apt-get update
+          apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin nginx certbot python3-certbot-nginx
+
+          systemctl enable docker nginx
+          systemctl start docker nginx
+
+          mkdir -p /home/ubuntu/.ssh
+          echo '${SshPublicKey}' >> /home/ubuntu/.ssh/authorized_keys
+          chown -R ubuntu:ubuntu /home/ubuntu/.ssh
+          chmod 700 /home/ubuntu/.ssh
+          chmod 600 /home/ubuntu/.ssh/authorized_keys
+      Tags:
+        - Key: Name
+          Value: !Sub tapstate-cluster-${ClusterId}
+        - Key: io.tapstate/cluster-id
+          Value: !Ref ClusterId
+
+Outputs:
+  InstanceId:
+    Description: EC2 instance identifier
+    Value: !Ref ClusterInstance
+  PublicIp:
+    Description: Instance public IPv4 address
+    Value: !GetAtt ClusterInstance.PublicIp
+  PrivateIp:
+    Description: Instance private IPv4 address
+    Value: !GetAtt ClusterInstance.PrivateIp
+  SecurityGroupId:
+    Description: Security group identifier
+    Value: !Ref ClusterSecurityGroup

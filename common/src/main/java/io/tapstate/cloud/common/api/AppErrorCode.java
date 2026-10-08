@@ -32,6 +32,16 @@ public enum AppErrorCode implements ErrorCode {
     CLUSTER_CANCEL_NOT_ALLOWED("cluster.cancel-not-allowed", "Cluster cannot be cancelled while in state {0}"),
     CLUSTER_PROVISION_FAILED("cluster.provision-failed", "Cluster provisioning {0}"),
 
+    // ---------- Infrastructure as Code ----------
+    IAC_COMPUTE_PROVISION_FAILED("iac.compute-provision-failed", "Compute provisioning failed: {0}"),
+    IAC_COMPUTE_TERMINATE_FAILED("iac.compute-terminate-failed", "Compute termination failed: {0}"),
+    IAC_DNS_PROVIDER_FAILED("iac.dns-provider-failed", "DNS operation failed: {0}"),
+    IAC_DNS_PROVIDER_UNAUTHORIZED("iac.dns-provider-unauthorized", "DNS provider credentials missing or rejected: {0}"),
+    IAC_SSH_COMMAND_FAILED("iac.ssh-command-failed", "SSH operation failed: {0}"),
+    IAC_HEALTH_CHECK_FAILED("iac.health-check-failed", "Cluster endpoint health check failed: {0}"),
+    IAC_CRYPTO_KEY_MISSING("iac.crypto-key-missing", "SSH private-key master key is missing or invalid: {0}"),
+    IAC_MDB_NOT_READY("iac.mdb-not-ready", "Allocated MongoDB database is not ready: {0}"),
+
     // ---------- Region ----------
     REGION_NOT_FOUND("region.not-found", "Region {0} is not available"),
 
@@ -42,7 +52,7 @@ public enum AppErrorCode implements ErrorCode {
     EXCHANGE_CLUSTER_IDENTITY_MISMATCH("exchange.cluster-identity-mismatch", "Cluster service identity secret is invalid"),
 
     // ---------- Subscription ----------
-    SUBSCRIPTION_NOT_FOUND("subscription.not-found", "Subscription for organization {0} not found"),
+    SUBSCRIPTION_NOT_FOUND("subscription.not-found", "Subscription {0} not found"),
     SUBSCRIPTION_CANCELLED("subscription.cancelled", "Subscription is cancelled — provisioning is blocked"),
     SUBSCRIPTION_PAST_DUE("subscription.past-due", "Subscription is past due — provisioning is blocked until payment is made"),
 
@@ -51,6 +61,9 @@ public enum AppErrorCode implements ErrorCode {
     SDK_TOKEN_INVALID("sdk.token-invalid", "SDK static token is invalid or revoked"),
     SAMPLE_SOURCE_CREDENTIALS_NOT_CONFIGURED(
         "sample-source.credentials-not-configured", "Sample source credentials are not configured"),
+
+    // ---------- Deployment progress ----------
+    DEPLOYMENT_OP_TYPE_INVALID("deployment.op-type-invalid", "Invalid deployment opType {0}"),
 
     // ---------- Generic ----------
     BAD_REQUEST("bad_request", "Invalid request: {0}"),

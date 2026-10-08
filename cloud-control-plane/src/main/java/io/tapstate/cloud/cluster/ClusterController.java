@@ -21,9 +21,9 @@ import java.util.List;
  * Cluster read-only + retry endpoints.
  * <p>
  * Cluster creation and cancellation are NOT exposed here — they are managed
- * through the Subscription lifecycle (POST /subscription creates Cluster +
- * MDB allocation; POST /subscription/cancel cascades termination of all
- * org Clusters and MDB allocations).
+ * through the Subscription lifecycle (POST /subscriptions creates the
+ * subscription's Cluster + MDB allocation; POST
+ * /subscriptions/{subscriptionId}/cancel cascades their termination).
  * <p>
  * This controller exposes list, get-by-id, and retry-provisioning_failed.
  * Access requires Cloud Console session (ADR-0122 D2).
@@ -112,8 +112,8 @@ public class ClusterController extends BaseController {
         @Schema(description = "Cluster state: PROVISIONING_PENDING / PROVISIONING / READY / PROVISIONING_FAILED / DEGRADED / DRAINING / TERMINATED") ClusterState state,
         @Schema(description = "Provisioning failure error code (null if not failed)") ProvisionErrorCode provisionErrorCode,
         @Schema(description = "Pipeline Runtime ID (EC2 instance identifier)") String runtimeId,
-        @Schema(description = "Public DNS name (Route53 alias) for Cluster Console") String publicDns,
-        @Schema(description = "Elastic IP — used for Atlas allowlist") String elasticIp,
+        @Schema(description = "Public DNS name for Cluster Console") String publicDns,
+        @Schema(description = "EC2 node public IPv4 address") String ec2PublicIp,
         @Schema(description = "Last C2 heartbeat timestamp (ISO-8601 UTC)") String lastHeartbeatAt,
         @Schema(description = "Cluster creation timestamp (ISO-8601 UTC)") String createdAt,
         @Schema(description = "Ready timestamp (ISO-8601 UTC) — null until state = READY") String readyAt
@@ -123,7 +123,7 @@ public class ClusterController extends BaseController {
                 c.getId() != null ? c.getId().toHexString() : null, c.getOrgId() != null ? c.getOrgId().toHexString() : null,
                 c.getRegion(), c.getName(), c.getSpecKey(),
                 c.getState(), c.getProvisionErrorCode(),
-                c.getRuntimeId(), c.getPublicDns(), c.getElasticIp(),
+                c.getRuntimeId(), c.getPublicDns(), c.getEc2PublicIp(),
                 c.getLastHeartbeatAt() != null ? c.getLastHeartbeatAt().toString() : null,
                 c.getCreatedAt() != null ? c.getCreatedAt().toString() : null,
                 c.getReadyAt() != null ? c.getReadyAt().toString() : null);
