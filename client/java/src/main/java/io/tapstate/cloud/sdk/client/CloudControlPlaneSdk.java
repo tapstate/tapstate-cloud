@@ -230,7 +230,10 @@ public final class CloudControlPlaneSdk {
             data.getJti(),
             data.getUserEmail(),
             data.getOrgId(),
-            data.getClusterId()
+            data.getClusterId(),
+            data.getOrganizationName(),
+            data.getClusterName(),
+            data.getRegion()
         );
     }
 

@@ -107,7 +107,8 @@ public class ExchangeController extends BaseController {
             redeemed.clusterId(), redeemed.userEmail(), redeemed.userId(), redeemed.jti());
         return ok(new ExchangeResponse(
             redeemed.jwt(), redeemed.expiresAt(), redeemed.jti(),
-            redeemed.userEmail(), redeemed.userId(), redeemed.orgId(), redeemed.clusterId()));
+            redeemed.userEmail(), redeemed.userId(), redeemed.orgId(), redeemed.clusterId(),
+            redeemed.organizationName(), redeemed.clusterName(), redeemed.region()));
     }
 
     // ========== DTOs ==========
@@ -127,6 +128,9 @@ public class ExchangeController extends BaseController {
         @Schema(description = "User email bound to this session") String userEmail,
         @Schema(description = "Stable user UUID (Issue #5 item 1)") String userId,
         @Schema(description = "Organization UUID bound to this session") String orgId,
-        @Schema(description = "Cluster UUID bound to this session") String clusterId
+        @Schema(description = "Cluster UUID bound to this session") String clusterId,
+        @Schema(description = "Organization display name from the bound Organization record") String organizationName,
+        @Schema(description = "Cluster display name from the bound Cluster record") String clusterName,
+        @Schema(description = "AWS region from the bound Cluster record") String region
     ) {}
 }
