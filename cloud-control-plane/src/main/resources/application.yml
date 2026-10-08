@@ -153,6 +153,9 @@ tapstate:
         ttl: ${TAPSTATE_CLOUD_IAC_GODADDY_TTL:600}
       crypto:
         master-key: ${TAPSTATE_CLOUD_IAC_CRYPTO_MASTER_KEY:}
+      tls:
+        # Delay between sweeps that push newer stored wildcard certificates to online Clusters.
+        distribution-interval-ms: ${TAPSTATE_CLOUD_IAC_TLS_DISTRIBUTION_INTERVAL_MS:60000}
 
 # ========== Logging ==========
 logging:

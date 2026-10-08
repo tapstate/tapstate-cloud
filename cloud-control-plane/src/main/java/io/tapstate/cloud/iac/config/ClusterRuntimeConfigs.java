@@ -26,6 +26,17 @@ public class ClusterRuntimeConfigs {
     public static final String REMOTE_NGINX_HTTP_CONF_PATH =
         "/etc/nginx/conf.d/00-tapstate-http.conf";
 
+    /** Remote directory holding the centrally managed TLS certificate and key. */
+    public static final String REMOTE_NGINX_SSL_DIR = "/etc/nginx/ssl";
+
+    /** Remote path of the full-chain certificate served by Nginx. */
+    public static final String REMOTE_NGINX_CERT_PATH =
+        REMOTE_NGINX_SSL_DIR + "/tapstate-cluster.crt";
+
+    /** Remote path of the private key matching {@link #REMOTE_NGINX_CERT_PATH}. */
+    public static final String REMOTE_NGINX_KEY_PATH =
+        REMOTE_NGINX_SSL_DIR + "/tapstate-cluster.key";
+
     /** Runtime image deployed onto every Cluster node. */
     private static final String RUNTIME_IMAGE = "ghcr.io/tapstate/tapstate-cloud:0.6.0";
 
@@ -111,10 +122,10 @@ public class ClusterRuntimeConfigs {
     /**
      * Render the Nginx site configuration for the Cluster domain.
      * <p>
-     * Plain HTTP only: ACME challenge files are served from the Certbot webroot and
-     * every other request is proxied to the local runtime. Running
-     * {@code certbot --nginx} afterwards rewrites this file to terminate TLS on 443
-     * and redirect HTTP.
+     * TLS is terminated directly with the centrally managed certificate files
+     * (see {@link #REMOTE_NGINX_CERT_PATH} and {@link #REMOTE_NGINX_KEY_PATH});
+     * plain HTTP is redirected to HTTPS. The certificate files must be in place
+     * before Nginx loads this configuration.
      */
     public String nginxConf(String domain) {
         return """
@@ -124,10 +135,23 @@ public class ClusterRuntimeConfigs {
                 listen [::]:80;
                 server_name %s;
 
-                # Let's Encrypt HTTP-01 challenge files, kept outside the proxy.
-                location /.well-known/acme-challenge/ {
-                    root /var/www/certbot;
+                # Every plain-HTTP request is upgraded; TLS terminates on 443 below.
+                location / {
+                    return 301 https://$host$request_uri;
                 }
+            }
+
+            server {
+                listen 443 ssl;
+                listen [::]:443 ssl;
+                server_name %s;
+
+                ssl_certificate %s;
+                ssl_certificate_key %s;
+                ssl_protocols TLSv1.2 TLSv1.3;
+                ssl_prefer_server_ciphers off;
+                ssl_session_cache shared:TapstateTLS:10m;
+                ssl_session_timeout 1d;
 
                 location / {
                     proxy_pass http://127.0.0.1:8080;
@@ -145,7 +169,7 @@ public class ClusterRuntimeConfigs {
                     proxy_buffering off;
                 }
             }
-            """.formatted(domain);
+            """.formatted(domain, domain, REMOTE_NGINX_CERT_PATH, REMOTE_NGINX_KEY_PATH);
     }
 
     /**
