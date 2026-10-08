@@ -90,8 +90,19 @@ tapstate:
     resolve-jwt-expiry-minutes: ${CLOUD_RESOLVE_JWT_EXPIRY_MINUTES:15}
     # JWKS signing key — MUST come from k3s Secret (ADR-0121 D4)
     jwks-signing-key: ${CLOUD_JWKS_SIGNING_KEY:}
+    # JWKS key rotation configuration
+    jwks:
+      # Enable automatic key rotation (default: true)
+      rotation-enabled: ${CLOUD_JWKS_ROTATION_ENABLED:true}
+      # Enable private key encryption at rest (default: false)
+      encryption-enabled: ${CLOUD_JWKS_ENCRYPTION_ENABLED:false}
+      # Encryption key for AES-256 (required if encryption-enabled=true)
+      encryption-key: ${CLOUD_JWKS_ENCRYPTION_KEY:}
     # Session expiry — 7 days idle (ADR-0122 D1)
     session-expiry-days: ${CLOUD_SESSION_EXPIRY_DAYS:7}
+    # Credentialed browser requests are limited to Cloud Console and Cluster origins.
+    cors:
+      allowed-origin-patterns: "${CORS_ALLOWED_ORIGINS:https://cloud.tapstate.io,https://*.cloud.tapstate.io}"
     # Default region for Week 2 (ADR-0124 D1)
     default-region: ${CLOUD_DEFAULT_REGION:ap-southeast-1}
     # AWS credentials from k3s Secret (ADR-0121 D4)

@@ -12,6 +12,7 @@ import org.springframework.statemachine.support.DefaultStateMachineContext;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import org.bson.types.ObjectId;
 
 /**
  * MdbAllocation state machine orchestrator — mirrors the Cluster FSM pattern
@@ -51,12 +52,12 @@ public class MdbAllocationStateMachineService {
      * @param event        event to fire
      * @param operator     human / system identifier (for audit)
      */
-    public TransitionResult transition(String allocationId, MdbAllocationEventType event, String operator) {
+    public TransitionResult transition(ObjectId allocationId, MdbAllocationEventType event, String operator) {
         MdbAllocation allocation = allocationRepo.findById(allocationId)
             .orElseThrow(() -> new IllegalStateException("MdbAllocation not found: " + allocationId));
 
         StateMachine<MdbAllocationStatus, MdbAllocationEventType> sm =
-            mdbAllocationStateMachineFactory.getStateMachine("mdb-" + allocationId);
+            mdbAllocationStateMachineFactory.getStateMachine("mdb-" + allocationId.toHexString());
 
         sm.start();
         resetTo(sm, allocation.getStatus());

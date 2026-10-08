@@ -15,6 +15,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.List;
 import java.util.Set;
+import org.bson.types.ObjectId;
 
 /**
  * Cross-package cascade listener — when a Subscription is CANCELLED, terminate
@@ -86,7 +87,7 @@ public class SubscriptionCancelListener {
             terminated, clusters.size(), event.orgId());
 
         // === MDB allocation reclaim ===
-        List<MdbAllocation> allocations = allocationRepo.findByOrgId(event.orgId());
+        List<MdbAllocation> allocations = allocationRepo.findByOrgId(new ObjectId(event.orgId()));
         int reclaimed = 0;
 
         for (MdbAllocation allocation : allocations) {

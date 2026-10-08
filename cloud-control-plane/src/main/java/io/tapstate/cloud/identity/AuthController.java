@@ -48,7 +48,7 @@ import java.util.List;
  * - Idle expiry: 7 days (configured in application.yml spring.session.timeout)
  */
 @RestController
-@RequestMapping("/v1/auth")
+@RequestMapping("/v1/api/auth")
 @RequiredArgsConstructor
 @Slf4j
 @Tag(name = "Auth", description = "Cloud Console authentication — register, login, session management")
@@ -155,18 +155,21 @@ public class AuthController extends BaseController {
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Session invalidated")
     })
     public ResponseEntity<ApiResponse<Void>> logout(HttpServletRequest request) {
-        // 1. Invalidate Cloud-side session
+        // 1. Capture current user email BEFORE invalidating session (Issue #14)
+        String userEmail = CurrentUser.getEmail();
+
+        // 2. Fire signed revocation callbacks to all active resolve JWTs for this user (Issue #5 items 3/4)
+        if (userEmail != null) {
+            revokeAllActiveJwts(userEmail);
+        }
+
+        // 3. Invalidate Cloud-side session AFTER callbacks are sent
         var session = request.getSession(false);
         if (session != null) {
             session.invalidate();
         }
         SecurityContextHolder.clearContext();
 
-        // 2. Fire signed revocation callbacks to all active resolve JWTs for this user (Issue #5 items 3/4)
-        String userEmail = CurrentUser.getEmail();
-        if (userEmail != null) {
-            revokeAllActiveJwts(userEmail);
-        }
         return ok();
     }
 
@@ -307,7 +310,7 @@ public class AuthController extends BaseController {
     ) {
         public static UserResponse from(User user) {
             return new UserResponse(
-                user.getId(),
+                user.getId() != null ? user.getId().toHexString() : null,
                 user.getEmail(),
                 user.getDisplayName(),
                 user.getStatus(),

@@ -48,14 +48,14 @@ class CloudControlPlaneSdkVerifyTest {
         kpg.initialize(2048);
         keyPair = kpg.generateKeyPair();
 
-        jwksCache = new JwksKeyCache(BASE_URL + "/v1/jwks.json",
+        jwksCache = new JwksKeyCache(BASE_URL + "/v1/api/jwks.json",
             java.time.Duration.ofMinutes(10));
         jwksCache.testInjectKey(EXPECTED_KID, (RSAPublicKey) keyPair.getPublic());
 
         sdk = CloudControlPlaneSdk.builder()
             .baseUrl(BASE_URL)
             .issuer(ISSUER)
-            .clusterIdentitySecret("any-secret")
+            .sdkStaticToken("any-secret")
             .buildForTest(CLUSTER_ID, mockExchangeApi, jwksCache);
     }
 
@@ -135,7 +135,7 @@ class CloudControlPlaneSdkVerifyTest {
         CloudControlPlaneSdk spySdk = CloudControlPlaneSdk.builder()
             .baseUrl(BASE_URL)
             .issuer(ISSUER)
-            .clusterIdentitySecret("any-secret")
+            .sdkStaticToken("any-secret")
             .buildForTest(CLUSTER_ID, mockExchangeApi, spyCache);
 
         VerifiedJwt result = spySdk.verifyJwt(jwt);
@@ -156,7 +156,7 @@ class CloudControlPlaneSdkVerifyTest {
         CloudControlPlaneSdk spySdk = CloudControlPlaneSdk.builder()
             .baseUrl(BASE_URL)
             .issuer(ISSUER)
-            .clusterIdentitySecret("any-secret")
+            .sdkStaticToken("any-secret")
             .buildForTest(CLUSTER_ID, mockExchangeApi, spyCache);
 
         JwtVerificationException.JwkNotFound ex = assertThrows(

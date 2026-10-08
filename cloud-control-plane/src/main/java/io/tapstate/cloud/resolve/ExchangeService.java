@@ -7,10 +7,13 @@ import io.tapstate.cloud.cluster.ClusterRepository;
 import io.tapstate.cloud.cluster.ClusterState;
 import io.tapstate.cloud.common.api.AppErrorCode;
 import io.tapstate.cloud.common.api.BusinessException;
-import io.tapstate.cloud.config.JwtKeysConfig;
+import io.tapstate.cloud.config.JwksKey;
+import io.tapstate.cloud.config.JwksRotationService;
 import io.tapstate.cloud.identity.User;
 import io.tapstate.cloud.identity.UserRepository;
 import io.tapstate.cloud.org.MemberRepository;
+import io.tapstate.cloud.org.Organization;
+import io.tapstate.cloud.org.OrganizationRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.mongodb.core.MongoTemplate;
@@ -29,7 +32,9 @@ import java.util.Date;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
+import org.bson.types.ObjectId;
 
 /**
  * Exchange-code lifecycle (ADR-0125).
@@ -58,9 +63,10 @@ public class ExchangeService {
     private final MongoTemplate mongoTemplate;
     private final ClusterRepository clusterRepo;
     private final MemberRepository memberRepo;
+    private final OrganizationRepository organizationRepo;
     private final UserRepository userRepo;
     private final JtiRecordRepository jtiRecordRepo;
-    private final KeyPair jwtSigningKeyPair;
+    private final JwksRotationService jwksRotationService;
 
     @Value("${tapstate.cloud.issuer:https://cloud.tapstate.io}")
     private String issuer;
@@ -80,16 +86,18 @@ public class ExchangeService {
                            MongoTemplate mongoTemplate,
                            ClusterRepository clusterRepo,
                            MemberRepository memberRepo,
+                           OrganizationRepository organizationRepo,
                            UserRepository userRepo,
                            JtiRecordRepository jtiRecordRepo,
-                           KeyPair jwtSigningKeyPair) {
+                           JwksRotationService jwksRotationService) {
         this.codeRepo = codeRepo;
         this.mongoTemplate = mongoTemplate;
         this.clusterRepo = clusterRepo;
         this.memberRepo = memberRepo;
+        this.organizationRepo = organizationRepo;
         this.userRepo = userRepo;
         this.jtiRecordRepo = jtiRecordRepo;
-        this.jwtSigningKeyPair = jwtSigningKeyPair;
+        this.jwksRotationService = jwksRotationService;
     }
 
     // ========== Step 1: Issue exchange code ==========
@@ -113,14 +121,14 @@ public class ExchangeService {
             .orElseThrow(() -> new BusinessException(AppErrorCode.USER_NOT_FOUND, 404, userEmail));
 
         // Condition 2: user ∈ org
-        if (!memberRepo.existsByOrgIdAndUserEmail(orgId, userEmail)) {
+        if (!memberRepo.existsByOrgIdAndUserEmail(new ObjectId(orgId), userEmail)) {
             throw new BusinessException(AppErrorCode.ORG_NOT_MEMBER, 403, orgId);
         }
 
         // Condition 3: cluster exists + belongs to org
-        Cluster cluster = clusterRepo.findById(clusterId)
+        Cluster cluster = clusterRepo.findById(new ObjectId(clusterId))
             .orElseThrow(() -> new BusinessException(AppErrorCode.CLUSTER_NOT_FOUND, 404, clusterId));
-        if (!orgId.equals(cluster.getOrgId())) {
+        if (!new ObjectId(orgId).equals(cluster.getOrgId())) {
             throw new BusinessException(AppErrorCode.CLUSTER_ORG_MISMATCH, 400, clusterId, orgId);
         }
 
@@ -143,8 +151,8 @@ public class ExchangeService {
             .codeHash(codeHash)
             .userEmail(userEmail)
             .userId(user.getId())
-            .orgId(orgId)
-            .clusterId(clusterId)
+            .orgId(new ObjectId(orgId))
+            .clusterId(new ObjectId(clusterId))
             .targetOrigin(cluster.getPublicDns() != null
                 ? "https://" + cluster.getPublicDns()
                 : "http://localhost:30080") // Week 2 scaffold fallback
@@ -177,7 +185,7 @@ public class ExchangeService {
         Query query = Query.query(Criteria.where("codeHash").is(codeHash)
             .and("consumedAt").isNull()
             .and("expiresAt").gt(now)
-            .and("clusterId").is(expectedClusterId));
+            .and("clusterId").is(new ObjectId(expectedClusterId)));
         Update update = Update.update("consumedAt", now);
 
         ExchangeCode consumed = mongoTemplate.findAndModify(query, update, ExchangeCode.class);
@@ -191,7 +199,7 @@ public class ExchangeService {
                 throw new BusinessException(AppErrorCode.EXCHANGE_CODE_CONSUMED, 401);
             } else if (existing.getExpiresAt().isBefore(now)) {
                 throw new BusinessException(AppErrorCode.EXCHANGE_CODE_EXPIRED, 401);
-            } else if (!existing.getClusterId().equals(expectedClusterId)) {
+            } else if (!existing.getClusterId().equals(new ObjectId(expectedClusterId))) {
                 throw new BusinessException(AppErrorCode.EXCHANGE_CODE_CLUSTER_MISMATCH, 401);
             } else {
                 log.error("Exchange code validation failed unexpectedly for cluster={}", expectedClusterId);
@@ -199,27 +207,51 @@ public class ExchangeService {
             }
         }
 
+        Cluster cluster = clusterRepo.findById(consumed.getClusterId())
+            .orElseThrow(() -> new BusinessException(AppErrorCode.SYSTEM_ERROR, 500));
+        if (!consumed.getOrgId().equals(cluster.getOrgId())) {
+            throw new BusinessException(AppErrorCode.CLUSTER_ORG_MISMATCH, 500,
+                consumed.getClusterId(), consumed.getOrgId());
+        }
+        Organization organization = organizationRepo.findById(consumed.getOrgId())
+            .orElseThrow(() -> new BusinessException(AppErrorCode.SYSTEM_ERROR, 500));
+        if (organization.getName() == null || cluster.getName() == null || cluster.getRegion() == null) {
+            throw new BusinessException(AppErrorCode.SYSTEM_ERROR, 500);
+        }
+
         // Issue resolve JWT — claims per ADR-0122 D4 + Issue #5 item 1 (user_id)
         String jwtId = UUID.randomUUID().toString();
         Instant jwtExp = now.plus(jwtExpiryMinutes, ChronoUnit.MINUTES);
-        String aud = consumed.getClusterId() + ".api.tapstate.io";
+        String aud = consumed.getClusterId() + ".dev.cloud.tapstate.com";
+
+        // Live-read the CURRENT active signing key from MongoDB — rotation-aware:
+        // if JwksRotationService rotated since this service bean was built, the new
+        // key's private key is picked up here. Also read kid from the same key so
+        // the JWT header carries the real kid the JWKS endpoint is publishing.
+        Optional<JwksKey> activeKeyOpt = jwksRotationService.getActiveKey();
+        if (activeKeyOpt.isEmpty()) {
+            throw new BusinessException(AppErrorCode.SYSTEM_ERROR, 500,
+                "No active JWKS key in MongoDB — cannot sign JWT");
+        }
+        JwksKey activeKey = activeKeyOpt.get();
+        KeyPair signingKp = jwksRotationService.buildActiveSigningKeyPair();
 
         String jwt = Jwts.builder()
             .id(jwtId)
             .issuer(issuer)
             .subject(consumed.getUserEmail())
             .audience().add(aud).and()
-            .claim("user_id", consumed.getUserId())
-            .claim("org_id", consumed.getOrgId())
-            .claim("cluster_id", consumed.getClusterId())
+            .claim("user_id", consumed.getUserId() != null ? consumed.getUserId().toHexString() : null)
+            .claim("org_id", consumed.getOrgId() != null ? consumed.getOrgId().toHexString() : null)
+            .claim("cluster_id", consumed.getClusterId() != null ? consumed.getClusterId().toHexString() : null)
             .claim("scope", List.of("workload:read", "workload:write"))
             .issuedAt(Date.from(now))
             .expiration(Date.from(jwtExp))
             .header()
-                .keyId(JwtKeysConfig.KID)
+                .keyId(activeKey.getKid())   // real kid from MongoDB — no hardcoded constant
                 .type("JWT")
             .and()
-            .signWith(jwtSigningKeyPair.getPrivate())
+            .signWith(signingKp.getPrivate())
             .compact();
 
         log.info("Exchange code redeemed → JWT issued jti={}, cluster={}, user={}, userId={}",
@@ -241,7 +273,11 @@ public class ExchangeService {
             .build());
 
         return new RedeemedExchange(jwt, jwtExp.toString(), jwtId,
-            consumed.getUserEmail(), consumed.getUserId(), consumed.getOrgId(), consumed.getClusterId());
+            consumed.getUserEmail(),
+            consumed.getUserId() != null ? consumed.getUserId().toHexString() : null,
+            consumed.getOrgId() != null ? consumed.getOrgId().toHexString() : null,
+            consumed.getClusterId() != null ? consumed.getClusterId().toHexString() : null,
+            organization.getName(), cluster.getName(), cluster.getRegion());
     }
 
     // ========== Cluster service identity secret verification ==========
@@ -253,8 +289,8 @@ public class ExchangeService {
      * <ol>
      *   <li>In-memory config Map (populated from {@code tapstate.cloud.cluster-service-secrets}
      *       — useful for dev/IT with pre-known cluster ids)</li>
-     *   <li>Cluster.bootstrapToken from DB — every provisioned Cluster carries its own
-     *       service identity token set at creation time (week-2 scaffold, no k3s Secret yet)</li>
+     *   <li>Cluster.sdkStaticToken from DB — every provisioned Cluster carries its own
+     *       service identity token set at creation time</li>
      * </ol>
      */
     public boolean verifyClusterServiceSecret(String clusterId, String presentedSecret) {
@@ -263,9 +299,9 @@ public class ExchangeService {
         if (fromConfig != null && fromConfig.equals(presentedSecret)) {
             return true;
         }
-        // 2. Fall back to Cluster.bootstrapToken from DB — the per-Cluster identity secret
-        return clusterRepo.findById(clusterId)
-            .map(c -> presentedSecret != null && presentedSecret.equals(c.getBootstrapToken()))
+        // 2. Fall back to Cluster.sdkStaticToken from DB — the per-Cluster identity secret
+        return clusterRepo.findById(new ObjectId(clusterId))
+            .map(c -> presentedSecret != null && presentedSecret.equals(c.getSdkStaticToken()))
             .orElse(false);
     }
 
@@ -293,5 +329,6 @@ public class ExchangeService {
 
     /** Result of successful code redemption — returned to Cluster Server via GC /exchange. */
     public record RedeemedExchange(String jwt, String expiresAt, String jti,
-                                    String userEmail, String userId, String orgId, String clusterId) {}
+                                    String userEmail, String userId, String orgId, String clusterId,
+                                    String organizationName, String clusterName, String region) {}
 }

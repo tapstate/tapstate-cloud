@@ -18,8 +18,8 @@ import static org.junit.jupiter.api.Assertions.*;
  * Full happy path + security invariants:
  * <ol>
  *   <li>Cloud user login → session cookie</li>
- *   <li>GET /v1/clusters/{cid}/resolve?orgId={oid} → exchange_code (60s TTL)</li>
- *   <li>Cluster Server back-channel: POST /v1/auth/exchange with
+ *   <li>GET /v1/api/clusters/{cid}/resolve?orgId={oid} → exchange_code (60s TTL)</li>
+ *   <li>Cluster Server back-channel: POST /v1/api/auth/exchange with
  *       X-Cluster-Identity-Secret: {bootstrapToken} + body → JWT (RS256, 15min)</li>
  *   <li>JWT decoded — verify claims (org_id, cluster_id, runtime_id, iss, exp, jti)</li>
  *   <li>Replay consumed exchange_code → 401 (one-shot)</li>
@@ -47,7 +47,7 @@ class ExchangeOAuthIT extends BaseIT {
         java.net.http.HttpClient hc = java.net.http.HttpClient.newHttpClient();
         for (int i = 0; i < 10; i++) {
             java.net.http.HttpResponse<String> r = hc.send(java.net.http.HttpRequest.newBuilder()
-                .uri(java.net.URI.create(BASE_URL + "/v1/orgs/" + orgId + "/clusters"))
+                .uri(java.net.URI.create(BASE_URL + "/v1/api/orgs/" + orgId + "/clusters"))
                 .header("Cookie", "TAPSTATE_CLOUD_SESSION=" + sessionCookieValue)
                 .GET().build(), java.net.http.HttpResponse.BodyHandlers.ofString());
             com.fasterxml.jackson.databind.JsonNode arr = mapper.readTree(r.body()).path("data");
@@ -63,9 +63,9 @@ class ExchangeOAuthIT extends BaseIT {
 
         waitForReady(orgId, clusterId);
 
-        // bootstrapToken = per-Cluster service identity secret
+        // sdkStaticToken = per-Cluster service identity secret (for exchange endpoint)
         Process p = new ProcessBuilder("mongosh", "--quiet", "--eval",
-            "db.clusters.findOne({_id: '" + clusterId + "'}, {bootstrapToken:1}).bootstrapToken",
+            "db.clusters.findOne({_id: ObjectId('" + clusterId + "')}, {sdkStaticToken:1}).sdkStaticToken",
             MONGO_DB)
             .redirectErrorStream(true).start();
         String bootstrapToken = new String(p.getInputStream().readAllBytes()).trim();

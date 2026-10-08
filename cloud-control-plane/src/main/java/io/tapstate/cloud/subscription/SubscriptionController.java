@@ -36,7 +36,7 @@ import java.util.Map;
  * Payment callbacks and invoice list are Week 3+ features (not implemented here).
  */
 @RestController
-@RequestMapping("/v1/orgs/{orgId}")
+@RequestMapping("/v1/api/orgs/{orgId}")
 @RequiredArgsConstructor
 @Tag(name = "Subscription", description = "Organization subscription — create with initial Cluster, view status and items")
 public class SubscriptionController extends BaseController {
@@ -190,8 +190,8 @@ public class SubscriptionController extends BaseController {
     ) {
         public static SubscriptionResponse from(Subscription s, List<SubscriptionItem> items) {
             return new SubscriptionResponse(
-                s.getId(),
-                s.getOrgId(),
+                s.getId() != null ? s.getId().toHexString() : null,
+                s.getOrgId() != null ? s.getOrgId().toHexString() : null,
                 s.getStatus().name(),
                 s.getCurrentPeriodStart(),
                 s.getCurrentPeriodEnd(),
@@ -214,7 +214,7 @@ public class SubscriptionController extends BaseController {
         public static ItemResponse from(SubscriptionItem item) {
             SubscriptionItemType t = item.getItemType();
             return new ItemResponse(
-                item.getId(),
+                item.getId() != null ? item.getId().toHexString() : null,
                 t.name(),
                 t.getDisplayName(),
                 t.getBillingUnit(),

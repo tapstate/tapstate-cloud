@@ -12,6 +12,7 @@ import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.HexFormat;
 import java.util.List;
+import org.bson.types.ObjectId;
 
 /**
  * Organization management — create, list, membership.
@@ -38,7 +39,6 @@ public class OrganizationService {
         String effectiveSlug = slug != null ? slug : generateSlug(name);
 
         Organization org = Organization.builder()
-            .id(generateId())
             .name(name)
             .slug(effectiveSlug)
             .ownerEmail(ownerEmail)
@@ -59,7 +59,7 @@ public class OrganizationService {
         memberRepository.save(ownerMember);
 
         // Auto-create default trial subscription with two standard billable items
-        subscriptionService.createDefaultSubscription(saved.getId());
+        subscriptionService.createDefaultSubscription(saved.getId().toHexString());
 
         log.info("Organization created: {} (owner: {}, orgId: {})", saved.getName(), ownerEmail, saved.getId());
         return saved;
@@ -81,7 +81,7 @@ public class OrganizationService {
     }
 
     public List<Organization> listUserOrganizations(String userEmail) {
-        List<String> orgIds = memberRepository.findByUserEmail(userEmail)
+        List<ObjectId> orgIds = memberRepository.findByUserEmail(userEmail)
             .stream()
             .map(Member::getOrgId)
             .toList();
@@ -90,7 +90,7 @@ public class OrganizationService {
     }
 
     public boolean isMember(String orgId, String userEmail) {
-        return memberRepository.existsByOrgIdAndUserEmail(orgId, userEmail);
+        return memberRepository.existsByOrgIdAndUserEmail(new ObjectId(orgId), userEmail);
     }
 
     // ========== Helpers ==========

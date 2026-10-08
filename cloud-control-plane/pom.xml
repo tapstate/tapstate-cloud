@@ -18,14 +18,16 @@
   <parent>
     <groupId>io.tapstate</groupId>
     <artifactId>tapstate-cloud-parent</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
+    <version>0.1.0</version>
   </parent>
 
   <artifactId>tapstate-cloud-control-plane</artifactId>
   <packaging>jar</packaging>
   <name>Tapstate Cloud — Cloud Control Plane</name>
 
+  <!-- Runnable Spring Boot app — NOT deployed to Nexus. Published as Docker image. -->
   <properties>
+    <maven.deploy.skip>true</maven.deploy.skip>
     <!-- IT server port — must match application-it.yml and ApiClient base URL in BaseIT -->
     <it.server.port>8081</it.server.port>
   </properties>
@@ -76,6 +78,17 @@
       <groupId>org.springframework.statemachine</groupId>
       <artifactId>spring-statemachine-starter</artifactId>
     </dependency>
+
+    <!-- ShedLock — distributed scheduling lock for JWKS rotation -->
+    <dependency>
+      <groupId>net.javacrumbs.shedlock</groupId>
+      <artifactId>shedlock-spring</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>net.javacrumbs.shedlock</groupId>
+      <artifactId>shedlock-provider-mongo</artifactId>
+    </dependency>
+
     <dependency>
       <groupId>io.jsonwebtoken</groupId>
       <artifactId>jjwt-impl</artifactId>

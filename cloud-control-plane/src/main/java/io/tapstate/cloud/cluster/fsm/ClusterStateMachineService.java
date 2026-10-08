@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.concurrent.TimeUnit;
+import org.bson.types.ObjectId;
 
 /**
  * Cluster state machine orchestrator — wraps Spring Statemachine factory with
@@ -64,12 +65,12 @@ public class ClusterStateMachineService {
      * @param operator  human / system identifier (for audit)
      * @return transition result — check {@link TransitionResult#accepted} / newState
      */
-    public TransitionResult transition(String clusterId, ClusterEventType event, String operator) {
+    public TransitionResult transition(ObjectId clusterId, ClusterEventType event, String operator) {
         Cluster cluster = clusterRepository.findById(clusterId)
             .orElseThrow(() -> new IllegalStateException("Cluster not found: " + clusterId));
 
         StateMachine<ClusterState, ClusterEventType> sm =
-            clusterStateMachineFactory.getStateMachine("cluster-" + clusterId);
+            clusterStateMachineFactory.getStateMachine("cluster-" + clusterId.toHexString());
 
         sm.start();
         resetTo(sm, cluster.getState());
@@ -131,10 +132,10 @@ public class ClusterStateMachineService {
         // === PROVISIONING → READY: set runtime fields ===
         if (from == ClusterState.PROVISIONING && to == ClusterState.READY) {
             cluster.setReadyAt(Instant.now());
-            cluster.setEc2InstanceId("i-" + cluster.getId().substring(0, 12));
+            cluster.setEc2InstanceId("i-" + cluster.getId().toHexString().substring(0, 12));
             cluster.setElasticIp("54." + secureRandom.nextInt(256) + "." +
                 secureRandom.nextInt(256) + "." + secureRandom.nextInt(256));
-            cluster.setPublicDns(cluster.getId() + ".api.tapstate.io");
+            cluster.setPublicDns(cluster.getId().toHexString() + ".dev.cloud.tapstate.com");
             cluster.setLastHeartbeatAt(Instant.now());
         }
 

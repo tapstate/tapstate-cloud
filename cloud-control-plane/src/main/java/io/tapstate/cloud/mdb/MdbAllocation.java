@@ -12,6 +12,7 @@ import org.springframework.data.mongodb.core.index.CompoundIndex;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.Instant;
+import org.bson.types.ObjectId;
 
 /**
  * Per-customer database allocation record — tracks which shared Atlas instance
@@ -38,25 +39,25 @@ import java.time.Instant;
 public class MdbAllocation {
 
     @Id
-    @Schema(description = "Allocation UUID")
-    private String id;
+    @Schema(description = "Allocation ID")
+    private ObjectId id;
 
     /** Owning Organization — allocation belongs to org, not user directly. */
-    @Schema(description = "Organization UUID")
-    private String orgId;
+    @Schema(description = "Organization ID")
+    private ObjectId orgId;
 
     /** Cluster that owns this allocation (one allocation per Cluster). */
-    @Schema(description = "Cluster UUID")
-    private String clusterId;
+    @Schema(description = "Cluster ID")
+    private ObjectId clusterId;
 
-    /** Parent subscription UUID — links allocation to subscription lifecycle. */
-    @Schema(description = "Subscription UUID")
-    private String subscriptionId;
+    /** Parent subscription ID — links allocation to subscription lifecycle. */
+    @Schema(description = "Subscription ID")
+    private ObjectId subscriptionId;
 
     // ========== Atlas link ==========
 
     @Schema(description = "ID of the parent AtlasInstanceConfig this allocation lives on")
-    private String atlasInstanceId;
+    private ObjectId atlasInstanceId;
 
     /** Duplicated from config at creation time so allocation stays self-contained. */
     @Schema(description = "Atlas Project ID (snapshot from config at creation)")

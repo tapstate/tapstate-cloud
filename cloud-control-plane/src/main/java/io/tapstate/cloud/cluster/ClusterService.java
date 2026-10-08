@@ -19,6 +19,7 @@ import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
+import org.bson.types.ObjectId;
 
 /**
  * Cluster service — create, list, retry, status-report, lifecycle transitions.
@@ -48,6 +49,7 @@ import java.util.Map;
 public class ClusterService {
 
     private final ClusterRepository clusterRepository;
+    private final ClusterStatusReportHistoryRepository historyRepository;
     private final MemberRepository memberRepository;
     private final RegionService regionService;
     private final ClusterStateMachineService clusterStateMachineService;
@@ -71,19 +73,17 @@ public class ClusterService {
      */
     @Transactional
     public Cluster createCluster(String orgId, String region, String name, String specKey, String creatorEmail) {
-        if (!memberRepository.existsByOrgIdAndUserEmail(orgId, creatorEmail)) {
+        if (!memberRepository.existsByOrgIdAndUserEmail(new ObjectId(orgId), creatorEmail)) {
             throw new BusinessException(AppErrorCode.ORG_NOT_MEMBER, 403, orgId);
         }
         regionService.getByCode(region);
-        if (clusterRepository.existsByOrgIdAndRegionAndName(orgId, region, name)) {
+        if (clusterRepository.existsByOrgIdAndRegionAndName(new ObjectId(orgId), region, name)) {
             throw new BusinessException(AppErrorCode.CLUSTER_ALREADY_EXISTS, 409, name, orgId, region);
         }
 
         // ---- Cluster record ----
-        String clusterId = generateId("cluster-");
         Cluster cluster = Cluster.builder()
-            .id(clusterId)
-            .orgId(orgId)
+            .orgId(new ObjectId(orgId))
             .region(region)
             .name(name)
             .specKey(specKey != null ? specKey : "basic")
@@ -97,7 +97,7 @@ public class ClusterService {
             .build();
 
         Cluster saved = clusterRepository.save(cluster);
-        saved.getTags().put("cluster_id", saved.getId());
+        saved.getTags().put("cluster_id", saved.getId().toHexString());
         saved.getTags().put("runtime_id", saved.getRuntimeId());
         saved = clusterRepository.save(saved);
 
@@ -105,7 +105,7 @@ public class ClusterService {
         clusterStateMachineService.transition(saved.getId(),
             ClusterEventType.START_PROVISION, "subscription:" + creatorEmail);
 
-        log.info("Cluster created: {} (sm transition START_PROVISION fired)", saved.getId());
+        log.info("Cluster created: {} (sm transition START_PROVISION fired)", saved.getId().toHexString());
         return saved;
     }
 
@@ -116,9 +116,9 @@ public class ClusterService {
      * succeeds so the Cluster runtime can resolve its Atlas DB credentials via the allocation.
      */
     @Transactional
-    public void updateMdbAllocationId(String clusterId, String allocationId) {
+    public void updateMdbAllocationId(ObjectId clusterId, ObjectId allocationId) {
         clusterRepository.findById(clusterId).ifPresent(cluster -> {
-            cluster.setMdbAllocationId(allocationId);
+            cluster.setMdbAllocationId(allocationId.toHexString());
             clusterRepository.save(cluster);
         });
     }
@@ -126,17 +126,17 @@ public class ClusterService {
     // ========== List / Get ==========
 
     public List<Cluster> listOrgClusters(String orgId, String userEmail) {
-        if (!memberRepository.existsByOrgIdAndUserEmail(orgId, userEmail)) {
+        if (!memberRepository.existsByOrgIdAndUserEmail(new ObjectId(orgId), userEmail)) {
             throw new BusinessException(AppErrorCode.ORG_NOT_MEMBER, 403, orgId);
         }
-        return clusterRepository.findByOrgId(orgId);
+        return clusterRepository.findByOrgId(new ObjectId(orgId));
     }
 
     public Cluster getCluster(String clusterId, String orgId, String userEmail) {
-        if (!memberRepository.existsByOrgIdAndUserEmail(orgId, userEmail)) {
+        if (!memberRepository.existsByOrgIdAndUserEmail(new ObjectId(orgId), userEmail)) {
             throw new BusinessException(AppErrorCode.ORG_NOT_MEMBER, 403, orgId);
         }
-        return clusterRepository.findByIdAndOrgId(clusterId, orgId)
+        return clusterRepository.findByIdAndOrgId(new ObjectId(clusterId), new ObjectId(orgId))
             .orElseThrow(() -> new BusinessException(AppErrorCode.CLUSTER_NOT_FOUND, 404, clusterId));
     }
 
@@ -171,9 +171,9 @@ public class ClusterService {
         cluster.setUpdatedAt(Instant.now());
         cluster = clusterRepository.save(cluster);
 
-        clusterStateMachineService.transition(clusterId, ClusterEventType.RETRY, "gc:" + userEmail);
+        clusterStateMachineService.transition(new ObjectId(clusterId), ClusterEventType.RETRY, "gc:" + userEmail);
 
-        return clusterRepository.findById(clusterId).orElse(cluster);
+        return clusterRepository.findById(new ObjectId(clusterId)).orElse(cluster);
     }
 
     // ========== Cascade termination (called by SubscriptionCancelListener) ==========
@@ -190,7 +190,7 @@ public class ClusterService {
      */
     @Transactional
     public Cluster terminateCluster(String clusterId, String orgId) {
-        Cluster cluster = clusterRepository.findByIdAndOrgId(clusterId, orgId)
+        Cluster cluster = clusterRepository.findByIdAndOrgId(new ObjectId(clusterId), new ObjectId(orgId))
             .orElseThrow(() -> new BusinessException(AppErrorCode.CLUSTER_NOT_FOUND, 404, clusterId));
 
         ClusterState state = cluster.getState();
@@ -205,10 +205,10 @@ public class ClusterService {
             return cluster;
         }
 
-        clusterStateMachineService.transition(clusterId, ClusterEventType.INITIATE_TERMINATION,
+        clusterStateMachineService.transition(new ObjectId(clusterId), ClusterEventType.INITIATE_TERMINATION,
             "subscription-cascade");
 
-        return clusterRepository.findById(clusterId).orElse(cluster);
+        return clusterRepository.findById(new ObjectId(clusterId)).orElse(cluster);
     }
 
     // ========== C2 Status Report — runtime → GC heartbeat + metrics ==========
@@ -217,29 +217,58 @@ public class ClusterService {
      * Accept C2 status report from the runtime SDK.
      * <p>
      * Enforces nonce replay protection (same nonce twice → 409 auth.nonce-replay),
-     * updates heartbeat timestamp, and auto-recovers DEGRADED clusters via the
-     * state-machine HEARTBEAT_RECOVERY event.
+     * updates heartbeat timestamp, stores the full request as an embedded snapshot
+     * on {@link Cluster#getLastStatusReport()}, appends a full history record to the
+     * {@code cluster_status_report_history} time-series collection, and auto-recovers
+     * DEGRADED clusters via the state-machine HEARTBEAT_RECOVERY event.
+     * <p>
+     * Storage dual-write:
+     * <ul>
+     *   <li>{@code Cluster.lastStatusReport} — latest-only embedded document, serves as
+     *       the fleet console's "current status" snapshot</li>
+     *   <li>{@code cluster_status_report_history} — time-series collection, keeps every
+     *       report ever accepted, for trend/diagnostics/audit</li>
+     * </ul>
+     * Both writes are inside the same {@code @Transactional} — MongoDB 5.0+ supports
+     * inserting into time-series collections inside multi-doc transactions.
      */
     @Transactional
-    public void recordStatusReport(String clusterId, String nonce) {
-        Cluster cluster = clusterRepository.findById(clusterId)
+    public void recordStatusReport(String clusterId, StatusReportRequest request) {
+        Cluster cluster = clusterRepository.findById(new ObjectId(clusterId))
             .orElseThrow(() -> new BusinessException(AppErrorCode.CLUSTER_NOT_FOUND, 404, clusterId));
 
         ClusterState prevState = cluster.getState();
+
+        String nonce = request.getNonce();
 
         // Nonce replay guard — Cluster.lastC2Nonce stores the previously accepted nonce
         if (nonce != null && nonce.equals(cluster.getLastC2Nonce())) {
             throw new BusinessException(AppErrorCode.NONCE_REPLAY, 409);
         }
 
-        // Always update heartbeat + nonce (even for DEGRADED recovery)
-        cluster.setLastHeartbeatAt(Instant.now());
+        Instant now = Instant.now();
+
+        // --- 1. Update Cluster document — latest-only snapshot ---
+        cluster.setLastHeartbeatAt(now);
         cluster.setLastC2Nonce(nonce);
+        cluster.setLastStatusReport(request);
         clusterRepository.save(cluster);
 
-        // If previously DEGRADED, fire HEARTBEAT_RECOVERY → state machine moves DEGRADED → READY.
+        // --- 2. Append to time-series history — every report preserved forever ---
+        ClusterStatusReportHistory history = ClusterStatusReportHistory.builder()
+            .clusterId(clusterId)
+            .timestamp(now)
+            .nonce(request.getNonce())
+            .runtimeVersion(request.getRuntimeVersion())
+            .uptimeMs(request.getUptimeMs())
+            .activePipelines(request.getActivePipelines())
+            .lastErrorAt(request.getLastErrorAt())
+            .build();
+        historyRepository.save(history);
+
+        // --- 3. State-machine recovery ---
         if (prevState == ClusterState.DEGRADED) {
-            clusterStateMachineService.transition(clusterId, ClusterEventType.HEARTBEAT_RECOVERY, "runtime:c2-heartbeat");
+            clusterStateMachineService.transition(new ObjectId(clusterId), ClusterEventType.HEARTBEAT_RECOVERY, "runtime:c2-heartbeat");
         }
     }
 
@@ -272,7 +301,7 @@ public class ClusterService {
      * cascade (Subscription → CANCELLED → terminate all clusters under that org).
      */
     public List<Cluster> findByOrgId(String orgId) {
-        return clusterRepository.findByOrgId(orgId);
+        return clusterRepository.findByOrgId(new ObjectId(orgId));
     }
 
     private String generateId(String prefix) {

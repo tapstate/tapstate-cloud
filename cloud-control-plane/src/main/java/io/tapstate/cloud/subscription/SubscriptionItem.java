@@ -12,6 +12,7 @@ import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.Instant;
 import java.util.Map;
+import org.bson.types.ObjectId;
 
 /**
  * A single billable item on an Organization's subscription.
@@ -36,13 +37,13 @@ import java.util.Map;
 public class SubscriptionItem {
 
     @Id
-    private String id;
+    private ObjectId id;
 
-    @Schema(description = "Parent subscription UUID")
-    private String subscriptionId;
+    @Schema(description = "Parent subscription ID")
+    private ObjectId subscriptionId;
 
-    @Schema(description = "Owning Organization UUID (denormalized for fast usage aggregation)")
-    private String orgId;
+    @Schema(description = "Owning Organization ID (denormalized for fast usage aggregation)")
+    private ObjectId orgId;
 
     @Schema(description = "Billable item type")
     private SubscriptionItemType itemType;

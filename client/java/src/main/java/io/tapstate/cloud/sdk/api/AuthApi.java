@@ -34,7 +34,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.StringJoiner;
 
-@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-28T22:56:41.346093+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
+@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", comments = "Generator version: 7.25.0")
 public class AuthApi extends BaseApi {
 
   public AuthApi() {
@@ -74,7 +74,7 @@ public class AuthApi extends BaseApi {
     }
     
     // create path and map variables
-    String localVarPath = "/v1/auth/login";
+    String localVarPath = "/v1/api/auth/login";
 
     StringJoiner localVarQueryStringJoiner = new StringJoiner("&");
     String localVarQueryParameterBaseName;
@@ -141,7 +141,7 @@ public class AuthApi extends BaseApi {
     Object localVarPostBody = null;
     
     // create path and map variables
-    String localVarPath = "/v1/auth/logout";
+    String localVarPath = "/v1/api/auth/logout";
 
     StringJoiner localVarQueryStringJoiner = new StringJoiner("&");
     String localVarQueryParameterBaseName;
@@ -208,7 +208,7 @@ public class AuthApi extends BaseApi {
     Object localVarPostBody = null;
     
     // create path and map variables
-    String localVarPath = "/v1/auth/me";
+    String localVarPath = "/v1/api/auth/me";
 
     StringJoiner localVarQueryStringJoiner = new StringJoiner("&");
     String localVarQueryParameterBaseName;
@@ -282,7 +282,7 @@ public class AuthApi extends BaseApi {
     }
     
     // create path and map variables
-    String localVarPath = "/v1/auth/register";
+    String localVarPath = "/v1/api/auth/register";
 
     StringJoiner localVarQueryStringJoiner = new StringJoiner("&");
     String localVarQueryParameterBaseName;

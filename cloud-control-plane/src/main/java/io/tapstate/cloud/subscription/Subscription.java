@@ -12,6 +12,7 @@ import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.Instant;
 import java.util.List;
+import org.bson.types.ObjectId;
 
 /**
  * Organization-level subscription — the billing/usage anchor for all Cloud resources.
@@ -34,11 +35,11 @@ import java.util.List;
 public class Subscription {
 
     @Id
-    @Schema(description = "Subscription UUID")
-    private String id;
+    @Schema(description = "Subscription ObjectId")
+    private ObjectId id;
 
-    @Schema(description = "Owning Organization UUID", example = "56480056dd4fe9771d15f62c124e87ef")
-    private String orgId;
+    @Schema(description = "Owning Organization ID", example = "6475a2b3c1d4e5f6a7b8c9d0")
+    private ObjectId orgId;
 
     @Builder.Default
     @Schema(description = "Subscription lifecycle status", example = "TRIAL")

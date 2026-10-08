@@ -7,6 +7,7 @@ package io.tapstate.cloud.sdk.client;
 
 import io.tapstate.cloud.sdk.ApiException;
 import io.tapstate.cloud.sdk.api.ExchangeApi;
+import io.tapstate.cloud.sdk.model.ApiResponseExchangeResponse;
 import io.tapstate.cloud.sdk.model.ExchangeRequest;
 import io.tapstate.cloud.sdk.model.ExchangeResponse;
 import org.junit.jupiter.api.BeforeEach;
@@ -29,8 +30,8 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class CloudControlPlaneSdkTest {
 
-    private static final String BASE_URL = "https://cloud.tapstate.io";
-    private static final String ISSUER = "https://cloud.tapstate.io";
+    private static final String BASE_URL = "https://dev.cloud.tapstate.com";
+    private static final String ISSUER = "https://dev.cloud.tapstate.com";
     private static final String CLUSTER_IDENTITY_SECRET = "test-secret-abc123";
     private static final String CLUSTER_ID = "c1a2b3c4-d5e6-7f89-0abc-def123456789";
     private static final String EXCHANGE_CODE = "abc123xyz789".repeat(4);
@@ -44,12 +45,12 @@ class CloudControlPlaneSdkTest {
 
     @BeforeEach
     void setUp() {
-        JwksKeyCache jwksCache = new JwksKeyCache(BASE_URL + "/v1/jwks.json",
+        JwksKeyCache jwksCache = new JwksKeyCache(BASE_URL + "/v1/api/jwks.json",
             java.time.Duration.ofMinutes(10));
         sdk = CloudControlPlaneSdk.builder()
             .baseUrl(BASE_URL)
             .issuer(ISSUER)
-            .clusterIdentitySecret(CLUSTER_IDENTITY_SECRET)
+            .sdkStaticToken(CLUSTER_IDENTITY_SECRET)
             .buildForTest(CLUSTER_ID, mockExchangeApi, jwksCache);
     }
 
@@ -67,9 +68,9 @@ class CloudControlPlaneSdkTest {
             .clusterId(CLUSTER_ID);
 
         // Generator automatically unwraps ApiResponse envelope — mock returns
-        // ExchangeResponse directly (matching what ApiClient produces on success).
+        // ApiResponseExchangeResponse (the actual return type), SDK calls .getData().
         when(mockExchangeApi.exchange(any(ExchangeRequest.class), anyString(), any()))
-            .thenReturn(response);
+            .thenReturn(new ApiResponseExchangeResponse().code("ok").data(response));
 
         JwtExchangeResult result = sdk.exchangeForJwt(EXCHANGE_CODE);
 
@@ -131,7 +132,8 @@ class CloudControlPlaneSdkTest {
             .userEmail("a@b.c")
             .orgId("org-1")
             .clusterId(CLUSTER_ID);
-        when(mockExchangeApi.exchange(any(), anyString(), any())).thenReturn(badResponse);
+        when(mockExchangeApi.exchange(any(), anyString(), any()))
+            .thenReturn(new ApiResponseExchangeResponse().code("ok").data(badResponse));
 
         CloudControlPlaneException cpe = assertThrows(CloudControlPlaneException.class,
             () -> sdk.exchangeForJwt(EXCHANGE_CODE));
@@ -146,7 +148,7 @@ class CloudControlPlaneSdkTest {
         CloudControlPlaneSdk nullClusterSdk = CloudControlPlaneSdk.builder()
             .baseUrl(BASE_URL)
             .issuer(ISSUER)
-            .clusterIdentitySecret(CLUSTER_IDENTITY_SECRET)
+            .sdkStaticToken("any-secret")
             .clusterId(null)   // explicit null
             .build();
 
@@ -163,7 +165,6 @@ class CloudControlPlaneSdkTest {
     void builder_rejectsBlankBaseUrl() {
         assertThrows(IllegalArgumentException.class, () -> CloudControlPlaneSdk.builder()
             .baseUrl("")
-            .clusterIdentitySecret("secret")
             .build());
     }
 

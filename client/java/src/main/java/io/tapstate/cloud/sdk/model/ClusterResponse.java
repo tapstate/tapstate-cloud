@@ -44,7 +44,7 @@ import java.util.StringJoiner;
   ClusterResponse.JSON_PROPERTY_CREATED_AT,
   ClusterResponse.JSON_PROPERTY_READY_AT
 })
-@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-28T22:56:41.346093+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
+@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", comments = "Generator version: 7.25.0")
 public class ClusterResponse {
   public static final String JSON_PROPERTY_ID = "id";
   @jakarta.annotation.Nullable

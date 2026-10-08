@@ -42,7 +42,7 @@ class CancelCascadeIT extends BaseIT {
             new CreateSubscriptionRequest().region("ap-southeast-1").clusterName(clusterName).specKey("basic"));
         // Poll until visible
         for (int i = 0; i < 10; i++) {
-            HttpResponse<String> resp = get("/v1/orgs/" + orgId + "/clusters",
+            HttpResponse<String> resp = get("/v1/api/orgs/" + orgId + "/clusters",
                 Map.of("Cookie", "TAPSTATE_CLOUD_SESSION=" + sessionCookieValue));
             JsonNode clusters = mapper.readTree(resp.body()).path("data");
             if (clusters.isArray()) {

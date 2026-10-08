@@ -12,6 +12,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.HexFormat;
+import org.bson.types.ObjectId;
 
 /**
  * MDB allocation orchestration service — high-level idempotent API for
@@ -63,7 +64,7 @@ public class MdbAllocationService {
     @Transactional
     public MdbAllocation allocateMdb(String orgId, String clusterId, String region, String subscriptionId) {
         // Idempotency: check if allocation already exists for this cluster
-        MdbAllocation existing = allocationRepo.findByClusterId(clusterId).orElse(null);
+        MdbAllocation existing = allocationRepo.findByClusterId(new ObjectId(clusterId)).orElse(null);
         if (existing != null) {
             switch (existing.getStatus()) {
                 case PROVISIONING_PENDING -> {
@@ -112,16 +113,15 @@ public class MdbAllocationService {
 
         // === Step 3: Persist allocation record ===
         MdbAllocation allocation = MdbAllocation.builder()
-            .id(generateId("mdb-"))
-            .orgId(orgId)
-            .clusterId(clusterId)
+            .orgId(new ObjectId(orgId))
+            .clusterId(new ObjectId(clusterId))
             .atlasInstanceId(instance.getId())
             .atlasProjectId(instance.getAtlasProjectId())
             .atlasClusterName(instance.getAtlasClusterName())
             .databaseName(databaseName)
             .dbUsername(dbUsername)
             .dbPassword(dbPassword)
-            .subscriptionId(subscriptionId)
+            .subscriptionId(new ObjectId(subscriptionId))
             .status(MdbAllocationStatus.PROVISIONING_PENDING)
             .build();
 
@@ -149,7 +149,7 @@ public class MdbAllocationService {
      * state machine handles async Atlas dropUser + dropDatabase.
      */
     @Transactional
-    public void reclaimMdb(String clusterId) {
+    public void reclaimMdb(ObjectId clusterId) {
         MdbAllocation allocation = allocationRepo.findByClusterId(clusterId).orElse(null);
         if (allocation == null) {
             log.info("[MdbAllocationService] reclaimMdb: no allocation for cluster={} — nothing to do (idempotent)", clusterId);

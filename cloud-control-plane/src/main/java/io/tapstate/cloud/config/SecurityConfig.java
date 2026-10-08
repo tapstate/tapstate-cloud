@@ -3,6 +3,7 @@ package io.tapstate.cloud.config;
 import io.tapstate.cloud.identity.User;
 import io.tapstate.cloud.identity.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -23,6 +24,7 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -42,6 +44,9 @@ public class SecurityConfig {
 
     private final UserRepository userRepository;
 
+    @Value("${tapstate.cloud.cors.allowed-origin-patterns}")
+    private String corsAllowedOrigins;
+
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
@@ -56,11 +61,11 @@ public class SecurityConfig {
                 .sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)
             )
 
-            // Disable form login and HTTP basic — we use custom /v1/auth/login endpoint
+            // Disable form login and HTTP basic — we use custom /v1/api/auth/login endpoint
             .formLogin(form -> form.disable())
             .httpBasic(basic -> basic.disable())
 
-            // Logout handled by our custom /v1/auth/logout
+            // Logout handled by our custom /v1/api/auth/logout
             .logout(logout -> logout.disable())
 
             // Authorization rules
@@ -76,21 +81,21 @@ public class SecurityConfig {
                     "/knife4j/**",
                     "/actuator/health/**",
                     "/actuator/info",
-                    "/v1/auth/register",
-                    "/v1/auth/login",
-                    "/v1/auth/verify-email",
-                    // /v1/auth/exchange — Cluster Server backend calls this with per-Cluster
+                    "/v1/api/auth/register",
+                    "/v1/api/auth/login",
+                    "/v1/api/auth/verify-email",
+                    // /v1/api/auth/exchange — Cluster Server backend calls this with per-Cluster
                     // service identity Secret (validated inside ExchangeController)
-                    "/v1/auth/exchange",
-                    "/v1/jwks.json",
+                    "/v1/api/auth/exchange",
+                    "/v1/api/jwks.json",
 
                 // C2 status-report endpoints — runtime SDK authenticates with Bearer sdk-static-token
                     // (validated inside the controller, NOT via Spring Session)
-                    "/v1/clusters/*/status-report"
+                    "/v1/api/clusters/*/status-report"
                 ).permitAll()
 
                 // Regions — public (user sees before login)
-                .requestMatchers(HttpMethod.GET, "/v1/regions").permitAll()
+                .requestMatchers(HttpMethod.GET, "/v1/api/regions").permitAll()
 
                 // All other endpoints — authenticated
                 .anyRequest().authenticated()
@@ -132,7 +137,10 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOriginPatterns(List.of("*")); // TODO: restrict in production
+        config.setAllowedOriginPatterns(Arrays.stream(corsAllowedOrigins.split(","))
+            .map(String::trim)
+            .filter(origin -> !origin.isEmpty())
+            .toList());
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
         config.setAllowedHeaders(List.of("*"));
         config.setAllowCredentials(true);

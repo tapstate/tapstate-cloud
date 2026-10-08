@@ -18,7 +18,7 @@
   <parent>
     <groupId>io.tapstate</groupId>
     <artifactId>tapstate-cloud-parent</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
+    <version>0.1.0</version>
     <relativePath>../../pom.xml</relativePath>
   </parent>
 
@@ -31,7 +31,6 @@
     <api.base.url>http://localhost:8080</api.base.url>
     <!-- Local OpenAPI spec path (also checked-in source of truth; overwritten on live download success) -->
     <openapi.input.spec>${project.basedir}/../api/openapi.yaml</openapi.input.spec>
-    <maven.test.skip>true</maven.test.skip>
   </properties>
 
   <dependencies>
@@ -173,6 +172,7 @@
                 <useJakartaEe>true</useJakartaEe>
                 <generateApiTests>false</generateApiTests>
                 <generateModelTests>false</generateModelTests>
+                <hideGenerationTimestamp>true</hideGenerationTimestamp>
               </configOptions>
             </configuration>
           </execution>

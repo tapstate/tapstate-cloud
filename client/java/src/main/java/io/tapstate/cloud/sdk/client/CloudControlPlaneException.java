@@ -74,4 +74,40 @@ public class CloudControlPlaneException extends Exception {
     public String getServerMessage() {
         return serverMessage;
     }
+
+    // ========== C2 typed sub-exceptions ==========
+    // Prefer these over the generic constructor so runtime callers can handle
+    // auth failures vs transient backpressure vs nonce replay distinctly.
+
+    /** C2 SDK token was not configured on the SDK — cannot call reportStatus. */
+    public static final class C2TokenMissing extends CloudControlPlaneException {
+        private static final long serialVersionUID = 1L;
+        public C2TokenMissing() {
+            super("c2.token-missing", 0, "sdkStaticToken was not configured — set via Builder.sdkStaticToken(...)");
+        }
+    }
+
+    /** GC rejected the C2 call with 401/403 — token invalid / cluster mismatch / cluster revoked. */
+    public static final class C2AuthFailed extends CloudControlPlaneException {
+        private static final long serialVersionUID = 1L;
+        public C2AuthFailed(String msg, Throwable cause) {
+            super("c2.auth-failed", 401, msg, cause);
+        }
+    }
+
+    /** GC rejected the C2 call with 409 — same nonce reused. Client must generate a fresh UUID every call. */
+    public static final class C2NonceReplay extends CloudControlPlaneException {
+        private static final long serialVersionUID = 1L;
+        public C2NonceReplay(String msg, Throwable cause) {
+            super("c2.nonce-replay", 409, msg, cause);
+        }
+    }
+
+    /** All bounded-retry attempts exhausted (5xx or connection failure). GC may be unreachable. */
+    public static final class C2Transient extends CloudControlPlaneException {
+        private static final long serialVersionUID = 1L;
+        public C2Transient(String msg, Throwable cause) {
+            super("c2.transient", 0, msg, cause);
+        }
+    }
 }

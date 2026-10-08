@@ -58,7 +58,7 @@ tags:
 - name: Health
   description: Health check endpoints
 paths:
-  /v1/orgs:
+  /v1/api/orgs:
     get:
       tags:
       - Organizations
@@ -122,7 +122,7 @@ paths:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseOrganizationResponse"
-  /v1/orgs/{orgId}/subscription:
+  /v1/api/orgs/{orgId}/subscription:
     get:
       tags:
       - Subscription
@@ -232,7 +232,7 @@ paths:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
-  /v1/orgs/{orgId}/subscription/status:
+  /v1/api/orgs/{orgId}/subscription/status:
     post:
       tags:
       - Subscription
@@ -278,7 +278,7 @@ paths:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
-  /v1/orgs/{orgId}/subscription/cancel:
+  /v1/api/orgs/{orgId}/subscription/cancel:
     post:
       tags:
       - Subscription
@@ -322,7 +322,7 @@ paths:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
-  /v1/orgs/{orgId}/clusters/{clusterId}/retry:
+  /v1/api/orgs/{orgId}/clusters/{clusterId}/retry:
     post:
       tags:
       - Clusters
@@ -378,7 +378,7 @@ paths:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseClusterResponse"
-  /v1/clusters/{clusterId}/status-report:
+  /v1/api/clusters/{clusterId}/status-report:
     post:
       tags:
       - C2 Status Report
@@ -437,7 +437,7 @@ paths:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseStatusReportResponse"
-  /v1/auth/register:
+  /v1/api/auth/register:
     post:
       tags:
       - Auth
@@ -464,7 +464,7 @@ paths:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseUserResponse"
-  /v1/auth/logout:
+  /v1/api/auth/logout:
     post:
       tags:
       - Auth
@@ -481,7 +481,7 @@ paths:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseVoid"
-  /v1/auth/login:
+  /v1/api/auth/login:
     post:
       tags:
       - Auth
@@ -509,7 +509,7 @@ paths:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseLoginResult"
-  /v1/auth/exchange:
+  /v1/api/auth/exchange:
     post:
       tags:
       - Exchange
@@ -519,9 +519,9 @@ paths:
 
         Caller: Cluster Server backend SDK (NOT browser).
 
-        Auth: Cluster must present its per-Cluster service identity Secret via
+        Auth: Cluster must present its per-Cluster sdkStaticToken via
           - Header X-Cluster-Identity-Secret (preferred), OR
-          - Header Authorization: Bearer <secret>
+          - Header Authorization: Bearer <sdkStaticToken>
 
         Atomic conditional write in one DB round-trip:
           UPDATE exchange_codes SET consumed_at = NOW()
@@ -567,7 +567,7 @@ paths:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseExchangeResponse"
-  /v1/regions:
+  /v1/api/regions:
     get:
       tags:
       - Regions
@@ -584,7 +584,7 @@ paths:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseListRegionResponse"
-  /v1/regions/{code}:
+  /v1/api/regions/{code}:
     get:
       tags:
       - Regions
@@ -613,7 +613,7 @@ paths:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseRegionResponse"
-  /v1/orgs/{orgId}:
+  /v1/api/orgs/{orgId}:
     get:
       tags:
       - Organizations
@@ -653,7 +653,7 @@ paths:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseOrganizationResponse"
-  /v1/orgs/{orgId}/clusters:
+  /v1/api/orgs/{orgId}/clusters:
     get:
       tags:
       - Clusters
@@ -687,7 +687,7 @@ paths:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseListClusterResponse"
-  /v1/orgs/{orgId}/clusters/{clusterId}:
+  /v1/api/orgs/{orgId}/clusters/{clusterId}:
     get:
       tags:
       - Clusters
@@ -735,7 +735,7 @@ paths:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseClusterResponse"
-  /v1/jwks.json:
+  /v1/api/jwks.json:
     get:
       tags:
       - Resolve / Exchange
@@ -757,7 +757,7 @@ paths:
               schema:
                 type: object
                 additionalProperties: {}
-  /v1/clusters/{clusterId}/resolve:
+  /v1/api/clusters/{clusterId}/resolve:
     get:
       tags:
       - Resolve / Exchange
@@ -775,7 +775,7 @@ paths:
 
         Returns a one-time exchange_code (60s TTL, base64url 256-bit random) plus the Cluster origin base_uri.
 
-        The browser then does NOT get a JWT here — it GETs `{base_uri}/auth/exchange?code={exchange_code}` on the Cluster Server. The Cluster Server's GC SDK back-channel-calls POST /v1/auth/exchange (ExchangeController) where the resolve JWT is atomically signed.
+        The browser then does NOT get a JWT here — it GETs `{base_uri}/auth/exchange?code={exchange_code}` on the Cluster Server. The Cluster Server's GC SDK back-channel-calls POST /v1/api/auth/exchange (ExchangeController) where the resolve JWT is atomically signed.
       operationId: resolveCluster
       parameters:
       - name: clusterId
@@ -821,7 +821,7 @@ paths:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseResolveResponse"
-  /v1/auth/me:
+  /v1/api/auth/me:
     get:
       tags:
       - Auth
@@ -1307,6 +1307,15 @@ components:
         clusterId:
           type: string
           description: Cluster UUID bound to this session
+        organizationName:
+          type: string
+          description: Organization display name from the Organization bound to the redeemed exchange code
+        clusterName:
+          type: string
+          description: Cluster display name from the Cluster bound to the redeemed exchange code
+        region:
+          type: string
+          description: AWS region from the Cluster bound to the redeemed exchange code
     ApiResponseListRegionResponse:
       type: object
       description: Global API response envelope

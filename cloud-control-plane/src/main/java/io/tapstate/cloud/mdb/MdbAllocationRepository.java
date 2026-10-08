@@ -4,15 +4,16 @@ import org.springframework.data.mongodb.repository.MongoRepository;
 
 import java.util.List;
 import java.util.Optional;
+import org.bson.types.ObjectId;
 
 /** Spring Data Mongo repository for {@link MdbAllocation}. */
-public interface MdbAllocationRepository extends MongoRepository<MdbAllocation, String> {
+public interface MdbAllocationRepository extends MongoRepository<MdbAllocation, ObjectId> {
 
-    Optional<MdbAllocation> findByClusterId(String clusterId);
+    Optional<MdbAllocation> findByClusterId(ObjectId clusterId);
 
-    List<MdbAllocation> findByOrgId(String orgId);
+    List<MdbAllocation> findByOrgId(ObjectId orgId);
 
     List<MdbAllocation> findByStatus(MdbAllocationStatus status);
 
-    List<MdbAllocation> findByAtlasInstanceId(String atlasInstanceId);
+    List<MdbAllocation> findByAtlasInstanceId(ObjectId atlasInstanceId);
 }

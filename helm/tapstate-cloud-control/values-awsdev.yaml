@@ -22,7 +22,7 @@ imagePullSecrets:
 # Single-node k3s on EC2 — no nodeSelector needed
 config:
   springProfilesActive: dev
-  corsAllowedOrigins: "*"
+  corsAllowedOrigins: "https://dev.cloud.tapstate.com,https://*.dev.cloud.tapstate.com,http://localhost:5173,http://localhost:5174"
 
 service:
   type: NodePort

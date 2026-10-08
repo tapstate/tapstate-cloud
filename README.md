@@ -45,8 +45,8 @@ OpenAPI docs: `http://localhost:8080/swagger-ui.html`
 ## OpenAPI SDK Generation
 
 ```bash
-# Generate Java client
-mvn openapi-generator:generate@generate-java-sdk
+# Generate Java client from the checked-in OpenAPI contract
+mvn -f client/java/pom.xml openapi-generator:generate@generate-java-client -DskipSdkGeneration=false
 
 # Generate TypeScript SDK
 mvn openapi-generator:generate@generate-typescript-sdk

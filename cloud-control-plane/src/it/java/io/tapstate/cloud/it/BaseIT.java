@@ -191,12 +191,17 @@ public abstract class BaseIT {
                 //   sessions — Spring Session store
                 //   regions — seeded once by RegionSeeder on app startup
                 //   atlas_instance_configs — seeded once by AtlasInstanceConfigSeeder
+                //   cluster_status_report_history — time-series collection, must NOT be dropped
+                //       (MongoInitListener only creates it on app startup — a drop would
+                //       silently recreate it as a plain collection on next insert)
                 //   system.indexes — internal MongoDB
                 // After dropping, reset currentCustomers on preserved Atlas instances
                 //   so each IT test starts with a clean capacity count.
-                "const keep = new Set(['sessions','regions','atlas_instance_configs','system.indexes']);" +
+                "const keep = new Set(['sessions','regions','atlas_instance_configs','jwks_keys'," +
+                "'cluster_status_report_history','system.indexes']);" +
                 "db.getCollectionNames().filter(c => !keep.has(c)).forEach(c => db.getCollection(c).drop());" +
                 "db.atlas_instance_configs.updateMany({}, {$set: {currentCustomers: 0, updatedAt: new Date()}});" +
+                "db.cluster_status_report_history.deleteMany({});" +
                 "db.atlas_instance_configs.find().forEach(c => print(' [wipe] Atlas instance ' + c._id + ' capacity reset ' + c.currentCustomers + '/' + c.maxCustomers));",
                 MONGO_DB)
                 .redirectErrorStream(true)

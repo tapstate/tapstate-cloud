@@ -35,7 +35,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * Cached JWKS (RFC 7517) public key set for offline resolve JWT verification.
  * <p>
  * Per {@link CloudControlPlaneSdk} — one instance per SDK. Fetches and caches RSA
- * public keys from the Global Control Plane's {@code /v1/jwks.json} endpoint.
+ * public keys from the Global Control Plane's {@code /v1/api/jwks.json} endpoint.
  * <p>
  * Thread-safety: read path ({@link #findKey}) is lock-free (single atomic reference
  * read). Write path (refresh) is guarded by compare-and-swap — only one refresh

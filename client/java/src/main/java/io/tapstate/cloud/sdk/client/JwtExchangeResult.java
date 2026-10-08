@@ -21,6 +21,9 @@ import java.time.Instant;
  * @param userEmail  User who initiated the Cloud Console → Cluster Console handoff
  * @param orgId      Organization UUID the user belongs to
  * @param clusterId  Cluster UUID this JWT is scoped to
+ * @param organizationName Organization display name for the established ClusterContext
+ * @param clusterName Cluster display name for the established ClusterContext
+ * @param region AWS region for the established ClusterContext
  */
 public record JwtExchangeResult(
     String jwt,
@@ -28,5 +31,8 @@ public record JwtExchangeResult(
     String jti,
     String userEmail,
     String orgId,
-    String clusterId
+    String clusterId,
+    String organizationName,
+    String clusterName,
+    String region
 ) {}

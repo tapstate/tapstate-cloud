@@ -19,6 +19,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import org.bson.types.ObjectId;
 
 /**
  * Subscription lifecycle management — create subscription with default items,
@@ -70,7 +71,7 @@ public class SubscriptionService {
      */
     @Transactional
     public Subscription createDefaultSubscription(String orgId) {
-        subscriptionRepository.findByOrgId(orgId).ifPresent(existing -> {
+        subscriptionRepository.findByOrgId(new ObjectId(orgId)).ifPresent(existing -> {
             throw new IllegalStateException(
                 "Organization " + orgId + " already has a subscription (id=" + existing.getId() + ")");
         });
@@ -105,32 +106,32 @@ public class SubscriptionService {
     public Subscription createSubscription(String orgId, String region, String clusterName,
                                            String specKey, String creatorEmail) {
         // Reuse existing subscription shell or create new one
-        Subscription subscription = subscriptionRepository.findByOrgId(orgId)
+        Subscription subscription = subscriptionRepository.findByOrgId(new ObjectId(orgId))
             .orElseGet(() -> createSubscriptionShell(orgId));
 
-        String subscriptionId = subscription.getId();
+        ObjectId subscriptionId = subscription.getId();
 
         // Sync: create Cluster record + fire START_PROVISION
         Cluster cluster = clusterService.createCluster(
             orgId, region, clusterName, specKey, creatorEmail);
         log.info("[Subscription] Cluster created: clusterId={}, subscriptionId={}",
-            cluster.getId(), subscriptionId);
+            cluster.getId().toHexString(), subscriptionId.toHexString());
 
         // Sync: create MdbAllocation record + fire START_PROVISION
         MdbAllocation allocation = mdbAllocationService.allocateMdb(
-            orgId, cluster.getId(), region, subscriptionId);
+            orgId, cluster.getId().toHexString(), region, subscriptionId.toHexString());
         log.info("[Subscription] MdbAllocation created: allocationId={}, clusterId={}, subscriptionId={}",
-            allocation.getId(), cluster.getId(), subscriptionId);
+            allocation.getId().toHexString(), cluster.getId().toHexString(), subscriptionId.toHexString());
 
         // Link allocation ID to Cluster so the Cluster runtime can find its Atlas DB credentials
-        cluster.setMdbAllocationId(allocation.getId());
+        cluster.setMdbAllocationId(allocation.getId().toHexString());
         // Note: we need to save cluster — but ClusterService.createCluster already owns the save.
         // We do a lightweight update here (only setting mdbAllocationId).
         // Actually, let's use the repo directly since it's a simple add-on.
         clusterService.updateMdbAllocationId(cluster.getId(), allocation.getId());
 
         log.info("[Subscription] Full subscription provisioned: subscriptionId={}, clusterId={}, allocationId={}",
-            subscriptionId, cluster.getId(), allocation.getId());
+            subscriptionId.toHexString(), cluster.getId().toHexString(), allocation.getId().toHexString());
 
         return subscriptionRepository.findById(subscriptionId).orElse(subscription);
     }
@@ -141,7 +142,7 @@ public class SubscriptionService {
      * Get the subscription for an Organization, throwing i18n BusinessException if not found.
      */
     public Subscription getByOrgId(String orgId) {
-        return subscriptionRepository.findByOrgId(orgId)
+        return subscriptionRepository.findByOrgId(new ObjectId(orgId))
             .orElseThrow(() -> new BusinessException(AppErrorCode.SUBSCRIPTION_NOT_FOUND, 404, orgId));
     }
 
@@ -149,7 +150,7 @@ public class SubscriptionService {
      * Get subscription items for an Organization (denormalized lookup).
      */
     public List<SubscriptionItem> getItemsByOrgId(String orgId) {
-        return itemRepository.findByOrgId(orgId);
+        return itemRepository.findByOrgId(new ObjectId(orgId));
     }
 
     // ========== Cancel ==========
@@ -182,7 +183,7 @@ public class SubscriptionService {
 
             // Publish event → listeners cascade Cluster termination + MDB reclaim
             eventPublisher.publishEvent(new SubscriptionCancelledEvent(
-                orgId, subscription.getId(), operator));
+                orgId, subscription.getId().toHexString(), operator));
 
             return updated;
         } else {
@@ -228,8 +229,7 @@ public class SubscriptionService {
     private Subscription createSubscriptionShell(String orgId) {
         Instant now = Instant.now();
         Subscription subscription = Subscription.builder()
-            .id(UUID.randomUUID().toString().replace("-", ""))
-            .orgId(orgId)
+            .orgId(new ObjectId(orgId))
             .status(SubscriptionStatus.TRIAL)
             .currentPeriodStart(now)
             .currentPeriodEnd(now.plus(TRIAL_DAYS, ChronoUnit.DAYS))
@@ -238,9 +238,8 @@ public class SubscriptionService {
 
         // Two default billable items — both "unlimited during trial"
         SubscriptionItem runtimeItem = SubscriptionItem.builder()
-            .id(UUID.randomUUID().toString().replace("-", ""))
             .subscriptionId(subscription.getId())
-            .orgId(orgId)
+            .orgId(new ObjectId(orgId))
             .itemType(SubscriptionItemType.CLUSTER_PIPELINE_RUNTIME)
             .includedQuantity(0)
             .unitPriceCents(0L)
@@ -248,9 +247,8 @@ public class SubscriptionService {
             .build();
 
         SubscriptionItem storageItem = SubscriptionItem.builder()
-            .id(UUID.randomUUID().toString().replace("-", ""))
             .subscriptionId(subscription.getId())
-            .orgId(orgId)
+            .orgId(new ObjectId(orgId))
             .itemType(SubscriptionItemType.ATLAS_DATABASE_STORAGE)
             .includedQuantity(0)
             .unitPriceCents(0L)
@@ -259,7 +257,7 @@ public class SubscriptionService {
 
         itemRepository.saveAll(List.of(runtimeItem, storageItem));
 
-        log.info("Subscription shell created: org={}, subscriptionId={}", orgId, subscription.getId());
+        log.info("Subscription shell created: org={}, subscriptionId={}", orgId, subscription.getId().toHexString());
         return subscription;
     }
 

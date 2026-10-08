@@ -1,6 +1,6 @@
 /*
  * Tapstate Cloud — Global Control Plane API
- * Global Control Plane backend API for Tapstate Cloud.  ## Authentication  Three authentication contexts (ADR-0122 D2): - **Session Cookie** — Cloud Console users (type ①) - **Static Token** — SDK status sender (type ②, `/api/sdk/_*`) - **Resolve JWT** — issued by this service for Cluster Console access  ## Regions  Week 2: only `ap-southeast-1` (Singapore) available. Production regions to be added post-W4.  ## Clusters  Clusters are auto-provisioned via CloudFormation + EC2 + Docker. Lifecycle state machine has 6 states in Week 2. 
+ * Global Control Plane backend API for Tapstate Cloud.  ## Authentication  Three authentication contexts (ADR-0122 D2): - **Session Cookie** — Cloud Console users (type ①) - **Static Token** — SDK status sender (type ②, `/api/sdk/_*`) - **Resolve JWT** — issued by this service for Cluster Console access  ## Regions  Week 2: only `ap-southeast-1` (Singapore) available. Production regions to be added post-W4.  ## Clusters  Clusters are auto-provisioned via CloudFormation + EC2 + Docker. Lifecycle state machine has 6 states in Week 2.
  *
  * The version of the OpenAPI document: v1
  * Contact: cloud@tapstate.io
@@ -36,9 +36,12 @@ import java.util.StringJoiner;
   ExchangeResponse.JSON_PROPERTY_USER_EMAIL,
   ExchangeResponse.JSON_PROPERTY_USER_ID,
   ExchangeResponse.JSON_PROPERTY_ORG_ID,
-  ExchangeResponse.JSON_PROPERTY_CLUSTER_ID
+  ExchangeResponse.JSON_PROPERTY_CLUSTER_ID,
+  ExchangeResponse.JSON_PROPERTY_ORGANIZATION_NAME,
+  ExchangeResponse.JSON_PROPERTY_CLUSTER_NAME,
+  ExchangeResponse.JSON_PROPERTY_REGION
 })
-@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-28T22:56:41.346093+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
+@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", comments = "Generator version: 7.25.0")
 public class ExchangeResponse {
   public static final String JSON_PROPERTY_JWT = "jwt";
   @jakarta.annotation.Nullable
@@ -68,11 +71,23 @@ public class ExchangeResponse {
   @jakarta.annotation.Nullable
   private String clusterId;
 
+  public static final String JSON_PROPERTY_ORGANIZATION_NAME = "organizationName";
+  @jakarta.annotation.Nullable
+  private String organizationName;
+
+  public static final String JSON_PROPERTY_CLUSTER_NAME = "clusterName";
+  @jakarta.annotation.Nullable
+  private String clusterName;
+
+  public static final String JSON_PROPERTY_REGION = "region";
+  @jakarta.annotation.Nullable
+  private String region;
+
   public ExchangeResponse() {
   }
 
   public ExchangeResponse jwt(@jakarta.annotation.Nullable String jwt) {
-    
+
     this.jwt = jwt;
     return this;
   }
@@ -97,7 +112,7 @@ public class ExchangeResponse {
   }
 
   public ExchangeResponse expiresAt(@jakarta.annotation.Nullable String expiresAt) {
-    
+
     this.expiresAt = expiresAt;
     return this;
   }
@@ -122,7 +137,7 @@ public class ExchangeResponse {
   }
 
   public ExchangeResponse jti(@jakarta.annotation.Nullable String jti) {
-    
+
     this.jti = jti;
     return this;
   }
@@ -147,7 +162,7 @@ public class ExchangeResponse {
   }
 
   public ExchangeResponse userEmail(@jakarta.annotation.Nullable String userEmail) {
-    
+
     this.userEmail = userEmail;
     return this;
   }
@@ -172,7 +187,7 @@ public class ExchangeResponse {
   }
 
   public ExchangeResponse userId(@jakarta.annotation.Nullable String userId) {
-    
+
     this.userId = userId;
     return this;
   }
@@ -197,7 +212,7 @@ public class ExchangeResponse {
   }
 
   public ExchangeResponse orgId(@jakarta.annotation.Nullable String orgId) {
-    
+
     this.orgId = orgId;
     return this;
   }
@@ -222,7 +237,7 @@ public class ExchangeResponse {
   }
 
   public ExchangeResponse clusterId(@jakarta.annotation.Nullable String clusterId) {
-    
+
     this.clusterId = clusterId;
     return this;
   }
@@ -246,6 +261,81 @@ public class ExchangeResponse {
     this.clusterId = clusterId;
   }
 
+  public ExchangeResponse organizationName(@jakarta.annotation.Nullable String organizationName) {
+
+    this.organizationName = organizationName;
+    return this;
+  }
+
+  /**
+   * Organization display name from the Organization bound to the redeemed exchange code
+   * @return organizationName
+   */
+  @jakarta.annotation.Nullable
+  @JsonProperty(value = JSON_PROPERTY_ORGANIZATION_NAME, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+
+  public String getOrganizationName() {
+    return organizationName;
+  }
+
+
+  @JsonProperty(value = JSON_PROPERTY_ORGANIZATION_NAME, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+  public void setOrganizationName(@jakarta.annotation.Nullable String organizationName) {
+    this.organizationName = organizationName;
+  }
+
+  public ExchangeResponse clusterName(@jakarta.annotation.Nullable String clusterName) {
+
+    this.clusterName = clusterName;
+    return this;
+  }
+
+  /**
+   * Cluster display name from the Cluster bound to the redeemed exchange code
+   * @return clusterName
+   */
+  @jakarta.annotation.Nullable
+  @JsonProperty(value = JSON_PROPERTY_CLUSTER_NAME, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+
+  public String getClusterName() {
+    return clusterName;
+  }
+
+
+  @JsonProperty(value = JSON_PROPERTY_CLUSTER_NAME, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+  public void setClusterName(@jakarta.annotation.Nullable String clusterName) {
+    this.clusterName = clusterName;
+  }
+
+  public ExchangeResponse region(@jakarta.annotation.Nullable String region) {
+
+    this.region = region;
+    return this;
+  }
+
+  /**
+   * AWS region from the Cluster bound to the redeemed exchange code
+   * @return region
+   */
+  @jakarta.annotation.Nullable
+  @JsonProperty(value = JSON_PROPERTY_REGION, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+
+  public String getRegion() {
+    return region;
+  }
+
+
+  @JsonProperty(value = JSON_PROPERTY_REGION, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+  public void setRegion(@jakarta.annotation.Nullable String region) {
+    this.region = region;
+  }
+
 
   @Override
   public boolean equals(Object o) {
@@ -262,12 +352,15 @@ public class ExchangeResponse {
         Objects.equals(this.userEmail, exchangeResponse.userEmail) &&
         Objects.equals(this.userId, exchangeResponse.userId) &&
         Objects.equals(this.orgId, exchangeResponse.orgId) &&
-        Objects.equals(this.clusterId, exchangeResponse.clusterId);
+        Objects.equals(this.clusterId, exchangeResponse.clusterId) &&
+        Objects.equals(this.organizationName, exchangeResponse.organizationName) &&
+        Objects.equals(this.clusterName, exchangeResponse.clusterName) &&
+        Objects.equals(this.region, exchangeResponse.region);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(jwt, expiresAt, jti, userEmail, userId, orgId, clusterId);
+    return Objects.hash(jwt, expiresAt, jti, userEmail, userId, orgId, clusterId, organizationName, clusterName, region);
   }
 
   @Override
@@ -281,6 +374,9 @@ public class ExchangeResponse {
     sb.append("    userId: ").append(toIndentedString(userId)).append("\n");
     sb.append("    orgId: ").append(toIndentedString(orgId)).append("\n");
     sb.append("    clusterId: ").append(toIndentedString(clusterId)).append("\n");
+    sb.append("    organizationName: ").append(toIndentedString(organizationName)).append("\n");
+    sb.append("    clusterName: ").append(toIndentedString(clusterName)).append("\n");
+    sb.append("    region: ").append(toIndentedString(region)).append("\n");
     sb.append("}");
     return sb.toString();
   }
@@ -389,6 +485,36 @@ public class ExchangeResponse {
     if (getClusterId() != null) {
       try {
         joiner.add(String.format(java.util.Locale.ROOT, "%sclusterId%s=%s", prefix, suffix, URLEncoder.encode(String.valueOf(getClusterId()), "UTF-8").replaceAll("\\+", "%20")));
+      } catch (UnsupportedEncodingException e) {
+        // Should never happen, UTF-8 is always supported
+        throw new RuntimeException(e);
+      }
+    }
+
+    // add `organizationName` to the URL query string
+    if (getOrganizationName() != null) {
+      try {
+        joiner.add(String.format(java.util.Locale.ROOT, "%sorganizationName%s=%s", prefix, suffix, URLEncoder.encode(String.valueOf(getOrganizationName()), "UTF-8").replaceAll("\\+", "%20")));
+      } catch (UnsupportedEncodingException e) {
+        // Should never happen, UTF-8 is always supported
+        throw new RuntimeException(e);
+      }
+    }
+
+    // add `clusterName` to the URL query string
+    if (getClusterName() != null) {
+      try {
+        joiner.add(String.format(java.util.Locale.ROOT, "%sclusterName%s=%s", prefix, suffix, URLEncoder.encode(String.valueOf(getClusterName()), "UTF-8").replaceAll("\\+", "%20")));
+      } catch (UnsupportedEncodingException e) {
+        // Should never happen, UTF-8 is always supported
+        throw new RuntimeException(e);
+      }
+    }
+
+    // add `region` to the URL query string
+    if (getRegion() != null) {
+      try {
+        joiner.add(String.format(java.util.Locale.ROOT, "%sregion%s=%s", prefix, suffix, URLEncoder.encode(String.valueOf(getRegion()), "UTF-8").replaceAll("\\+", "%20")));
       } catch (UnsupportedEncodingException e) {
         // Should never happen, UTF-8 is always supported
         throw new RuntimeException(e);

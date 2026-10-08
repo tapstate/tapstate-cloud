@@ -30,7 +30,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.StringJoiner;
 
-@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", date = "2026-09-28T22:56:41.346093+08:00[Asia/Shanghai]", comments = "Generator version: 7.25.0")
+@jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", comments = "Generator version: 7.25.0")
 public class ResolveExchangeApi extends BaseApi {
 
   public ResolveExchangeApi() {
@@ -63,7 +63,7 @@ public class ResolveExchangeApi extends BaseApi {
     Object localVarPostBody = null;
     
     // create path and map variables
-    String localVarPath = "/v1/jwks.json";
+    String localVarPath = "/v1/api/jwks.json";
 
     StringJoiner localVarQueryStringJoiner = new StringJoiner("&");
     String localVarQueryParameterBaseName;
@@ -110,7 +110,7 @@ public class ResolveExchangeApi extends BaseApi {
 
   /**
    * Issue exchange_code for Cluster Console handoff
-   * Part 1 of the Cloud Console → Cluster Console session handoff (ADR-0125).  Caller must have a valid Cloud Console session (cookie).  Four conditions enforced:   1. Cloud session is valid   2. User is a member of the Org   3. Cluster exists and belongs to Org   4. Cluster is NOT in PROVISIONING_FAILED or TERMINATED state  Returns a one-time exchange_code (60s TTL, base64url 256-bit random) plus the Cluster origin base_uri.  The browser then does NOT get a JWT here — it GETs &#x60;{base_uri}/auth/exchange?code&#x3D;{exchange_code}&#x60; on the Cluster Server. The Cluster Server&#39;s GC SDK back-channel-calls POST /v1/auth/exchange (ExchangeController) where the resolve JWT is atomically signed.
+   * Part 1 of the Cloud Console → Cluster Console session handoff (ADR-0125).  Caller must have a valid Cloud Console session (cookie).  Four conditions enforced:   1. Cloud session is valid   2. User is a member of the Org   3. Cluster exists and belongs to Org   4. Cluster is NOT in PROVISIONING_FAILED or TERMINATED state  Returns a one-time exchange_code (60s TTL, base64url 256-bit random) plus the Cluster origin base_uri.  The browser then does NOT get a JWT here — it GETs &#x60;{base_uri}/auth/exchange?code&#x3D;{exchange_code}&#x60; on the Cluster Server. The Cluster Server&#39;s GC SDK back-channel-calls POST /v1/api/auth/exchange (ExchangeController) where the resolve JWT is atomically signed.
    * @param clusterId Cluster UUID to resolve (required)
    * @param orgId Organization UUID (recommended — validates Org ownership) (required)
    * @return ApiResponseResolveResponse
@@ -123,7 +123,7 @@ public class ResolveExchangeApi extends BaseApi {
 
   /**
    * Issue exchange_code for Cluster Console handoff
-   * Part 1 of the Cloud Console → Cluster Console session handoff (ADR-0125).  Caller must have a valid Cloud Console session (cookie).  Four conditions enforced:   1. Cloud session is valid   2. User is a member of the Org   3. Cluster exists and belongs to Org   4. Cluster is NOT in PROVISIONING_FAILED or TERMINATED state  Returns a one-time exchange_code (60s TTL, base64url 256-bit random) plus the Cluster origin base_uri.  The browser then does NOT get a JWT here — it GETs &#x60;{base_uri}/auth/exchange?code&#x3D;{exchange_code}&#x60; on the Cluster Server. The Cluster Server&#39;s GC SDK back-channel-calls POST /v1/auth/exchange (ExchangeController) where the resolve JWT is atomically signed.
+   * Part 1 of the Cloud Console → Cluster Console session handoff (ADR-0125).  Caller must have a valid Cloud Console session (cookie).  Four conditions enforced:   1. Cloud session is valid   2. User is a member of the Org   3. Cluster exists and belongs to Org   4. Cluster is NOT in PROVISIONING_FAILED or TERMINATED state  Returns a one-time exchange_code (60s TTL, base64url 256-bit random) plus the Cluster origin base_uri.  The browser then does NOT get a JWT here — it GETs &#x60;{base_uri}/auth/exchange?code&#x3D;{exchange_code}&#x60; on the Cluster Server. The Cluster Server&#39;s GC SDK back-channel-calls POST /v1/api/auth/exchange (ExchangeController) where the resolve JWT is atomically signed.
    * @param clusterId Cluster UUID to resolve (required)
    * @param orgId Organization UUID (recommended — validates Org ownership) (required)
    * @param additionalHeaders additionalHeaders for this call
@@ -144,7 +144,7 @@ public class ResolveExchangeApi extends BaseApi {
     }
     
     // create path and map variables
-    String localVarPath = "/v1/clusters/{clusterId}/resolve"
+    String localVarPath = "/v1/api/clusters/{clusterId}/resolve"
       .replaceAll("\\{" + "clusterId" + "\\}", apiClient.escapeString(apiClient.parameterToString(clusterId)));
 
     StringJoiner localVarQueryStringJoiner = new StringJoiner("&");
