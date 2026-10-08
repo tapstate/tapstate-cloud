@@ -45,7 +45,7 @@ public class SubscriptionApi extends BaseApi {
 
   /**
    * Cancel one subscription — terminate its Cluster + reclaim its MDB
-   * Cancels this subscription (state → CANCELLED) and triggers cascade termination of its Cluster and reclaim of its MdbAllocation.  Other subscriptions of the same Organization are unaffected.  Cascade runs asynchronously via the Cluster state-machine INITIATE_TERMINATION event and MDB state-machine INITIATE_RECLAIM event. This endpoint returns immediately.  Safe to call on an already-cancelled subscription (idempotent).
+   * Cancels this subscription (state → CANCELLED) and triggers cascade termination of its Cluster and reclaim of its MdbAllocation. Other subscriptions of the same Organization are unaffected.  Cascade runs asynchronously via the Cluster state-machine INITIATE_TERMINATION event and MDB state-machine INITIATE_RECLAIM event. This endpoint returns immediately.  Safe to call on an already-cancelled subscription (idempotent).
    * @param orgId Organization UUID (required)
    * @param subscriptionId Subscription UUID (required)
    * @return ApiResponseSubscriptionResponse
@@ -58,7 +58,7 @@ public class SubscriptionApi extends BaseApi {
 
   /**
    * Cancel one subscription — terminate its Cluster + reclaim its MDB
-   * Cancels this subscription (state → CANCELLED) and triggers cascade termination of its Cluster and reclaim of its MdbAllocation.  Other subscriptions of the same Organization are unaffected.  Cascade runs asynchronously via the Cluster state-machine INITIATE_TERMINATION event and MDB state-machine INITIATE_RECLAIM event. This endpoint returns immediately.  Safe to call on an already-cancelled subscription (idempotent).
+   * Cancels this subscription (state → CANCELLED) and triggers cascade termination of its Cluster and reclaim of its MdbAllocation. Other subscriptions of the same Organization are unaffected.  Cascade runs asynchronously via the Cluster state-machine INITIATE_TERMINATION event and MDB state-machine INITIATE_RECLAIM event. This endpoint returns immediately.  Safe to call on an already-cancelled subscription (idempotent).
    * @param orgId Organization UUID (required)
    * @param subscriptionId Subscription UUID (required)
    * @param additionalHeaders additionalHeaders for this call
@@ -128,7 +128,7 @@ public class SubscriptionApi extends BaseApi {
 
   /**
    * Create a subscription with one Cluster + one MDB allocation
-   * Creates a new subscription (TRIAL, 30-day period) with the two default billable items, then synchronously provisions its Cluster record and Atlas MDB allocation.  Async provisioning (fired by state machines):   - Cluster state machine: START_PROVISION → CloudFormation simulation → READY/PROVISIONING_FAILED   - MDB state machine: START_PROVISION → Atlas createDatabase + createDatabaseUser → READY/PROVISIONING_FAILED  Both flows run in parallel. Poll GET /subscriptions/{subscriptionId} to track progress.  An Organization may own many subscriptions; cluster names stay unique within org + region.
+   * Creates a new subscription (TRIAL, 30-day period) with the two default billable items, then synchronously provisions one Cluster record and one Atlas MDB allocation.  Async provisioning (fired by state machines):   - Cluster state machine: START_PROVISION → CloudFormation simulation → READY/PROVISIONING_FAILED   - MDB state machine: START_PROVISION → Atlas createDatabase + createDatabaseUser → READY/PROVISIONING_FAILED  Both flows run in parallel. Poll GET /subscriptions/{subscriptionId} to track progress.  An Organization may own many subscriptions; cluster names stay unique within org + region.
    * @param orgId Organization UUID (required)
    * @param createSubscriptionRequest  (required)
    * @return ApiResponseSubscriptionResponse
@@ -141,7 +141,7 @@ public class SubscriptionApi extends BaseApi {
 
   /**
    * Create a subscription with one Cluster + one MDB allocation
-   * Creates a new subscription (TRIAL, 30-day period) with the two default billable items, then synchronously provisions its Cluster record and Atlas MDB allocation.  Async provisioning (fired by state machines):   - Cluster state machine: START_PROVISION → CloudFormation simulation → READY/PROVISIONING_FAILED   - MDB state machine: START_PROVISION → Atlas createDatabase + createDatabaseUser → READY/PROVISIONING_FAILED  Both flows run in parallel. Poll GET /subscriptions/{subscriptionId} to track progress.  An Organization may own many subscriptions; cluster names stay unique within org + region.
+   * Creates a new subscription (TRIAL, 30-day period) with the two default billable items, then synchronously provisions one Cluster record and one Atlas MDB allocation.  Async provisioning (fired by state machines):   - Cluster state machine: START_PROVISION → CloudFormation simulation → READY/PROVISIONING_FAILED   - MDB state machine: START_PROVISION → Atlas createDatabase + createDatabaseUser → READY/PROVISIONING_FAILED  Both flows run in parallel. Poll GET /subscriptions/{subscriptionId} to track progress.  An Organization may own many subscriptions; cluster names stay unique within org + region.
    * @param orgId Organization UUID (required)
    * @param createSubscriptionRequest  (required)
    * @param additionalHeaders additionalHeaders for this call
@@ -293,7 +293,7 @@ public class SubscriptionApi extends BaseApi {
 
   /**
    * List organization subscriptions
-   * Returns every Subscription owned by the Organization, newest first.  The list may be empty — creating an Organization no longer creates a subscription.
+   * Returns every Subscription owned by the Organization, newest first. The list may be empty — creating an Organization no longer creates a subscription.
    * @param orgId Organization UUID (required)
    * @return ApiResponseListSubscriptionResponse
    * @throws ApiException if fails to make API call
@@ -305,7 +305,7 @@ public class SubscriptionApi extends BaseApi {
 
   /**
    * List organization subscriptions
-   * Returns every Subscription owned by the Organization, newest first.  The list may be empty — creating an Organization no longer creates a subscription.
+   * Returns every Subscription owned by the Organization, newest first. The list may be empty — creating an Organization no longer creates a subscription.
    * @param orgId Organization UUID (required)
    * @param additionalHeaders additionalHeaders for this call
    * @return ApiResponseListSubscriptionResponse

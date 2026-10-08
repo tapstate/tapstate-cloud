@@ -27,7 +27,7 @@ import java.net.URLEncoder;
 import java.util.StringJoiner;
 
 /**
- * StatusReportRequest
+ * C2 status report payload — runtime heartbeat + infrastructure metrics
  */
 @JsonPropertyOrder({
   StatusReportRequest.JSON_PROPERTY_NONCE,
@@ -39,7 +39,7 @@ import java.util.StringJoiner;
 @jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", comments = "Generator version: 7.25.0")
 public class StatusReportRequest {
   public static final String JSON_PROPERTY_NONCE = "nonce";
-  @jakarta.annotation.Nullable
+  @jakarta.annotation.Nonnull
   private String nonce;
 
   public static final String JSON_PROPERTY_RUNTIME_VERSION = "runtimeVersion";
@@ -61,28 +61,28 @@ public class StatusReportRequest {
   public StatusReportRequest() {
   }
 
-  public StatusReportRequest nonce(@jakarta.annotation.Nullable String nonce) {
+  public StatusReportRequest nonce(@jakarta.annotation.Nonnull String nonce) {
     
     this.nonce = nonce;
     return this;
   }
 
   /**
-   * Get nonce
+   * Unique nonce per request — MUST change every call. Same value twice → 409 auth.nonce-replay
    * @return nonce
    */
-  @jakarta.annotation.Nullable
-  @JsonProperty(value = JSON_PROPERTY_NONCE, required = false)
-  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+  @jakarta.annotation.Nonnull
+  @JsonProperty(value = JSON_PROPERTY_NONCE, required = true)
+  @JsonInclude(value = JsonInclude.Include.ALWAYS)
 
   public String getNonce() {
     return nonce;
   }
 
 
-  @JsonProperty(value = JSON_PROPERTY_NONCE, required = false)
-  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
-  public void setNonce(@jakarta.annotation.Nullable String nonce) {
+  @JsonProperty(value = JSON_PROPERTY_NONCE, required = true)
+  @JsonInclude(value = JsonInclude.Include.ALWAYS)
+  public void setNonce(@jakarta.annotation.Nonnull String nonce) {
     this.nonce = nonce;
   }
 
@@ -93,7 +93,7 @@ public class StatusReportRequest {
   }
 
   /**
-   * Get runtimeVersion
+   * Tapstate runtime version (e.g. &#39;2.1.0&#39;)
    * @return runtimeVersion
    */
   @jakarta.annotation.Nullable
@@ -118,7 +118,7 @@ public class StatusReportRequest {
   }
 
   /**
-   * Get uptimeMs
+   * Milliseconds since runtime process started
    * @return uptimeMs
    */
   @jakarta.annotation.Nullable
@@ -143,7 +143,7 @@ public class StatusReportRequest {
   }
 
   /**
-   * Get activePipelines
+   * Currently running pipeline count
    * @return activePipelines
    */
   @jakarta.annotation.Nullable
@@ -168,7 +168,7 @@ public class StatusReportRequest {
   }
 
   /**
-   * Get lastErrorAt
+   * ISO-8601 UTC instant of last runtime error, null if none
    * @return lastErrorAt
    */
   @jakarta.annotation.Nullable
