@@ -32,7 +32,7 @@ if ! git diff --name-only HEAD^ HEAD -- \
       ':(glob)**/pom.xml' \
       'client/api/openapi.yaml' \
       ':(glob)client/java/src/**' \
-      '.github/workflows/full-integration.yml' | grep -q .; then
+      ':(glob).github/workflows/**' | grep -q .; then
   needs_full_it=0
   echo "gate: no Full Integration trigger path in this push; waiving Full IT"
 fi
