@@ -114,6 +114,9 @@ tapstate:
     atlas:
       admin-api-key: ${ATLAS_ADMIN_API_KEY:}
       admin-api-key-secret: ${ATLAS_ADMIN_API_KEY_SECRET:}
+    sample-sources:
+      host: ${TAPSTATE_SAMPLE_SOURCES_HOST:113.98.206.139}
+      password: ${TAPSTATE_SAMPLE_SOURCES_PASSWORD:}
 
 # ========== Logging ==========
 logging:

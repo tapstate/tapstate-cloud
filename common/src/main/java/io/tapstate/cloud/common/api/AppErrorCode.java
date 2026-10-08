@@ -49,6 +49,8 @@ public enum AppErrorCode implements ErrorCode {
     // ---------- SDK ----------
     SDK_TOKEN_MISSING("sdk.token-missing", "SDK static token is required (Bearer header)"),
     SDK_TOKEN_INVALID("sdk.token-invalid", "SDK static token is invalid or revoked"),
+    SAMPLE_SOURCE_CREDENTIALS_NOT_CONFIGURED(
+        "sample-source.credentials-not-configured", "Sample source credentials are not configured"),
 
     // ---------- Generic ----------
     BAD_REQUEST("bad_request", "Invalid request: {0}"),

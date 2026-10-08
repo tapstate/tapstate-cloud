@@ -79,6 +79,8 @@ spec:
               value: {{ .Values.config.defaultRegion | quote }}
             - name: AWS_REGION
               value: {{ .Values.config.awsRegion | quote }}
+            - name: TAPSTATE_SAMPLE_SOURCES_HOST
+              value: {{ .Values.config.sampleSourcesHost | quote }}
 
             # ========== Secrets from k3s Secret — MONGODB ==========
             # SPRING_DATA_MONGODB_URI maps to spring.data.mongodb.uri via relaxed binding
@@ -123,6 +125,14 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.secrets.atlasAdminKey.name }}
                   key: {{ .Values.secrets.atlasAdminKey.apiKeySecretKey }}
+
+            # ========== Shared sample database credential — server only ==========
+            - name: TAPSTATE_SAMPLE_SOURCES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.sampleSources.name }}
+                  key: {{ .Values.secrets.sampleSources.passwordKey }}
+                  optional: true
 
             # ========== JVM config ==========
             - name: JAVA_OPTS
