@@ -82,7 +82,8 @@ on:
       - "**/pom.xml"
       - "client/api/openapi.yaml"
       - "client/java/src/**"
-      - ".github/workflows/full-integration.yml"
+      # Any workflow change can move this lane or the gates around it.
+      - ".github/workflows/**"
   push:
     branches: [main, develop]
     paths: *it_paths
