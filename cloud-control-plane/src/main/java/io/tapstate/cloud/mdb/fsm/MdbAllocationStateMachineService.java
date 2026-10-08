@@ -17,16 +17,24 @@ import java.time.Instant;
 import org.bson.types.ObjectId;
 
 /**
- * MdbAllocation state machine orchestrator — mirrors the Cluster FSM pattern
- * with DB state reset + event send + persist cycle.
+ * MdbAllocation state machine orchestrator — mirrors the Cluster FSM ordering:
+ * synchronous state/field changes, a single persisted save, and only then the
+ * scheduling of asynchronous side-effects.
  * <p>
- * Every transition fires side-effects:
+ * Persistence ordering is load-bearing. The async provisioning/reclaim workers
+ * persist their own terminal state on freshly loaded entities, so the caller
+ * must never re-save the transition entity after scheduling: without optimistic
+ * locking a blind whole-document save can serialize a stale PROVISIONING and
+ * overwrite the durable READY (lost update). Synchronous effects therefore run
+ * before the one and only save for this transition; every worker then reloads
+ * its own allocation by id and never shares object identity with this document.
+ *
  * <ul>
- *   <li>PROVISIONING_PENDING → PROVISIONING: delegate async Atlas DB + user creation to {@link AtlasMdbService}</li>
- *   <li>PROVISIONING → READY: mark allocation ready (timestamp)</li>
- *   <li>PROVISIONING → PROVISIONING_FAILED: persist error detail</li>
- *   <li>INITIATE_RECLAIM → DELETING: fire async Atlas teardown (drop databases, then db user)</li>
- *   <li>DELETING → DELETED: record deletion timestamp</li>
+ *   <li>PROVISIONING_PENDING → PROVISIONING: async Atlas DB + user creation</li>
+ *   <li>PROVISIONING → READY: ready timestamp</li>
+ *   <li>PROVISIONING → PROVISIONING_FAILED: error detail persisted by the worker</li>
+ *   <li>READY → DELETING: async Atlas teardown (databases, then user)</li>
+ *   <li>DELETING → DELETED: deletion timestamp</li>
  * </ul>
  */
 @Service
@@ -74,15 +82,13 @@ public class MdbAllocationStateMachineService {
             MdbAllocationStatus newStatus = sm.getState().getId();
             MdbAllocationStatus prevStatus = allocation.getStatus();
 
+            // Synchronous field changes go on first, then the document is
+            // persisted exactly once; asynchronous workers are scheduled only
+            // after that save returns and reload their own entity by id. This
+            // ordering is the fix for the lost update where a stale second save
+            // of this document overwrote the worker's durable READY.
             allocation.setStatus(newStatus);
             allocation.setUpdatedAt(Instant.now());
-            allocationRepo.save(allocation);
-
-            // Synchronous entity mutations land before the second save so the
-            // new status is durable; asynchronous workers are scheduled only
-            // after that, on a freshly loaded entity of their own. Otherwise a
-            // worker's READY write races this thread's full-document save and
-            // can be overwritten back to PROVISIONING (lost update).
             applySynchronousEffects(allocation, prevStatus, newStatus);
             allocationRepo.save(allocation);
             scheduleAsyncEffects(allocationId, prevStatus, newStatus);
