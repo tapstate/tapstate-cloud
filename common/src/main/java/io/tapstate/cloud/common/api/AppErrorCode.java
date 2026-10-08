@@ -60,6 +60,9 @@ public enum AppErrorCode implements ErrorCode {
     SDK_TOKEN_MISSING("sdk.token-missing", "SDK static token is required (Bearer header)"),
     SDK_TOKEN_INVALID("sdk.token-invalid", "SDK static token is invalid or revoked"),
 
+    // ---------- Deployment progress ----------
+    DEPLOYMENT_OP_TYPE_INVALID("deployment.op-type-invalid", "Invalid deployment opType {0}"),
+
     // ---------- Generic ----------
     BAD_REQUEST("bad_request", "Invalid request: {0}"),
     SYSTEM_ERROR("system_error", "Internal server error");

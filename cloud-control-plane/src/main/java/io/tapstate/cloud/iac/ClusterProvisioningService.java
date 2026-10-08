@@ -14,7 +14,10 @@ import io.tapstate.cloud.iac.ssh.CommandResult;
 import io.tapstate.cloud.iac.ssh.SshClient;
 import io.tapstate.cloud.iac.ssh.SshKeyPairGenerator;
 import io.tapstate.cloud.iac.ssh.SshSession;
+import io.tapstate.cloud.progress.DeploymentOperation;
+import io.tapstate.cloud.progress.DeploymentStepRecorder;
 import lombok.extern.slf4j.Slf4j;
+import org.bson.types.ObjectId;
 import org.springframework.stereotype.Service;
 
 import java.net.InetAddress;
@@ -29,6 +32,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 
 /**
  * Orchestrates the full provision and termination of a Cluster node.
@@ -51,6 +55,7 @@ public class ClusterProvisioningService {
     private final SshKeyCrypto keyCrypto;
     private final ClusterRuntimeConfigs configs;
     private final RuntimeAtlasUriResolver runtimeAtlasUriResolver;
+    private final DeploymentStepRecorder recorder;
 
     // ---- Timing budget ----
     private static final Duration STACK_TIMEOUT = Duration.ofMinutes(15);
@@ -75,7 +80,8 @@ public class ClusterProvisioningService {
         SshKeyPairGenerator keyPairGenerator,
         SshKeyCrypto keyCrypto,
         ClusterRuntimeConfigs configs,
-        RuntimeAtlasUriResolver runtimeAtlasUriResolver) {
+        RuntimeAtlasUriResolver runtimeAtlasUriResolver,
+        DeploymentStepRecorder recorder) {
         this.clusterRepository = clusterRepository;
         this.properties = properties;
         this.dns = dns;
@@ -84,6 +90,7 @@ public class ClusterProvisioningService {
         this.keyCrypto = keyCrypto;
         this.configs = configs;
         this.runtimeAtlasUriResolver = runtimeAtlasUriResolver;
+        this.recorder = recorder;
 
         CloudProvider provider = CloudProvider.fromId(properties.getProvider());
         ComputeInfrastructure selected = computeBeans.values().stream()
@@ -103,10 +110,7 @@ public class ClusterProvisioningService {
      */
     public ProvisionResult provision(Cluster cluster) {
         String clusterId = cluster.getId().toHexString();
-        boolean stackCreated = false;
-        boolean dnsCreated = false;
         String domain = clusterDomain(clusterId);
-        String privateKeyPem = null;
         ProxyConfig proxy = resolveProxy();
 
         try {
@@ -114,119 +118,152 @@ public class ClusterProvisioningService {
                 clusterId, cluster.getRegion(), domain);
 
             // 1. Generate the per-Cluster SSH key and protect the private part.
-            var generated = keyPairGenerator.generate();
-            privateKeyPem = generated.privateKeyPem();
-            String encryptedKey = keyCrypto.encrypt(privateKeyPem, properties.getCrypto().getMasterKey());
-            cluster.setSshPublicKey(generated.openSshPublicKey());
-            cluster.setSshPrivateKeyEnc(encryptedKey);
-            persist(cluster);
+            var generated = runStep(cluster, DeploymentOperation.GENERATE_SSH_KEY,
+                "SSH key pair generated", () -> {
+                    var keyPair = keyPairGenerator.generate();
+                    String encryptedKey = keyCrypto.encrypt(
+                        keyPair.privateKeyPem(), properties.getCrypto().getMasterKey());
+                    cluster.setSshPublicKey(keyPair.openSshPublicKey());
+                    cluster.setSshPrivateKeyEnc(encryptedKey);
+                    persist(cluster);
+                    return keyPair;
+                });
+            String privateKeyPem = generated.privateKeyPem();
 
             // 2. Create the node; port 22 is open to any source only until the
             // real control-plane egress ranges have been observed and narrowed.
-            NodeSpec spec = new NodeSpec(
-                clusterId,
-                cluster.getRegion(),
-                properties.getAws().getInstanceType(),
-                properties.getAws().getDiskSizeGb(),
-                generated.openSshPublicKey(),
-                List.of(
-                    IngressRule.of("tcp", 80, "0.0.0.0/0"),
-                    IngressRule.of("tcp", 443, "0.0.0.0/0")),
-                Map.of(
-                    "io.tapstate/cluster-id", clusterId,
-                    "io.tapstate/org-id", cluster.getOrgId().toHexString()),
-                properties.getAws().getVpcId(),
-                properties.getAws().getSubnetId());
+            NodeInstance node = runStep(cluster, DeploymentOperation.PROVISION_EC2,
+                "EC2 node provisioned", () -> {
+                    NodeSpec spec = new NodeSpec(
+                        clusterId,
+                        cluster.getRegion(),
+                        properties.getAws().getInstanceType(),
+                        properties.getAws().getDiskSizeGb(),
+                        generated.openSshPublicKey(),
+                        List.of(
+                            IngressRule.of("tcp", 80, "0.0.0.0/0"),
+                            IngressRule.of("tcp", 443, "0.0.0.0/0")),
+                        Map.of(
+                            "io.tapstate/cluster-id", clusterId,
+                            "io.tapstate/org-id", cluster.getOrgId().toHexString()),
+                        properties.getAws().getVpcId(),
+                        properties.getAws().getSubnetId());
 
-            NodeInstance node = compute.provision(spec);
-            stackCreated = true;
-            cluster.setEc2InstanceId(node.instanceId());
-            cluster.setEc2PublicIp(node.publicIp());
-            cluster.setCloudFormationStackStatus("CREATE_COMPLETE");
-            persist(cluster);
-            log.info("[IaC] node ready cluster={} ip={}", clusterId, node.publicIp());
+                    NodeInstance provisioned = compute.provision(spec);
+                    cluster.setEc2InstanceId(provisioned.instanceId());
+                    cluster.setEc2PublicIp(provisioned.publicIp());
+                    cluster.setCloudFormationStackStatus("CREATE_COMPLETE");
+                    persist(cluster);
+                    log.info("[IaC] node ready cluster={} ip={}", clusterId, provisioned.publicIp());
+                    return provisioned;
+                });
 
             // 4. Wait for the node to accept SSH and collect the real control-plane
             // egress ranges as observed on the wire, then narrow the firewall.
-            List<String> sshCidrs = waitForSsh(node.publicIp(), privateKeyPem, proxy);
-            compute.restrictSshIngress(cluster.getRegion(), clusterId, sshCidrs);
+            List<String> sshCidrs = runStep(cluster, DeploymentOperation.WAIT_SSH_READY,
+                "SSH is ready", () -> waitForSsh(node.publicIp(), privateKeyPem, proxy));
+            runStep(cluster, DeploymentOperation.RESTRICT_SSH_INGRESS,
+                "SSH ingress restricted to control-plane ranges", () ->
+                    compute.restrictSshIngress(cluster.getRegion(), clusterId, sshCidrs));
 
             // 5. Publish the DNS name before pushing service configuration.
-            dns.upsertARecord(domain, node.publicIp());
-            dnsCreated = true;
-            cluster.setDnsRecord(domain);
-            cluster.setPublicDns(domain);
-            persist(cluster);
+            runStep(cluster, DeploymentOperation.CREATE_DNS_RECORD,
+                "DNS record created", () -> {
+                    dns.upsertARecord(domain, node.publicIp());
+                    cluster.setDnsRecord(domain);
+                    cluster.setPublicDns(domain);
+                    persist(cluster);
+                });
 
             // 6. The Atlas allocation runs in parallel with the EC2 provisioning;
             // wait for its database + db user and build the per-allocation runtime
             // URI before rendering the compose file. Resolve outside the SSH
             // session so the wait does not hold a connection to the node.
-            String runtimeAtlasUri = runtimeAtlasUriResolver.resolve(cluster);
+            String runtimeAtlasUri = runStep(cluster, DeploymentOperation.WAIT_MDB_ALLOCATION,
+                "MongoDB allocation ready", () -> runtimeAtlasUriResolver.resolve(cluster));
 
             // 7. Connect and start the runtime stack.
-            try (SshSession session = sshClient.connect(node.publicIp(), SSH_PORT, SSH_USER,
-                privateKeyPem, SSH_SESSION_TIMEOUT_MS, proxyHost(proxy), proxyPort(proxy))) {
-                prepareRemoteDirs(session);
+            runStep(cluster, DeploymentOperation.START_RUNTIME_STACK,
+                "Runtime stack started", () -> {
+                    try (SshSession session = connectSsh(node, proxy, privateKeyPem)) {
+                        prepareRemoteDirs(session);
 
-                session.uploadFile("/tmp/docker-compose.yml",
-                    configs.dockerComposeYaml(cluster, properties.getPublicBaseUrl(),
-                        runtimeAtlasUri)
-                        .getBytes(StandardCharsets.UTF_8));
-                remoteExec(session,
-                    "sudo mv /tmp/docker-compose.yml " + ClusterRuntimeConfigs.REMOTE_COMPOSE_PATH
-                        + " && sudo chmod 600 " + ClusterRuntimeConfigs.REMOTE_COMPOSE_PATH,
-                    Duration.ofSeconds(30));
-                log.info("[IaC] compose file in place cluster={}", clusterId);
+                        session.uploadFile("/tmp/docker-compose.yml",
+                            configs.dockerComposeYaml(cluster, properties.getPublicBaseUrl(),
+                                runtimeAtlasUri)
+                                .getBytes(StandardCharsets.UTF_8));
+                        remoteExec(session,
+                            "sudo mv /tmp/docker-compose.yml " + ClusterRuntimeConfigs.REMOTE_COMPOSE_PATH
+                                + " && sudo chmod 600 " + ClusterRuntimeConfigs.REMOTE_COMPOSE_PATH,
+                            Duration.ofSeconds(30));
+                        log.info("[IaC] compose file in place cluster={}", clusterId);
 
-                remoteExec(session,
-                    "cd /opt/tapstate-runtime && sudo docker compose up -d", COMPOSE_TIMEOUT);
-                log.info("[IaC] runtime stack started cluster={}", clusterId);
+                        remoteExec(session,
+                            "cd /opt/tapstate-runtime && sudo docker compose up -d", COMPOSE_TIMEOUT);
+                        log.info("[IaC] runtime stack started cluster={}", clusterId);
+                    } catch (java.io.IOException e) {
+                        throw new IacException(AppErrorCode.IAC_SSH_COMMAND_FAILED, e, safeMessage(e));
+                    }
+                });
 
-                // 8. Install the Nginx http tuning drop-in and site configuration.
-                session.uploadFile("/tmp/00-tapstate-http.conf",
-                    configs.nginxHttpConf().getBytes(StandardCharsets.UTF_8));
-                remoteExec(session,
-                    "sudo mv /tmp/00-tapstate-http.conf "
-                        + ClusterRuntimeConfigs.REMOTE_NGINX_HTTP_CONF_PATH,
-                    Duration.ofSeconds(30));
+            // 8. Install the Nginx http tuning drop-in and site configuration.
+            runStep(cluster, DeploymentOperation.CONFIGURE_NGINX,
+                "Nginx configured", () -> {
+                    try (SshSession session = connectSsh(node, proxy, privateKeyPem)) {
+                        session.uploadFile("/tmp/00-tapstate-http.conf",
+                            configs.nginxHttpConf().getBytes(StandardCharsets.UTF_8));
+                        remoteExec(session,
+                            "sudo mv /tmp/00-tapstate-http.conf "
+                                + ClusterRuntimeConfigs.REMOTE_NGINX_HTTP_CONF_PATH,
+                            Duration.ofSeconds(30));
 
-                session.uploadFile("/tmp/tapstate-cluster.conf",
-                    configs.nginxConf(domain).getBytes(StandardCharsets.UTF_8));
-                remoteExec(session,
-                    "sudo mv /tmp/tapstate-cluster.conf " + ClusterRuntimeConfigs.REMOTE_NGINX_CONF_PATH
-                        + " && sudo nginx -t"
-                        + " && sudo systemctl enable nginx && sudo systemctl restart nginx",
-                    Duration.ofSeconds(60));
-                log.info("[IaC] nginx configured cluster={}", clusterId);
-            }
+                        session.uploadFile("/tmp/tapstate-cluster.conf",
+                            configs.nginxConf(domain).getBytes(StandardCharsets.UTF_8));
+                        remoteExec(session,
+                            "sudo mv /tmp/tapstate-cluster.conf " + ClusterRuntimeConfigs.REMOTE_NGINX_CONF_PATH
+                                + " && sudo nginx -t"
+                                + " && sudo systemctl enable nginx && sudo systemctl restart nginx",
+                            Duration.ofSeconds(60));
+                        log.info("[IaC] nginx configured cluster={}", clusterId);
+                    } catch (java.io.IOException e) {
+                        throw new IacException(AppErrorCode.IAC_SSH_COMMAND_FAILED, e, safeMessage(e));
+                    }
+                });
 
             // 9. Wait until the name resolves to the node so ACME validation lands here.
-            waitForDns(domain, node.publicIp());
+            runStep(cluster, DeploymentOperation.WAIT_DNS_PROPAGATION,
+                "DNS propagated", () -> waitForDns(domain, node.publicIp()));
 
             // 10. Obtain the TLS certificate; certbot rewrites the Nginx site for 443.
-            try (SshSession session = sshClient.connect(node.publicIp(), SSH_PORT, SSH_USER,
-                privateKeyPem, SSH_SESSION_TIMEOUT_MS, proxyHost(proxy), proxyPort(proxy))) {
-                remoteExec(session,
-                    "sudo certbot --nginx -d " + domain
-                        + " --agree-tos --email " + CERTBOT_EMAIL
-                        + " --non-interactive --redirect"
-                        + " && sudo systemctl enable certbot.timer"
-                        + " && sudo nginx -t && sudo systemctl reload nginx",
-                    CERTBOT_TIMEOUT);
-            }
-            log.info("[IaC] TLS certificate issued cluster={}", clusterId);
+            runStep(cluster, DeploymentOperation.ISSUE_TLS_CERTIFICATE,
+                "TLS certificate issued", () -> {
+                    try (SshSession session = connectSsh(node, proxy, privateKeyPem)) {
+                        remoteExec(session,
+                            "sudo certbot --nginx -d " + domain
+                                + " --agree-tos --email " + CERTBOT_EMAIL
+                                + " --non-interactive --redirect"
+                                + " && sudo systemctl enable certbot.timer"
+                                + " && sudo nginx -t && sudo systemctl reload nginx",
+                            CERTBOT_TIMEOUT);
+                    } catch (java.io.IOException e) {
+                        throw new IacException(AppErrorCode.IAC_SSH_COMMAND_FAILED, e, safeMessage(e));
+                    }
+                    log.info("[IaC] TLS certificate issued cluster={}", clusterId);
+                });
 
             // 11. Verify the public endpoint end to end.
-            try {
-                waitForHealthy(domain, proxy);
-            } catch (IacException e) {
-                // Capture the node side before compensation terminates the EC2
-                // instance: a 502 means the runtime container failed to boot and
-                // its logs are the only evidence of why.
-                throw new IacException(AppErrorCode.IAC_HEALTH_CHECK_FAILED,
-                    e.getMessage() + collectNodeDiagnostics(node.publicIp(), proxy, privateKeyPem));
-            }
+            runStep(cluster, DeploymentOperation.HEALTH_CHECK,
+                "Endpoint is healthy", () -> {
+                    try {
+                        waitForHealthy(domain, proxy);
+                    } catch (IacException e) {
+                        // Capture the node side before compensation terminates the EC2
+                        // instance: a 502 means the runtime container failed to boot and
+                        // its logs are the only evidence of why.
+                        throw new IacException(AppErrorCode.IAC_HEALTH_CHECK_FAILED,
+                            e.getMessage() + collectNodeDiagnostics(node.publicIp(), proxy, privateKeyPem));
+                    }
+                });
 
             log.info("[IaC] provision complete cluster={}", clusterId);
             return ProvisionResult.ok();
@@ -234,15 +271,31 @@ public class ClusterProvisioningService {
             log.error("[IaC] provision failed cluster={} code={} detail={}",
                 clusterId, e.errorCode().getCode(), e.getMessage());
             ProvisionResult result = recordFailure(cluster, e);
-            compensate(cluster, stackCreated, dnsCreated);
+            compensateFromDurableState(clusterId);
             return result;
         } catch (Exception e) {
             log.error("[IaC] provision failed unexpectedly cluster={}", clusterId, e);
             ProvisionResult result = recordFailure(cluster,
                 new IacException(AppErrorCode.SYSTEM_ERROR, e, e.getMessage()));
-            compensate(cluster, stackCreated, dnsCreated);
+            compensateFromDurableState(clusterId);
             return result;
         }
+    }
+
+    /**
+     * Compensate resources based on the durable Cluster state, not on
+     * in-memory flags — the worker runs inside lambdas and cannot carry mutable
+     * locals across them.
+     */
+    private void compensateFromDurableState(String clusterId) {
+        Cluster latest = clusterRepository.findById(new ObjectId(clusterId)).orElse(null);
+        if (latest == null) {
+            return;
+        }
+        boolean stackCreated = "CREATE_COMPLETE".equals(latest.getCloudFormationStackStatus())
+            || latest.getEc2InstanceId() != null;
+        boolean dnsCreated = latest.getDnsRecord() != null;
+        compensate(latest, stackCreated, dnsCreated);
     }
 
     /**
@@ -254,23 +307,63 @@ public class ClusterProvisioningService {
         String clusterId = cluster.getId().toHexString();
         log.info("[IaC] terminate start cluster={}", clusterId);
         try {
-            compute.terminate(cluster.getRegion(), clusterId);
-            cluster.setCloudFormationStackStatus("DELETE_COMPLETE");
-            clusterRepository.save(cluster);
+            runStep(cluster, DeploymentOperation.TERMINATE_EC2,
+                "EC2 node terminated", () -> {
+                    compute.terminate(cluster.getRegion(), clusterId);
+                    cluster.setCloudFormationStackStatus("DELETE_COMPLETE");
+                    clusterRepository.save(cluster);
+                });
 
             String domain = cluster.getDnsRecord() != null ? cluster.getDnsRecord() : cluster.getPublicDns();
-            if (domain != null && !domain.isBlank()) {
-                dns.deleteRecord(domain);
-            }
+            runStep(cluster, DeploymentOperation.DELETE_DNS_RECORD,
+                domain != null && !domain.isBlank() ? "DNS record deleted" : "No DNS record to delete",
+                () -> {
+                    if (domain != null && !domain.isBlank()) {
+                        dns.deleteRecord(domain);
+                    }
+                });
             log.info("[IaC] terminate complete cluster={}", clusterId);
         } catch (IacException e) {
             log.error("[IaC] terminate failed cluster={} code={} detail={}",
                 clusterId, e.errorCode().getCode(), e.getMessage());
             throw e;
-        } catch (Exception e) {
-            log.error("[IaC] terminate failed unexpectedly cluster={}", clusterId, e);
-            throw new IacException(AppErrorCode.IAC_COMPUTE_TERMINATE_FAILED, e, e.getMessage());
         }
+    }
+
+    // ========== Progress recording template ==========
+
+    /**
+     * Run one provisioning operation while recording its progress. On failure
+     * the failure detail is recorded and the original exception propagates so
+     * the caller can compensate; recording itself never throws.
+     */
+    private <T> T runStep(Cluster cluster, DeploymentOperation operation,
+                          String successMessage, Supplier<T> action) {
+        recorder.start(cluster, operation);
+        try {
+            T result = action.get();
+            recorder.succeed(cluster, operation, successMessage);
+            return result;
+        } catch (RuntimeException e) {
+            recorder.fail(cluster, operation, safeMessage(e));
+            throw e;
+        }
+    }
+
+    /** Void variant of {@link #runStep(Cluster, DeploymentOperation, String, Supplier)}. */
+    private void runStep(Cluster cluster, DeploymentOperation operation,
+                         String successMessage, Runnable action) {
+        runStep(cluster, operation, successMessage, () -> {
+            action.run();
+            return null;
+        });
+    }
+
+    /** Open an SSH session to the node using the provisioned key and proxy settings. */
+    private SshSession connectSsh(NodeInstance node, ProxyConfig proxy, String privateKeyPem)
+        throws java.io.IOException {
+        return sshClient.connect(node.publicIp(), SSH_PORT, SSH_USER,
+            privateKeyPem, SSH_SESSION_TIMEOUT_MS, proxyHost(proxy), proxyPort(proxy));
     }
 
     // ========== Step helpers ==========

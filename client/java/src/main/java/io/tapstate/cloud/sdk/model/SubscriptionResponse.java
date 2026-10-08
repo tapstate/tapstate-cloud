@@ -20,6 +20,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonTypeName;
 import com.fasterxml.jackson.annotation.JsonValue;
+import io.tapstate.cloud.sdk.model.DeploymentProgressSummary;
 import io.tapstate.cloud.sdk.model.ItemResponse;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -39,6 +40,8 @@ import java.util.StringJoiner;
   SubscriptionResponse.JSON_PROPERTY_ORG_ID,
   SubscriptionResponse.JSON_PROPERTY_STATUS,
   SubscriptionResponse.JSON_PROPERTY_RESOURCE_STATE,
+  SubscriptionResponse.JSON_PROPERTY_INSTALL_PROGRESS,
+  SubscriptionResponse.JSON_PROPERTY_UNINSTALL_PROGRESS,
   SubscriptionResponse.JSON_PROPERTY_RESOURCES_READY_AT,
   SubscriptionResponse.JSON_PROPERTY_CURRENT_PERIOD_START,
   SubscriptionResponse.JSON_PROPERTY_CURRENT_PERIOD_END,
@@ -66,6 +69,14 @@ public class SubscriptionResponse {
   public static final String JSON_PROPERTY_RESOURCE_STATE = "resourceState";
   @jakarta.annotation.Nullable
   private String resourceState;
+
+  public static final String JSON_PROPERTY_INSTALL_PROGRESS = "installProgress";
+  @jakarta.annotation.Nullable
+  private DeploymentProgressSummary installProgress;
+
+  public static final String JSON_PROPERTY_UNINSTALL_PROGRESS = "uninstallProgress";
+  @jakarta.annotation.Nullable
+  private DeploymentProgressSummary uninstallProgress;
 
   public static final String JSON_PROPERTY_RESOURCES_READY_AT = "resourcesReadyAt";
   @jakarta.annotation.Nullable
@@ -204,6 +215,56 @@ public class SubscriptionResponse {
   @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
   public void setResourceState(@jakarta.annotation.Nullable String resourceState) {
     this.resourceState = resourceState;
+  }
+
+  public SubscriptionResponse installProgress(@jakarta.annotation.Nullable DeploymentProgressSummary installProgress) {
+    
+    this.installProgress = installProgress;
+    return this;
+  }
+
+  /**
+   * Initial deployment progress summary
+   * @return installProgress
+   */
+  @jakarta.annotation.Nullable
+  @JsonProperty(value = JSON_PROPERTY_INSTALL_PROGRESS, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+
+  public DeploymentProgressSummary getInstallProgress() {
+    return installProgress;
+  }
+
+
+  @JsonProperty(value = JSON_PROPERTY_INSTALL_PROGRESS, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+  public void setInstallProgress(@jakarta.annotation.Nullable DeploymentProgressSummary installProgress) {
+    this.installProgress = installProgress;
+  }
+
+  public SubscriptionResponse uninstallProgress(@jakarta.annotation.Nullable DeploymentProgressSummary uninstallProgress) {
+    
+    this.uninstallProgress = uninstallProgress;
+    return this;
+  }
+
+  /**
+   * Release/reclamation progress summary
+   * @return uninstallProgress
+   */
+  @jakarta.annotation.Nullable
+  @JsonProperty(value = JSON_PROPERTY_UNINSTALL_PROGRESS, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+
+  public DeploymentProgressSummary getUninstallProgress() {
+    return uninstallProgress;
+  }
+
+
+  @JsonProperty(value = JSON_PROPERTY_UNINSTALL_PROGRESS, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+  public void setUninstallProgress(@jakarta.annotation.Nullable DeploymentProgressSummary uninstallProgress) {
+    this.uninstallProgress = uninstallProgress;
   }
 
   public SubscriptionResponse resourcesReadyAt(@jakarta.annotation.Nullable Date resourcesReadyAt) {
@@ -453,6 +514,8 @@ public class SubscriptionResponse {
         Objects.equals(this.orgId, subscriptionResponse.orgId) &&
         Objects.equals(this.status, subscriptionResponse.status) &&
         Objects.equals(this.resourceState, subscriptionResponse.resourceState) &&
+        Objects.equals(this.installProgress, subscriptionResponse.installProgress) &&
+        Objects.equals(this.uninstallProgress, subscriptionResponse.uninstallProgress) &&
         Objects.equals(this.resourcesReadyAt, subscriptionResponse.resourcesReadyAt) &&
         Objects.equals(this.currentPeriodStart, subscriptionResponse.currentPeriodStart) &&
         Objects.equals(this.currentPeriodEnd, subscriptionResponse.currentPeriodEnd) &&
@@ -466,7 +529,7 @@ public class SubscriptionResponse {
 
   @Override
   public int hashCode() {
-    return Objects.hash(id, orgId, status, resourceState, resourcesReadyAt, currentPeriodStart, currentPeriodEnd, provisioningAllowed, clusterId, mdbAllocationId, createdAt, updatedAt, items);
+    return Objects.hash(id, orgId, status, resourceState, installProgress, uninstallProgress, resourcesReadyAt, currentPeriodStart, currentPeriodEnd, provisioningAllowed, clusterId, mdbAllocationId, createdAt, updatedAt, items);
   }
 
   @Override
@@ -477,6 +540,8 @@ public class SubscriptionResponse {
     sb.append("    orgId: ").append(toIndentedString(orgId)).append("\n");
     sb.append("    status: ").append(toIndentedString(status)).append("\n");
     sb.append("    resourceState: ").append(toIndentedString(resourceState)).append("\n");
+    sb.append("    installProgress: ").append(toIndentedString(installProgress)).append("\n");
+    sb.append("    uninstallProgress: ").append(toIndentedString(uninstallProgress)).append("\n");
     sb.append("    resourcesReadyAt: ").append(toIndentedString(resourcesReadyAt)).append("\n");
     sb.append("    currentPeriodStart: ").append(toIndentedString(currentPeriodStart)).append("\n");
     sb.append("    currentPeriodEnd: ").append(toIndentedString(currentPeriodEnd)).append("\n");
@@ -568,6 +633,16 @@ public class SubscriptionResponse {
         // Should never happen, UTF-8 is always supported
         throw new RuntimeException(e);
       }
+    }
+
+    // add `installProgress` to the URL query string
+    if (getInstallProgress() != null) {
+      joiner.add(getInstallProgress().toUrlQueryString(prefix + "installProgress" + suffix));
+    }
+
+    // add `uninstallProgress` to the URL query string
+    if (getUninstallProgress() != null) {
+      joiner.add(getUninstallProgress().toUrlQueryString(prefix + "uninstallProgress" + suffix));
     }
 
     // add `resourcesReadyAt` to the URL query string

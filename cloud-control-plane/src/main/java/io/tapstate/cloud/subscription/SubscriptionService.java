@@ -6,6 +6,8 @@ import io.tapstate.cloud.common.api.AppErrorCode;
 import io.tapstate.cloud.common.api.BusinessException;
 import io.tapstate.cloud.mdb.MdbAllocation;
 import io.tapstate.cloud.mdb.MdbAllocationService;
+import io.tapstate.cloud.progress.DeploymentOpType;
+import io.tapstate.cloud.progress.DeploymentStepRecorder;
 import io.tapstate.cloud.subscription.fsm.SubscriptionEventType;
 import io.tapstate.cloud.subscription.fsm.SubscriptionStateMachineService;
 import lombok.RequiredArgsConstructor;
@@ -54,6 +56,7 @@ public class SubscriptionService {
     private final ApplicationEventPublisher eventPublisher;
     private final ClusterService clusterService;
     private final MdbAllocationService mdbAllocationService;
+    private final DeploymentStepRecorder deploymentStepRecorder;
 
     /** Default trial period — 30 days. */
     private static final int TRIAL_DAYS = 30;
@@ -77,6 +80,9 @@ public class SubscriptionService {
         // 1. Subscription shell + the two default billable items.
         Subscription subscription = createSubscriptionShell(orgId);
         ObjectId subscriptionId = subscription.getId();
+
+        // Seed every INSTALL operation as PENDING before any worker can start.
+        deploymentStepRecorder.seed(new ObjectId(orgId), subscriptionId, DeploymentOpType.INSTALL);
 
         // 2. Sync: create Cluster record (provisioning starts only after the
         //    allocation link below is durable).
@@ -174,6 +180,11 @@ public class SubscriptionService {
                 .orElse(subscription);
             log.info("Subscription {} CANCELLED for org={} by operator={}",
                 subscriptionId, orgId, operator);
+
+            // Seed every UNINSTALL operation as PENDING so the API can report
+            // release progress even before the cascading workers pick up.
+            deploymentStepRecorder.seed(new ObjectId(orgId), subscription.getId(),
+                DeploymentOpType.UNINSTALL);
 
             // Publish event → listeners cascade this subscription's Cluster termination + MDB reclaim
             eventPublisher.publishEvent(new SubscriptionCancelledEvent(
