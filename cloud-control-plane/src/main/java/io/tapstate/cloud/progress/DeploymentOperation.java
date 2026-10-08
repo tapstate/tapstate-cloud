@@ -28,7 +28,10 @@ public enum DeploymentOperation {
     START_RUNTIME_STACK("start_runtime_stack", DeploymentOpType.INSTALL, 100, 12, "Start runtime stack"),
     CONFIGURE_NGINX("configure_nginx", DeploymentOpType.INSTALL, 110, 7, "Configure Nginx"),
     WAIT_DNS_PROPAGATION("wait_dns_propagation", DeploymentOpType.INSTALL, 120, 7, "Wait for DNS propagation"),
-    ISSUE_TLS_CERTIFICATE("issue_tls_certificate", DeploymentOpType.INSTALL, 130, 8, "Issue TLS certificate"),
+    // The stable code predates the switch from per-node ACME issuance to centrally
+    // managed wildcard certificates; it is retained as an append-only contract and
+    // now records installation of the stored certificate onto the Cluster node.
+    ISSUE_TLS_CERTIFICATE("issue_tls_certificate", DeploymentOpType.INSTALL, 130, 8, "Install TLS certificate"),
     HEALTH_CHECK("health_check", DeploymentOpType.INSTALL, 140, 7, "Health check"),
 
     // ========== UNINSTALL ==========

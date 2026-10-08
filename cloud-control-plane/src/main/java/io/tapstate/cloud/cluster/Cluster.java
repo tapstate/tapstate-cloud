@@ -98,6 +98,9 @@ public class Cluster {
     @Schema(description = "DNS A record created for the Cluster node")
     private String dnsRecord;
 
+    @Schema(description = "Id of the TLS certificate currently installed on the node (tls_certificates._id)")
+    private ObjectId tlsCertificateId;
+
     // ========== SDK status ==========
     @Schema(description = "Last SDK C2 heartbeat timestamp (UTC)")
     private Instant lastHeartbeatAt;

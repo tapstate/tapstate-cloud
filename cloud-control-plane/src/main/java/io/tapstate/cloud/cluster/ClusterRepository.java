@@ -44,4 +44,12 @@ public interface ClusterRepository extends MongoRepository<Cluster, ObjectId> {
      * (runtime authenticates itself with its per-Cluster Bearer token).
      */
     Optional<Cluster> findBySdkStaticToken(String sdkStaticToken);
+
+    /**
+     * Find live Clusters in the given states that have a reachable node
+     * (public IP and encrypted SSH key recorded). Used by the TLS certificate
+     * distribution sweep over READY and DEGRADED Clusters.
+     */
+    List<Cluster> findByStateInAndEc2PublicIpIsNotNullAndSshPrivateKeyEncIsNotNull(
+        java.util.Collection<ClusterState> states);
 }

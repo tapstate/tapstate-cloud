@@ -1227,6 +1227,8 @@ components:
           - ATLAS_DB_CREATE_FAILED
           - EC2_BOOTSTRAP_TIMEOUT
           - PROVISIONING_TIMEOUT
+          - TLS_CERTIFICATE_UNAVAILABLE
+          - TLS_CERTIFICATE_INSTALL_FAILED
         runtimeId:
           type: string
           description: Pipeline Runtime ID (EC2 instance identifier)

@@ -1,8 +1,9 @@
 package io.tapstate.cloud.cluster;
 
 /**
- * Provisioning failure error codes — 6 categories (ADR-0124 D3).
+ * Provisioning failure error codes (ADR-0124 D3).
  * Persisted in {@code Cluster.provisionErrorCode} + {@code Cluster.provisionErrorDetail}.
+ * Append-only: existing constants are an external API contract.
  */
 public enum ProvisionErrorCode {
     /** CloudFormation CREATE_FAILED or ROLLBACK_COMPLETE */
@@ -21,5 +22,11 @@ public enum ProvisionErrorCode {
     EC2_BOOTSTRAP_TIMEOUT,
 
     /** Total provisioning timeout (30 min) */
-    PROVISIONING_TIMEOUT
+    PROVISIONING_TIMEOUT,
+
+    /** No unexpired, valid TLS certificate covering the Cluster domain is stored */
+    TLS_CERTIFICATE_UNAVAILABLE,
+
+    /** TLS certificate upload or Nginx reload failed on the Cluster node */
+    TLS_CERTIFICATE_INSTALL_FAILED
 }

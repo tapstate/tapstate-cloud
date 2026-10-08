@@ -16,6 +16,9 @@ import io.tapstate.cloud.iac.ssh.SshKeyPairGenerator;
 import io.tapstate.cloud.iac.ssh.SshSession;
 import io.tapstate.cloud.progress.DeploymentOperation;
 import io.tapstate.cloud.progress.DeploymentStepRecorder;
+import io.tapstate.cloud.tls.TlsCertificate;
+import io.tapstate.cloud.tls.TlsCertificateService;
+import io.tapstate.cloud.tls.TlsNodeInstaller;
 import lombok.extern.slf4j.Slf4j;
 import org.bson.types.ObjectId;
 import org.springframework.stereotype.Service;
@@ -56,6 +59,8 @@ public class ClusterProvisioningService {
     private final ClusterRuntimeConfigs configs;
     private final RuntimeAtlasUriResolver runtimeAtlasUriResolver;
     private final DeploymentStepRecorder recorder;
+    private final TlsCertificateService tlsCertificateService;
+    private final TlsNodeInstaller tlsInstaller;
 
     // ---- Timing budget ----
     private static final Duration STACK_TIMEOUT = Duration.ofMinutes(15);
@@ -63,13 +68,11 @@ public class ClusterProvisioningService {
     private static final Duration DNS_WAIT_TIMEOUT = Duration.ofMinutes(5);
     private static final Duration HEALTH_TIMEOUT = Duration.ofMinutes(10);
     private static final Duration COMPOSE_TIMEOUT = Duration.ofMinutes(5);
-    private static final Duration CERTBOT_TIMEOUT = Duration.ofMinutes(2);
     private static final int POLL_INTERVAL_MS = 10_000;
     private static final int SSH_SESSION_TIMEOUT_MS = 60_000;
     private static final int HEALTH_INTERVAL_MS = 20_000;
     private static final int SSH_PORT = 22;
     private static final String SSH_USER = "ubuntu";
-    private static final String CERTBOT_EMAIL = "ops@tapstate.com";
 
     public ClusterProvisioningService(
         ClusterRepository clusterRepository,
@@ -81,7 +84,9 @@ public class ClusterProvisioningService {
         SshKeyCrypto keyCrypto,
         ClusterRuntimeConfigs configs,
         RuntimeAtlasUriResolver runtimeAtlasUriResolver,
-        DeploymentStepRecorder recorder) {
+        DeploymentStepRecorder recorder,
+        TlsCertificateService tlsCertificateService,
+        TlsNodeInstaller tlsInstaller) {
         this.clusterRepository = clusterRepository;
         this.properties = properties;
         this.dns = dns;
@@ -91,6 +96,8 @@ public class ClusterProvisioningService {
         this.configs = configs;
         this.runtimeAtlasUriResolver = runtimeAtlasUriResolver;
         this.recorder = recorder;
+        this.tlsCertificateService = tlsCertificateService;
+        this.tlsInstaller = tlsInstaller;
 
         CloudProvider provider = CloudProvider.fromId(properties.getProvider());
         ComputeInfrastructure selected = computeBeans.values().stream()
@@ -113,9 +120,22 @@ public class ClusterProvisioningService {
         String domain = clusterDomain(clusterId);
         ProxyConfig proxy = resolveProxy();
 
+        // Resolve the centrally managed wildcard certificate before touching any
+        // cloud resource: a missing certificate fails provisioning instantly
+        // instead of after a billable EC2 node has been provisioned.
+        TlsCertificate tlsCertificate = tlsCertificateService.findValidForHost(domain).orElse(null);
+        if (tlsCertificate == null) {
+            IacException unavailable = new IacException(AppErrorCode.IAC_TLS_CERTIFICATE_UNAVAILABLE,
+                "No unexpired, valid TLS certificate covering " + domain
+                    + " is available for Cluster provisioning");
+            recorder.fail(cluster, DeploymentOperation.ISSUE_TLS_CERTIFICATE, unavailable.getMessage());
+            log.error("[IaC] provision aborted cluster={}: {}", clusterId, unavailable.getMessage());
+            return recordFailure(cluster, unavailable);
+        }
+
         try {
-            log.info("[IaC] provision start cluster={} region={} domain={}",
-                clusterId, cluster.getRegion(), domain);
+            log.info("[IaC] provision start cluster={} region={} domain={} tlsCertificate={}",
+                clusterId, cluster.getRegion(), domain, tlsCertificate.getId().toHexString());
 
             // 1. Generate the per-Cluster SSH key and protect the private part.
             var generated = runStep(cluster, DeploymentOperation.GENERATE_SSH_KEY,
@@ -206,7 +226,9 @@ public class ClusterProvisioningService {
                     }
                 });
 
-            // 8. Install the Nginx http tuning drop-in and site configuration.
+            // 8. Install the Nginx http-context tuning drop-in. The TLS site
+            // configuration is written together with the certificate in step 10,
+            // since Nginx refuses to load a site whose cert files are missing.
             runStep(cluster, DeploymentOperation.CONFIGURE_NGINX,
                 "Nginx configured", () -> {
                     try (SshSession session = connectSsh(node, proxy, privateKeyPem)) {
@@ -214,41 +236,32 @@ public class ClusterProvisioningService {
                             configs.nginxHttpConf().getBytes(StandardCharsets.UTF_8));
                         remoteExec(session,
                             "sudo mv /tmp/00-tapstate-http.conf "
-                                + ClusterRuntimeConfigs.REMOTE_NGINX_HTTP_CONF_PATH,
+                                + ClusterRuntimeConfigs.REMOTE_NGINX_HTTP_CONF_PATH
+                                + " && sudo nginx -t && sudo systemctl enable nginx",
                             Duration.ofSeconds(30));
-
-                        session.uploadFile("/tmp/tapstate-cluster.conf",
-                            configs.nginxConf(domain).getBytes(StandardCharsets.UTF_8));
-                        remoteExec(session,
-                            "sudo mv /tmp/tapstate-cluster.conf " + ClusterRuntimeConfigs.REMOTE_NGINX_CONF_PATH
-                                + " && sudo nginx -t"
-                                + " && sudo systemctl enable nginx && sudo systemctl restart nginx",
-                            Duration.ofSeconds(60));
-                        log.info("[IaC] nginx configured cluster={}", clusterId);
+                        log.info("[IaC] nginx http tuning installed cluster={}", clusterId);
                     } catch (java.io.IOException e) {
                         throw new IacException(AppErrorCode.IAC_SSH_COMMAND_FAILED, e, safeMessage(e));
                     }
                 });
 
-            // 9. Wait until the name resolves to the node so ACME validation lands here.
+            // 9. Wait until the name resolves to the node so the health check lands here.
             runStep(cluster, DeploymentOperation.WAIT_DNS_PROPAGATION,
                 "DNS propagated", () -> waitForDns(domain, node.publicIp()));
 
-            // 10. Obtain the TLS certificate; certbot rewrites the Nginx site for 443.
+            // 10. Install the centrally managed wildcard certificate and the TLS
+            // site configuration, then start serving HTTPS.
             runStep(cluster, DeploymentOperation.ISSUE_TLS_CERTIFICATE,
-                "TLS certificate issued", () -> {
+                "TLS certificate installed", () -> {
                     try (SshSession session = connectSsh(node, proxy, privateKeyPem)) {
-                        remoteExec(session,
-                            "sudo certbot --nginx -d " + domain
-                                + " --agree-tos --email " + CERTBOT_EMAIL
-                                + " --non-interactive --redirect"
-                                + " && sudo systemctl enable certbot.timer"
-                                + " && sudo nginx -t && sudo systemctl reload nginx",
-                            CERTBOT_TIMEOUT);
+                        tlsInstaller.install(session, domain, tlsCertificate);
                     } catch (java.io.IOException e) {
                         throw new IacException(AppErrorCode.IAC_SSH_COMMAND_FAILED, e, safeMessage(e));
                     }
-                    log.info("[IaC] TLS certificate issued cluster={}", clusterId);
+                    cluster.setTlsCertificateId(tlsCertificate.getId());
+                    persist(cluster);
+                    log.info("[IaC] TLS certificate {} installed cluster={}",
+                        tlsCertificate.getId().toHexString(), clusterId);
                 });
 
             // 11. Verify the public endpoint end to end.
@@ -544,11 +557,11 @@ public class ClusterProvisioningService {
         }
     }
 
-    /** Create the remote directories used by the runtime and ACME webroot. */
+    /** Create the remote directories used by the runtime and Nginx TLS material. */
     private void prepareRemoteDirs(SshSession session) {
         remoteExec(session,
-            "sudo mkdir -p /opt/tapstate-runtime /var/www/certbot"
-                + " && sudo chmod 755 /var/www/certbot",
+            "sudo mkdir -p /opt/tapstate-runtime " + ClusterRuntimeConfigs.REMOTE_NGINX_SSL_DIR
+                + " && sudo chmod 755 " + ClusterRuntimeConfigs.REMOTE_NGINX_SSL_DIR,
             Duration.ofSeconds(30));
     }
 
@@ -602,6 +615,8 @@ public class ClusterProvisioningService {
             case IAC_SSH_COMMAND_FAILED -> ProvisionErrorCode.EC2_BOOTSTRAP_TIMEOUT;
             case IAC_HEALTH_CHECK_FAILED -> ProvisionErrorCode.PROVISIONING_TIMEOUT;
             case IAC_MDB_NOT_READY -> ProvisionErrorCode.ATLAS_DB_CREATE_FAILED;
+            case IAC_TLS_CERTIFICATE_UNAVAILABLE -> ProvisionErrorCode.TLS_CERTIFICATE_UNAVAILABLE;
+            case IAC_TLS_CERTIFICATE_INSTALL_FAILED -> ProvisionErrorCode.TLS_CERTIFICATE_INSTALL_FAILED;
             default -> ProvisionErrorCode.CLOUDFORMATION_FAILED;
         };
         String detail = e.errorCode().getCode() + ": " + e.getMessage();

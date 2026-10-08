@@ -50,6 +50,27 @@ class ClusterRuntimeConfigsTest {
     }
 
     @Test
+    void nginxConfTerminatesTlsWithManagedCertificateAndRedirectsHttp() {
+        String domain = "6475a2b3c1d4e5f6a7b8c9d1.dev.cloud.tapstate.com";
+
+        String conf = configs.nginxConf(domain);
+
+        assertTrue(conf.contains("listen 443 ssl"), "site must terminate TLS on 443:\n" + conf);
+        assertTrue(conf.contains("ssl_certificate " + ClusterRuntimeConfigs.REMOTE_NGINX_CERT_PATH + ";"),
+            "site must reference the managed fullchain path:\n" + conf);
+        assertTrue(conf.contains("ssl_certificate_key " + ClusterRuntimeConfigs.REMOTE_NGINX_KEY_PATH + ";"),
+            "site must reference the managed key path:\n" + conf);
+        assertTrue(conf.contains("server_name " + domain + ";"),
+            "site must serve the Cluster domain:\n" + conf);
+        assertTrue(conf.contains("return 301 https://"),
+            "plain HTTP must redirect to HTTPS:\n" + conf);
+        assertTrue(conf.contains("proxy_pass http://127.0.0.1:8080;"),
+            "443 server must proxy to the local runtime:\n" + conf);
+        assertFalse(conf.contains("acme-challenge"),
+            "no ACME challenge location may remain after certbot removal:\n" + conf);
+    }
+
+    @Test
     void blankAtlasUriProvisionsLocalSidecarAndPointsRuntimeAtIt() {
         String yaml = configs.dockerComposeYaml(cluster(), "https://cloud.tapstate.com", "  ");
 
