@@ -26,11 +26,10 @@ import java.util.List;
  * The two FSMs provision in parallel and neither knows about the other. Each one
  * publishes a ready event after persisting its READY transition; this coordinator
  * is the single join point. A Subscription flips to
- * {@link ResourceState#READY} only when:
- * <ul>
- *   <li>the Organization has at least one Cluster and every Cluster is READY, and</li>
- *   <li>the Subscription has at least one MdbAllocation and every allocation is READY</li>
- * </ul>
+ * {@link ResourceState#READY} only when its own Cluster is READY and its own
+ * MdbAllocation is READY — an Organization owns many subscriptions, so the join
+ * is strictly subscription-scoped and never observes another subscription's
+ * resources.
  * The flip is idempotent (repeated events are a no-op), never applies to a
  * CANCELLED subscription, and uses a conditional atomic update so two events
  * racing the cancel transition cannot resurrect a cancelled subscription.
@@ -74,7 +73,7 @@ public class SubscriptionResourceCoordinator {
             return;
         }
 
-        List<Cluster> clusters = clusterRepository.findByOrgId(subscription.getOrgId());
+        List<Cluster> clusters = clusterRepository.findBySubscriptionId(subscriptionId);
         List<MdbAllocation> allocations = allocationRepository.findBySubscriptionId(subscriptionId);
         if (clusters.isEmpty() || allocations.isEmpty()) {
             return;

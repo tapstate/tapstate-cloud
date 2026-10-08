@@ -13,8 +13,6 @@ public interface SubscriptionItemRepository extends MongoRepository<Subscription
 
     List<SubscriptionItem> findBySubscriptionId(ObjectId subscriptionId);
 
-    List<SubscriptionItem> findByOrgId(ObjectId orgId);
-
     Optional<SubscriptionItem> findBySubscriptionIdAndItemType(ObjectId subscriptionId,
                                                                 SubscriptionItemType itemType);
 }

@@ -59,20 +59,19 @@ public class ClusterService {
     // ========== Create Cluster (internal — called by SubscriptionService) ==========
 
     /**
-     * Create a new Cluster record and fire the START_PROVISION state-machine event.
+     * Create a new Cluster record. The START_PROVISION state-machine event is
+     * NOT fired here — the caller invokes {@link #startProvisioning(ObjectId, String)}
+     * only after the Cluster -> MdbAllocation link is durable.
      * <p>
      * This is the internal entry point — called by the subscription orchestration
      * flow after {@code SubscriptionService} has validated the subscription is
      * active/valid. No subscription validity gate here (that lives upstream).
-     * <p>
-     * Returns immediately with PROVISIONING_PENDING state — the state machine's
-     * transition effect fires async CloudFormation simulation. MDB allocation
-     * is handled separately by {@link io.tapstate.cloud.mdb.MdbAllocationService}.
      *
-     * @return the persisted Cluster (state PROVISIONING_PENDING, START_PROVISION fired)
+     * @return the persisted Cluster (state PROVISIONING_PENDING, provisioning not yet started)
      */
     @Transactional
-    public Cluster createCluster(String orgId, String region, String name, String specKey, String creatorEmail) {
+    public Cluster createCluster(String orgId, ObjectId subscriptionId, String region,
+                                 String name, String specKey, String creatorEmail) {
         if (!memberRepository.existsByOrgIdAndUserEmail(new ObjectId(orgId), creatorEmail)) {
             throw new BusinessException(AppErrorCode.ORG_NOT_MEMBER, 403, orgId);
         }
@@ -84,6 +83,7 @@ public class ClusterService {
         // ---- Cluster record ----
         Cluster cluster = Cluster.builder()
             .orgId(new ObjectId(orgId))
+            .subscriptionId(subscriptionId)
             .region(region)
             .name(name)
             .specKey(specKey != null ? specKey : "basic")

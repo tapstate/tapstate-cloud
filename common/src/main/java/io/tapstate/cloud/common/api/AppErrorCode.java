@@ -52,7 +52,7 @@ public enum AppErrorCode implements ErrorCode {
     EXCHANGE_CLUSTER_IDENTITY_MISMATCH("exchange.cluster-identity-mismatch", "Cluster service identity secret is invalid"),
 
     // ---------- Subscription ----------
-    SUBSCRIPTION_NOT_FOUND("subscription.not-found", "Subscription for organization {0} not found"),
+    SUBSCRIPTION_NOT_FOUND("subscription.not-found", "Subscription {0} not found"),
     SUBSCRIPTION_CANCELLED("subscription.cancelled", "Subscription is cancelled — provisioning is blocked"),
     SUBSCRIPTION_PAST_DUE("subscription.past-due", "Subscription is past due — provisioning is blocked until payment is made"),
 

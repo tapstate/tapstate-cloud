@@ -1,7 +1,5 @@
 package io.tapstate.cloud.it;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.tapstate.cloud.sdk.model.CreateSubscriptionRequest;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -66,8 +64,8 @@ class AwsClusterDeployIT extends BaseIT {
 
     private static Process realAppProcess;
 
-    private final ObjectMapper mapper = new ObjectMapper();
     private String orgId;
+    private String subscriptionId;
     private String clusterName;
     private String clusterId;
     private String domain;
@@ -165,10 +163,11 @@ class AwsClusterDeployIT extends BaseIT {
             "slug", "aws-deploy-" + System.nanoTime())).getData().getId();
 
         clusterName = "aws-it-" + Long.toHexString(System.nanoTime());
-        subscriptionApi.createSubscription(orgId, new CreateSubscriptionRequest()
-            .region(REGION).clusterName(clusterName).specKey("basic"));
+        var created = subscriptionApi.createSubscription(orgId, new CreateSubscriptionRequest()
+            .region(REGION).clusterName(clusterName).specKey("basic")).getData();
+        subscriptionId = created.getId();
 
-        clusterId = findClusterIdByName(clusterName);
+        clusterId = created.getClusterId();
         assertNotNull(clusterId, "Cluster record must exist after subscription");
         domain = clusterId + ".dev.cloud.tapstate.com";
     }
@@ -211,7 +210,7 @@ class AwsClusterDeployIT extends BaseIT {
             "HTTPS /healthz must answer 200, got: " + health.body());
 
         // ---------- 4. Cancel → TERMINATED ----------
-        subscriptionApi.cancelSubscription(orgId);
+        subscriptionApi.cancelSubscription(orgId, subscriptionId);
         waitForClusterState(orgId, clusterId, "TERMINATED",
             TERMINATED_ATTEMPTS, TERMINATED_POLL_MS);
 
@@ -231,7 +230,7 @@ class AwsClusterDeployIT extends BaseIT {
         // Cancel the subscription; if that did not reclaim the resources in time,
         // delete them directly so a Mongo wipe cannot orphan billable resources.
         try {
-            subscriptionApi.cancelSubscription(orgId);
+            subscriptionApi.cancelSubscription(orgId, subscriptionId);
         } catch (Exception ignored) {
             // Subscription may already be cancelled — continue to raw cleanup.
         }
@@ -367,21 +366,5 @@ class AwsClusterDeployIT extends BaseIT {
             Thread.sleep(10_000);
         }
         return false;
-    }
-
-    /** Raw GET /clusters, returning the id of a cluster by name. */
-    private String findClusterIdByName(String name) throws Exception {
-        HttpResponse<String> resp = get("/v1/api/orgs/" + orgId + "/clusters",
-            Map.of("Cookie", "TAPSTATE_CLOUD_SESSION=" + sessionCookieValue));
-        JsonNode clusters = mapper.readTree(resp.body()).path("data");
-        if (!clusters.isArray()) {
-            return null;
-        }
-        for (JsonNode cluster : clusters) {
-            if (name.equals(cluster.path("name").asText())) {
-                return cluster.path("id").asText();
-            }
-        }
-        return null;
     }
 }

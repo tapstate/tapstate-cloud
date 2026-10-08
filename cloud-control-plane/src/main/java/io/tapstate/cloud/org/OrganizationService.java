@@ -2,15 +2,12 @@ package io.tapstate.cloud.org;
 
 import io.tapstate.cloud.common.api.AppErrorCode;
 import io.tapstate.cloud.common.api.BusinessException;
-import io.tapstate.cloud.subscription.SubscriptionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.security.SecureRandom;
 import java.time.Instant;
-import java.util.HexFormat;
 import java.util.List;
 import org.bson.types.ObjectId;
 
@@ -18,9 +15,9 @@ import org.bson.types.ObjectId;
  * Organization management — create, list, membership.
  * <p>
  * Isolation boundary (ADR-0122 D3): all Cluster records, deployments,
- * and audit logs belong to exactly one Organization. Each new Organization
- * auto-receives a default TRIAL subscription with the two standard billable
- * items (Cluster Pipeline Runtime + Atlas Database Storage).
+ * and audit logs belong to exactly one Organization. A new Organization
+ * starts with no subscriptions; subscriptions (each carrying one Cluster +
+ * one Atlas MdbAllocation) are created explicitly via the subscription API.
  */
 @Service
 @RequiredArgsConstructor
@@ -29,9 +26,6 @@ public class OrganizationService {
 
     private final OrganizationRepository organizationRepository;
     private final MemberRepository memberRepository;
-    private final SubscriptionService subscriptionService;
-
-    private final SecureRandom secureRandom = new SecureRandom();
 
     @Transactional
     public Organization createOrganization(String name, String slug, String ownerEmail) {
@@ -58,9 +52,6 @@ public class OrganizationService {
             .build();
         memberRepository.save(ownerMember);
 
-        // Auto-create default trial subscription with two standard billable items
-        subscriptionService.createDefaultSubscription(saved.getId().toHexString());
-
         log.info("Organization created: {} (owner: {}, orgId: {})", saved.getName(), ownerEmail, saved.getId());
         return saved;
     }
@@ -75,7 +66,6 @@ public class OrganizationService {
                     AppErrorCode.ORG_NOT_FOUND, 404, existing.get(0).getOrgId()));
         }
 
-        // Create default org — auto-triggers subscription creation
         String defaultOrgName = userEmail.split("@")[0] + "'s Workspace";
         return createOrganization(defaultOrgName, null, userEmail);
     }
@@ -94,12 +84,6 @@ public class OrganizationService {
     }
 
     // ========== Helpers ==========
-
-    private String generateId() {
-        byte[] bytes = new byte[16];
-        secureRandom.nextBytes(bytes);
-        return HexFormat.of().formatHex(bytes);
-    }
 
     private String generateSlug(String name) {
         return name.toLowerCase()
