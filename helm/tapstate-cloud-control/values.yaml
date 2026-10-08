@@ -61,6 +61,9 @@ secrets:
   jwksEncryptionKey:
     name: tapstate-cloud-control-jwks-encryption-key
     key: encryption-key
+  sampleSources:
+    name: tapstate-cloud-control-sample-sources
+    passwordKey: password
 
 # ========== ConfigMap (non-sensitive config) ==========
 config:
@@ -72,6 +75,7 @@ config:
   defaultRegion: ap-southeast-1
   awsRegion: ap-southeast-1
   corsAllowedOrigins: "https://cloud.tapstate.io,https://*.cloud.tapstate.io"
+  sampleSourcesHost: "113.98.206.139"
 
   # ----- API docs -----
   swaggerUiEnabled: "true"

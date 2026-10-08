@@ -83,6 +83,8 @@ spec:
               value: {{ .Values.config.defaultRegion | quote }}
             - name: AWS_REGION
               value: {{ .Values.config.awsRegion | quote }}
+            - name: TAPSTATE_SAMPLE_SOURCES_HOST
+              value: {{ .Values.config.sampleSourcesHost | quote }}
 
             # ========== JWKS management ==========
             - name: CLOUD_JWKS_ROTATION_ENABLED
@@ -186,6 +188,14 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.secrets.runtimeAtlasUri.name }}
                   key: {{ .Values.secrets.runtimeAtlasUri.uriKey }}
+                  optional: true
+
+            # ========== Shared sample database credential — server only ==========
+            - name: TAPSTATE_SAMPLE_SOURCES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.sampleSources.name }}
+                  key: {{ .Values.secrets.sampleSources.passwordKey }}
                   optional: true
 
             # ========== JVM config ==========
