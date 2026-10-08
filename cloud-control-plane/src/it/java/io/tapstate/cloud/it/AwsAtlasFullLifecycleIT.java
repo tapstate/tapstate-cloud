@@ -75,13 +75,19 @@ class AwsAtlasFullLifecycleIT extends BaseIT {
     private static Process realAppProcess;
     private static boolean seedsReplaced;
 
+    /**
+     * The real app's server-side health check validates HTTPS with its JVM
+     * trust store, so it must trust the self-signed IT wildcard certificate.
+     */
+    private static File tlsTrustStore;
+    private static SeededCertificate tlsFixture;
+
     private final ObjectMapper mapper = new ObjectMapper();
     private String orgId;
     private String subscriptionId;
     private String clusterName;
     private String clusterId;
     private String domain;
-    private SeededCertificate tlsFixture;
 
     @BeforeAll
     static void startRealApp() throws Exception {
@@ -113,6 +119,12 @@ class AwsAtlasFullLifecycleIT extends BaseIT {
         File jar = new File(moduleDir, "target/tapstate-cloud-control-plane.jar");
         assertTrue(jar.exists(), "Packaged application jar must exist: " + jar.getPath());
 
+        // One certificate for the whole class: the forked app pins it as a
+        // trust anchor; each test re-seeds the same material after the wipe.
+        tlsFixture = WildcardTlsFixture.generate("*.dev.cloud.tapstate.com");
+        tlsTrustStore = new File(moduleDir, "target/it-wildcard-truststore-atlas.p12");
+        tlsFixture.writeJvmTrustStore(tlsTrustStore);
+
         String javaBinary = System.getProperty("java.home") + File.separator + "bin"
             + File.separator + "java";
         java.util.List<String> command = new java.util.ArrayList<>(java.util.List.of(
@@ -120,7 +132,9 @@ class AwsAtlasFullLifecycleIT extends BaseIT {
             "-Dspring.profiles.active=it",
             "-Dserver.port=" + REAL_APP_PORT,
             "-Dtapstate.cloud.iac.mode=real",
-            "-Dtapstate.cloud.mdb.atlas.mock=false"));
+            "-Dtapstate.cloud.mdb.atlas.mock=false",
+            "-Djavax.net.ssl.trustStore=" + tlsTrustStore.getPath(),
+            "-Djavax.net.ssl.trustStorePassword=changeit"));
         addProxyArgs(command);
         command.addAll(java.util.List.of("-jar", jar.getPath()));
 
@@ -161,7 +175,7 @@ class AwsAtlasFullLifecycleIT extends BaseIT {
 
         // Provisioning resolves the wildcard certificate before any cloud
         // resource is created, so the document must exist before subscribing.
-        tlsFixture = WildcardTlsFixture.seed(MONGO_URI, "*.dev.cloud.tapstate.com");
+        tlsFixture.seed(MONGO_URI);
 
         clusterName = "aws-atlas-" + Long.toHexString(System.nanoTime());
         var created = subscriptionApi.createSubscription(orgId, new CreateSubscriptionRequest()
