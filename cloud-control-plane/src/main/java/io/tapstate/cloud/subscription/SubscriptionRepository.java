@@ -17,5 +17,7 @@ public interface SubscriptionRepository extends MongoRepository<Subscription, Ob
 
     List<Subscription> findByOrgIdOrderByCreatedAtDesc(ObjectId orgId);
 
+    List<Subscription> findByStatus(SubscriptionStatus status);
+
     Optional<Subscription> findByIdAndOrgId(ObjectId id, ObjectId orgId);
 }

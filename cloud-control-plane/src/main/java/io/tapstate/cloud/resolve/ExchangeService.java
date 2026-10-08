@@ -12,6 +12,8 @@ import io.tapstate.cloud.config.JwksRotationService;
 import io.tapstate.cloud.identity.User;
 import io.tapstate.cloud.identity.UserRepository;
 import io.tapstate.cloud.org.MemberRepository;
+import io.tapstate.cloud.org.Organization;
+import io.tapstate.cloud.org.OrganizationRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.mongodb.core.MongoTemplate;
@@ -61,6 +63,7 @@ public class ExchangeService {
     private final MongoTemplate mongoTemplate;
     private final ClusterRepository clusterRepo;
     private final MemberRepository memberRepo;
+    private final OrganizationRepository organizationRepo;
     private final UserRepository userRepo;
     private final JtiRecordRepository jtiRecordRepo;
     private final JwksRotationService jwksRotationService;
@@ -83,6 +86,7 @@ public class ExchangeService {
                            MongoTemplate mongoTemplate,
                            ClusterRepository clusterRepo,
                            MemberRepository memberRepo,
+                           OrganizationRepository organizationRepo,
                            UserRepository userRepo,
                            JtiRecordRepository jtiRecordRepo,
                            JwksRotationService jwksRotationService) {
@@ -90,6 +94,7 @@ public class ExchangeService {
         this.mongoTemplate = mongoTemplate;
         this.clusterRepo = clusterRepo;
         this.memberRepo = memberRepo;
+        this.organizationRepo = organizationRepo;
         this.userRepo = userRepo;
         this.jtiRecordRepo = jtiRecordRepo;
         this.jwksRotationService = jwksRotationService;
@@ -202,6 +207,18 @@ public class ExchangeService {
             }
         }
 
+        Cluster cluster = clusterRepo.findById(consumed.getClusterId())
+            .orElseThrow(() -> new BusinessException(AppErrorCode.SYSTEM_ERROR, 500));
+        if (!consumed.getOrgId().equals(cluster.getOrgId())) {
+            throw new BusinessException(AppErrorCode.CLUSTER_ORG_MISMATCH, 500,
+                consumed.getClusterId(), consumed.getOrgId());
+        }
+        Organization organization = organizationRepo.findById(consumed.getOrgId())
+            .orElseThrow(() -> new BusinessException(AppErrorCode.SYSTEM_ERROR, 500));
+        if (organization.getName() == null || cluster.getName() == null || cluster.getRegion() == null) {
+            throw new BusinessException(AppErrorCode.SYSTEM_ERROR, 500);
+        }
+
         // Issue resolve JWT — claims per ADR-0122 D4 + Issue #5 item 1 (user_id)
         String jwtId = UUID.randomUUID().toString();
         Instant jwtExp = now.plus(jwtExpiryMinutes, ChronoUnit.MINUTES);
@@ -259,7 +276,8 @@ public class ExchangeService {
             consumed.getUserEmail(),
             consumed.getUserId() != null ? consumed.getUserId().toHexString() : null,
             consumed.getOrgId() != null ? consumed.getOrgId().toHexString() : null,
-            consumed.getClusterId() != null ? consumed.getClusterId().toHexString() : null);
+            consumed.getClusterId() != null ? consumed.getClusterId().toHexString() : null,
+            organization.getName(), cluster.getName(), cluster.getRegion());
     }
 
     // ========== Cluster service identity secret verification ==========
@@ -311,5 +329,6 @@ public class ExchangeService {
 
     /** Result of successful code redemption — returned to Cluster Server via GC /exchange. */
     public record RedeemedExchange(String jwt, String expiresAt, String jti,
-                                    String userEmail, String userId, String orgId, String clusterId) {}
+                                    String userEmail, String userId, String orgId, String clusterId,
+                                    String organizationName, String clusterName, String region) {}
 }

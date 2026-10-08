@@ -1475,6 +1475,15 @@ components:
         clusterId:
           type: string
           description: Cluster UUID bound to this session
+        organizationName:
+          type: string
+          description: Organization display name from the Organization bound to the redeemed exchange code
+        clusterName:
+          type: string
+          description: Cluster display name from the Cluster bound to the redeemed exchange code
+        region:
+          type: string
+          description: AWS region from the Cluster bound to the redeemed exchange code
     ApiResponseListRegionResponse:
       type: object
       description: Global API response envelope
