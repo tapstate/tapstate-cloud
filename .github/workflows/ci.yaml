@@ -10,7 +10,10 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches-ignore: [main]  # non-main branches also run CI
+    # Every branch, main included. The main run is a required gate for
+    # deploy.yaml: its CD waits for this workflow to pass on the exact
+    # pushed SHA before deploying to awsdev.
+    branches: ['**']
 
 jobs:
   # ---------- Job 1: Lint + Compile ----------
