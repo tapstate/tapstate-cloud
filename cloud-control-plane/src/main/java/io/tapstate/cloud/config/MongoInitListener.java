@@ -3,6 +3,7 @@ package io.tapstate.cloud.config;
 import com.mongodb.client.model.CreateCollectionOptions;
 import com.mongodb.client.model.TimeSeriesGranularity;
 import com.mongodb.client.model.TimeSeriesOptions;
+import io.tapstate.cloud.cluster.Cluster;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.ApplicationListener;
@@ -115,6 +116,20 @@ public class MongoInitListener implements ApplicationListener<ApplicationReadyEv
                     idxCount++;
                 }
 
+                if (entity == Cluster.class) {
+                    boolean activeIndexExists = indexOps.getIndexInfo().stream()
+                        .anyMatch(index -> "org_region_name_active_unique".equals(index.getName()));
+                    if (!activeIndexExists) {
+                        throw new IllegalStateException("Active Cluster name index is missing");
+                    }
+                    boolean legacyIndexExists = indexOps.getIndexInfo().stream()
+                        .anyMatch(index -> "org_region_name_unique".equals(index.getName()));
+                    if (legacyIndexExists) {
+                        indexOps.dropIndex("org_region_name_unique");
+                        log.info("[Mongo Init] Replaced legacy Cluster name index with active-only index");
+                    }
+                }
+
                 if (idxCount > 0) {
                     log.info("[Mongo Init] Applied {} index(es) to {}", idxCount, entity.getSimpleName());
                     applied++;
@@ -124,6 +139,9 @@ public class MongoInitListener implements ApplicationListener<ApplicationReadyEv
             } catch (ClassNotFoundException e) {
                 log.error("[Mongo Init] Could not load entity class: {}", beanDef.getBeanClassName(), e);
             } catch (Exception e) {
+                if (Cluster.class.getName().equals(beanDef.getBeanClassName())) {
+                    throw new IllegalStateException("Cluster name index migration failed", e);
+                }
                 log.error("[Mongo Init] Failed to apply indexes for {}: {}", beanDef.getBeanClassName(), e.getMessage());
             }
         }

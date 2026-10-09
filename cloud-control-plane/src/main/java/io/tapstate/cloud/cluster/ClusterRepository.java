@@ -24,7 +24,8 @@ public interface ClusterRepository extends MongoRepository<Cluster, ObjectId> {
 
     Optional<Cluster> findByIdAndSubscriptionId(ObjectId id, ObjectId subscriptionId);
 
-    boolean existsByOrgIdAndRegionAndName(ObjectId orgId, String region, String name);
+    boolean existsByOrgIdAndRegionAndNameAndStateNot(ObjectId orgId, String region, String name,
+                                                      ClusterState state);
 
     /**
      * Find READY clusters whose last heartbeat was more than 5 minutes ago.
