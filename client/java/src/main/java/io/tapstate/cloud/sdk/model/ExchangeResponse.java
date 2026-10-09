@@ -1,6 +1,6 @@
 /*
  * Tapstate Cloud — Global Control Plane API
- * Global Control Plane backend API for Tapstate Cloud.  ## Authentication  Three authentication contexts (ADR-0122 D2): - **Session Cookie** — Cloud Console users (type ①) - **Static Token** — SDK status sender (type ②, `/api/sdk/_*`) - **Resolve JWT** — issued by this service for Cluster Console access  ## Regions  Week 2: only `ap-southeast-1` (Singapore) available. Production regions to be added post-W4.  ## Clusters  Clusters are auto-provisioned via CloudFormation + EC2 + Docker. Lifecycle state machine has 6 states in Week 2.
+ * Global Control Plane backend API for Tapstate Cloud.  ## Authentication  Three authentication contexts (ADR-0122 D2): - **Session Cookie** — Cloud Console users (type ①) - **Static Token** — SDK status sender (type ②, `/api/sdk/_*`) - **Resolve JWT** — issued by this service for Cluster Console access  ## Regions  Week 2: only `ap-southeast-1` (Singapore) available. Production regions to be added post-W4.  ## Clusters  Clusters are auto-provisioned via CloudFormation + EC2 + Docker. Lifecycle state machine has 6 states in Week 2. 
  *
  * The version of the OpenAPI document: v1
  * Contact: cloud@tapstate.io
@@ -87,7 +87,7 @@ public class ExchangeResponse {
   }
 
   public ExchangeResponse jwt(@jakarta.annotation.Nullable String jwt) {
-
+    
     this.jwt = jwt;
     return this;
   }
@@ -112,7 +112,7 @@ public class ExchangeResponse {
   }
 
   public ExchangeResponse expiresAt(@jakarta.annotation.Nullable String expiresAt) {
-
+    
     this.expiresAt = expiresAt;
     return this;
   }
@@ -137,7 +137,7 @@ public class ExchangeResponse {
   }
 
   public ExchangeResponse jti(@jakarta.annotation.Nullable String jti) {
-
+    
     this.jti = jti;
     return this;
   }
@@ -162,7 +162,7 @@ public class ExchangeResponse {
   }
 
   public ExchangeResponse userEmail(@jakarta.annotation.Nullable String userEmail) {
-
+    
     this.userEmail = userEmail;
     return this;
   }
@@ -187,7 +187,7 @@ public class ExchangeResponse {
   }
 
   public ExchangeResponse userId(@jakarta.annotation.Nullable String userId) {
-
+    
     this.userId = userId;
     return this;
   }
@@ -212,7 +212,7 @@ public class ExchangeResponse {
   }
 
   public ExchangeResponse orgId(@jakarta.annotation.Nullable String orgId) {
-
+    
     this.orgId = orgId;
     return this;
   }
@@ -237,7 +237,7 @@ public class ExchangeResponse {
   }
 
   public ExchangeResponse clusterId(@jakarta.annotation.Nullable String clusterId) {
-
+    
     this.clusterId = clusterId;
     return this;
   }
@@ -262,7 +262,7 @@ public class ExchangeResponse {
   }
 
   public ExchangeResponse organizationName(@jakarta.annotation.Nullable String organizationName) {
-
+    
     this.organizationName = organizationName;
     return this;
   }
@@ -287,7 +287,7 @@ public class ExchangeResponse {
   }
 
   public ExchangeResponse clusterName(@jakarta.annotation.Nullable String clusterName) {
-
+    
     this.clusterName = clusterName;
     return this;
   }
@@ -312,7 +312,7 @@ public class ExchangeResponse {
   }
 
   public ExchangeResponse region(@jakarta.annotation.Nullable String region) {
-
+    
     this.region = region;
     return this;
   }
