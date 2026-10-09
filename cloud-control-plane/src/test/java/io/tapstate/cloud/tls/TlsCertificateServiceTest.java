@@ -140,6 +140,52 @@ class TlsCertificateServiceTest {
     }
 
     @Test
+    void acceptsEcCertificateWhenBouncyCastleIsRegisteredJceProvider() throws Exception {
+        // With BC installed as a JCE provider (the production runtime layout),
+        // JcaPEMKeyConverter returns a key named "ECDSA", not the JDK name "EC".
+        boolean wasRegistered = java.security.Security.getProvider("BC") != null;
+        java.security.Security.insertProviderAt(
+            new org.bouncycastle.jce.provider.BouncyCastleProvider(), 1);
+        try {
+            GeneratedCert generated = GeneratedCert.ec(WILDCARD, WILDCARD);
+            TlsCertificate stored = document(WILDCARD, generated, Instant.now().plus(29, ChronoUnit.DAYS));
+            when(repository.findFirstByDomainAndExpiryDateAfterOrderByIdDesc(eq(WILDCARD), any()))
+                .thenReturn(Optional.of(stored));
+
+            // Lock the premise: under BC the PEM-converted key is named "ECDSA",
+            // which the old switch rejected before reaching any signature check.
+            try (org.bouncycastle.openssl.PEMParser parser = new org.bouncycastle.openssl.PEMParser(
+                    new java.io.StringReader(generated.pkcs8Pem))) {
+                org.bouncycastle.asn1.pkcs.PrivateKeyInfo info =
+                    (org.bouncycastle.asn1.pkcs.PrivateKeyInfo) parser.readObject();
+                java.security.PrivateKey converted =
+                    new org.bouncycastle.openssl.jcajce.JcaPEMKeyConverter().getPrivateKey(info);
+                assertEquals("ECDSA", converted.getAlgorithm());
+            }
+
+            assertTrue(service.findValidForHost(HOST).isPresent(),
+                "EC certificates must be accepted when the parsed key is named ECDSA by BouncyCastle");
+        } finally {
+            if (!wasRegistered) {
+                java.security.Security.removeProvider("BC");
+            }
+        }
+    }
+
+    @Test
+    void challengeSignatureAlgorithmNormalisesProviderKeyNames() {
+        assertEquals("SHA256withECDSA", TlsCertificateService.challengeSignatureAlgorithm("EC"));
+        assertEquals("SHA256withECDSA", TlsCertificateService.challengeSignatureAlgorithm("ECDSA"));
+        assertEquals("SHA256withECDSA", TlsCertificateService.challengeSignatureAlgorithm(" ecdsa "));
+        assertEquals("Ed25519", TlsCertificateService.challengeSignatureAlgorithm("Ed25519"));
+        assertEquals("Ed25519", TlsCertificateService.challengeSignatureAlgorithm("EdDSA"));
+        assertEquals("SHA256withRSA", TlsCertificateService.challengeSignatureAlgorithm("RSA"));
+        assertEquals("SHA256withDSA", TlsCertificateService.challengeSignatureAlgorithm("DSA"));
+        assertEquals(null, TlsCertificateService.challengeSignatureAlgorithm("ECDH"));
+        assertEquals(null, TlsCertificateService.challengeSignatureAlgorithm(null));
+    }
+
+    @Test
     void candidateDomainsAreWildcardSuffixThenExactHost() {
         assertEquals(java.util.List.of(WILDCARD, HOST),
             TlsCertificateService.candidateDomains(HOST));
@@ -178,6 +224,40 @@ class TlsCertificateServiceTest {
         static GeneratedCert rsa(String cn, String... sanDns) {
             return rsa(cn, Instant.now().minus(1, ChronoUnit.DAYS),
                 Instant.now().plus(30, ChronoUnit.DAYS), sanDns);
+        }
+
+        static GeneratedCert ec(String cn, String... sanDns) {
+            return ec(cn, Instant.now().minus(1, ChronoUnit.DAYS),
+                Instant.now().plus(30, ChronoUnit.DAYS), sanDns);
+        }
+
+        static GeneratedCert ec(String cn, Instant notBefore, Instant notAfter, String... sanDns) {
+            try {
+                KeyPairGenerator generator = KeyPairGenerator.getInstance("ECDSA", "BC");
+                generator.initialize(new java.security.spec.ECGenParameterSpec("secp256r1"));
+                KeyPair keyPair = generator.generateKeyPair();
+
+                X500Name subject = new X500Name("CN=" + cn);
+                X509v3CertificateBuilder builder = new JcaX509v3CertificateBuilder(
+                    subject, BigInteger.valueOf(System.nanoTime()),
+                    Date.from(notBefore), Date.from(notAfter), subject, keyPair.getPublic());
+                if (sanDns.length > 0) {
+                    GeneralName[] names = java.util.Arrays.stream(sanDns)
+                        .map(name -> new GeneralName(GeneralName.dNSName, name))
+                        .toArray(GeneralName[]::new);
+                    builder.addExtension(Extension.subjectAlternativeName, false,
+                        new GeneralNames(names));
+                }
+                ContentSigner signer = new JcaContentSignerBuilder("SHA256withECDSA")
+                    .setProvider("BC").build(keyPair.getPrivate());
+                byte[] der = builder.build(signer).getEncoded();
+
+                String certPem = pem("CERTIFICATE", der);
+                String pkcs8Pem = pem("PRIVATE KEY", keyPair.getPrivate().getEncoded());
+                return new GeneratedCert(certPem, pkcs8Pem, pkcs8Pem);
+            } catch (Exception e) {
+                throw new IllegalStateException(e);
+            }
         }
 
         static GeneratedCert rsa(String cn, Instant notBefore, Instant notAfter, String... sanDns) {
