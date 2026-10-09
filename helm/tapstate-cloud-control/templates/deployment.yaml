@@ -198,6 +198,17 @@ spec:
                   key: {{ .Values.secrets.sampleSources.passwordKey }}
                   optional: true
 
+            # ========== Cluster version management operator token (optional) ==========
+            # Static bearer token for the version release/state-change endpoints.
+            # An absent key leaves the env var unset; the application treats a
+            # blank token as fail-closed and rejects those endpoints with 503.
+            - name: CLOUD_CLUSTER_VERSION_RELEASE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.clusterVersionReleaseToken.name }}
+                  key: {{ .Values.secrets.clusterVersionReleaseToken.key }}
+                  optional: true
+
             # ========== JVM config ==========
             - name: JAVA_OPTS
               value: "-Xms256m -Xmx512m -XX:+UseContainerSupport"
