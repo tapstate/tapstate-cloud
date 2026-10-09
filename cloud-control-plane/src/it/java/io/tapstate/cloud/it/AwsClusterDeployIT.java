@@ -1,5 +1,7 @@
 package io.tapstate.cloud.it;
 
+import io.tapstate.cloud.iac.crypto.SshKeyCrypto;
+import io.tapstate.cloud.it.support.ClusterVersionITSupport;
 import io.tapstate.cloud.it.support.WildcardTlsFixture;
 import io.tapstate.cloud.it.support.WildcardTlsFixture.SeededCertificate;
 import io.tapstate.cloud.sdk.model.CreateSubscriptionRequest;
@@ -183,9 +185,16 @@ class AwsClusterDeployIT extends BaseIT {
         // resource is created, so the document must exist before subscribing.
         tlsFixture.seed(MONGO_URI);
 
+        // Pin the bootstrap version explicitly: the catalog survives IT wipes and
+        // other IT classes release newer (nano-suffixed) versions into the same
+        // database, so an unspecified subscription would resolve to "latest"
+        // nondeterministically. The real lane verifies the 0.6.0 image end to end.
+        new ClusterVersionITSupport(httpClient, BASE_URL).ensureBootstrapActive();
+
         clusterName = "aws-it-" + Long.toHexString(System.nanoTime());
         var created = subscriptionApi.createSubscription(orgId, new CreateSubscriptionRequest()
-            .region(REGION).clusterName(clusterName).specKey("basic")).getData();
+            .region(REGION).clusterName(clusterName).specKey("basic")
+            .version(ClusterVersionITSupport.BOOTSTRAP_VERSION)).getData();
         subscriptionId = created.getId();
 
         clusterId = created.getClusterId();
@@ -203,7 +212,13 @@ class AwsClusterDeployIT extends BaseIT {
         assertNotNull(ready.getPublicDns(), "publicDns must be recorded");
         assertEquals(domain, ready.getPublicDns());
         assertNull(ready.getProvisionErrorCode(), "READY cluster must carry no error code");
+        assertEquals(ClusterVersionITSupport.BOOTSTRAP_VERSION, ready.getClusterVersion(),
+            "the READY Cluster must pin the version requested at subscription time");
         String publicIp = ready.getEc2PublicIp();
+
+        // ---------- 1a. Pinned version renders and runs the matching image tag ----------
+        verifyRuntimeImageOnNode(publicIp,
+            "ghcr.io/tapstate/tapstate-cloud:" + ClusterVersionITSupport.BOOTSTRAP_VERSION);
 
         // ---------- 1b. Install deployment progress fully recorded ----------
         io.tapstate.cloud.sdk.model.DeploymentProgressResponse installProgress =
@@ -322,6 +337,51 @@ class AwsClusterDeployIT extends BaseIT {
     }
 
     // ========== Helpers ==========
+
+    /** Fixed it-profile crypto master key (base64 of bytes 0x00..0x1f). */
+    private static final String IT_CRYPTO_MASTER_KEY =
+        "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";
+
+    /**
+     * SSH into the provisioned node and assert the rendered compose file and the
+     * running runtime container both reference the image built from the Cluster's
+     * pinned version (no legacy hardcoded tag).
+     */
+    private void verifyRuntimeImageOnNode(String publicIp, String expectedImage) throws Exception {
+        String out = mongoshEval(
+            "print('DOCKEY=' + db.clusters.findOne({_id: ObjectId('" + clusterId
+                + "')}, {sshPrivateKeyEnc: 1}).sshPrivateKeyEnc)");
+        String encryptedKey = out.lines()
+            .filter(l -> l.startsWith("DOCKEY="))
+            .map(l -> l.substring("DOCKEY=".length()).trim())
+            .findFirst()
+            .orElseThrow(() -> new AssertionError(
+                "encrypted SSH key not found on Cluster document:\n" + out));
+        String pem = new SshKeyCrypto().decrypt(encryptedKey, IT_CRYPTO_MASTER_KEY);
+
+        File keyFile = File.createTempFile("aws-it-key-", ".pem");
+        keyFile.deleteOnExit();
+        java.nio.file.Files.writeString(keyFile.toPath(), pem);
+        assertTrue(keyFile.setReadable(false, false) && keyFile.setReadable(true, true),
+            "temp SSH key permissions must be restricted to the runner user");
+
+        java.util.List<String> command = java.util.List.of(
+            "ssh", "-i", keyFile.getPath(),
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "UserKnownHostsFile=/dev/null",
+            "-o", "ConnectTimeout=20",
+            "-o", "BatchMode=yes",
+            "ubuntu@" + publicIp,
+            "grep -m1 'image:' /opt/tapstate-runtime/docker-compose.yml; "
+                + "sudo docker inspect -f '{{.Config.Image}}' tapstate-runtime");
+        Process ssh = new ProcessBuilder(command).redirectErrorStream(true).start();
+        String sshOut = new String(ssh.getInputStream().readAllBytes());
+        assertTrue(ssh.waitFor(60, java.util.concurrent.TimeUnit.SECONDS),
+            "SSH verification timed out; output:\n" + sshOut);
+        assertEquals(0, ssh.exitValue(), "SSH verification command failed, output:\n" + sshOut);
+        assertTrue(sshOut.contains(expectedImage),
+            "node must render and run " + expectedImage + ", SSH output:\n" + sshOut);
+    }
 
     /** Poll the Cluster until READY; fail fast on PROVISIONING_FAILED. */
     private io.tapstate.cloud.sdk.model.ClusterResponse waitForReadyCluster() throws Exception {

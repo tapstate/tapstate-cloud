@@ -37,9 +37,6 @@ public class ClusterRuntimeConfigs {
     public static final String REMOTE_NGINX_KEY_PATH =
         REMOTE_NGINX_SSL_DIR + "/tapstate-cluster.key";
 
-    /** Runtime image deployed onto every Cluster node. */
-    private static final String RUNTIME_IMAGE = "ghcr.io/tapstate/tapstate-cloud:0.6.0";
-
     /** Sidecar MongoDB service name and database used when no external Atlas URI is set. */
     private static final String SIDECAR_MONGO_SERVICE = "tapstate-mongo";
     private static final String SIDECAR_DATABASE = "tapstate_cluster";
@@ -54,9 +51,12 @@ public class ClusterRuntimeConfigs {
      * <p>
      * A blank {@code runtimeAtlasUri} adds a dedicated MongoDB sidecar the runtime
      * uses; a non-blank URI points at externally managed MongoDB without a sidecar.
+     * <p>
+     * @param runtimeImage fully qualified runtime container image, resolved from
+     *                     the Cluster's pinned version by {@link ClusterImageResolver}
      */
     public String dockerComposeYaml(Cluster cluster, String controlPlaneBaseUrl,
-                                    String runtimeAtlasUri) {
+                                    String runtimeAtlasUri, String runtimeImage) {
         String clusterId = cluster.getId().toHexString();
         String token = cluster.getSdkStaticToken();
         boolean sidecar = runtimeAtlasUri == null || runtimeAtlasUri.isBlank();
@@ -81,7 +81,7 @@ public class ClusterRuntimeConfigs {
                   TAPSTATE_CLOUD_ATLAS_URI: "%s"
                 volumes:
                   - tapstate-runtime:/var/lib/tapstate
-            """.formatted(RUNTIME_IMAGE, controlPlaneBaseUrl, token, clusterId, atlasUri);
+            """.formatted(runtimeImage, controlPlaneBaseUrl, token, clusterId, atlasUri);
 
         String sidecarDependency = """
                 depends_on:

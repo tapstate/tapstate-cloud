@@ -6,6 +6,8 @@ import io.tapstate.cloud.mdb.MdbAllocation;
 import io.tapstate.cloud.mdb.MdbAllocationService;
 import io.tapstate.cloud.progress.DeploymentStepRecorder;
 import io.tapstate.cloud.subscription.fsm.SubscriptionStateMachineService;
+import io.tapstate.cloud.version.ClusterVersion;
+import io.tapstate.cloud.version.ClusterVersionService;
 import org.bson.types.ObjectId;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -50,6 +52,8 @@ class SubscriptionServiceResourceLinkTest {
     private MdbAllocationService mdbAllocationService;
     @Mock
     private DeploymentStepRecorder deploymentStepRecorder;
+    @Mock
+    private ClusterVersionService clusterVersionService;
 
     private SubscriptionService subscriptionService;
 
@@ -65,7 +69,8 @@ class SubscriptionServiceResourceLinkTest {
     void setUp() {
         subscriptionService = new SubscriptionService(
             subscriptionRepository, itemRepository, subscriptionStateMachineService,
-            eventPublisher, clusterService, mdbAllocationService, deploymentStepRecorder);
+            eventPublisher, clusterService, mdbAllocationService, deploymentStepRecorder,
+            clusterVersionService);
 
         // Every call creates a new subscription; the repository assigns the id
         // and the final PROVISIONING save returns the same entity. Lenient
@@ -81,11 +86,14 @@ class SubscriptionServiceResourceLinkTest {
             Optional.of(Subscription.builder().id(subscriptionId).orgId(orgId)
                 .status(SubscriptionStatus.TRIAL).resourceState(ResourceState.PROVISIONING).build()));
 
+        when(clusterVersionService.findClusterLastVersion())
+            .thenReturn(ClusterVersion.builder().version("0.6.0").build());
+
         Cluster cluster = Cluster.builder().build();
         cluster.setId(clusterId);
         cluster.setOrgId(orgId);
         when(clusterService.createCluster(anyString(), any(ObjectId.class), anyString(),
-            anyString(), anyString(), anyString())).thenReturn(cluster);
+            anyString(), anyString(), anyString(), anyString())).thenReturn(cluster);
 
         MdbAllocation allocation = MdbAllocation.builder().id(allocationId).build();
         when(mdbAllocationService.allocateMdb(anyString(), anyString(), anyString(), anyString()))
@@ -112,7 +120,7 @@ class SubscriptionServiceResourceLinkTest {
     @Test
     void createSubscriptionStampsResourceIdsOnBillableItems() {
         Subscription created = subscriptionService.createSubscription(orgId.toHexString(), "ap-southeast-1",
-            "qa-cluster", "basic", "leon.li@tapdata.io");
+            "qa-cluster", "basic", "leon.li@tapdata.io", null);
 
         assertThat(created.getId()).isEqualTo(subscriptionId);
         assertThat(runtimeItem.getClusterId()).isEqualTo(clusterId);
@@ -126,7 +134,7 @@ class SubscriptionServiceResourceLinkTest {
     @Test
     void provisioningStartsOnlyAfterAllocationLinkAndItemsAreDurable() {
         subscriptionService.createSubscription(orgId.toHexString(), "ap-southeast-1",
-            "qa-cluster", "basic", "leon.li@tapdata.io");
+            "qa-cluster", "basic", "leon.li@tapdata.io", null);
 
         // START_PROVISION must fire only after the allocation link is saved, so
         // the async provisioning run can never observe the Cluster unlinked.
@@ -144,7 +152,7 @@ class SubscriptionServiceResourceLinkTest {
             SubscriptionItemType.CLUSTER_PIPELINE_RUNTIME)).thenReturn(Optional.empty());
 
         subscriptionService.createSubscription(orgId.toHexString(), "ap-southeast-1",
-            "qa-cluster", "basic", "leon.li@tapdata.io");
+            "qa-cluster", "basic", "leon.li@tapdata.io", null);
 
         assertThat(storageItem.getMdbAllocationId()).isEqualTo(allocationId);
         verify(itemRepository).save(storageItem);
@@ -188,17 +196,17 @@ class SubscriptionServiceResourceLinkTest {
         Cluster secondCluster = Cluster.builder().build();
         secondCluster.setId(secondClusterId);
         when(clusterService.createCluster(anyString(), eq(secondSubscriptionId), anyString(),
-            anyString(), anyString(), anyString())).thenReturn(secondCluster);
+            anyString(), anyString(), anyString(), anyString())).thenReturn(secondCluster);
         when(mdbAllocationService.allocateMdb(anyString(), eq(secondClusterId.toHexString()),
             anyString(), eq(secondSubscriptionId.toHexString())))
             .thenReturn(MdbAllocation.builder().id(secondAllocationId).build());
 
         // First subscription.
         subscriptionService.createSubscription(orgId.toHexString(), "ap-southeast-1",
-            "qa-cluster-a", "basic", "leon.li@tapdata.io");
+            "qa-cluster-a", "basic", "leon.li@tapdata.io", null);
         // Second subscription — different cluster name, independent shell + items.
         subscriptionService.createSubscription(orgId.toHexString(), "ap-southeast-1",
-            "qa-cluster-b", "basic", "leon.li@tapdata.io");
+            "qa-cluster-b", "basic", "leon.li@tapdata.io", null);
 
         // First subscription's items keep pointing at the first resource pair.
         assertThat(runtimeItem.getClusterId()).isEqualTo(clusterId);
@@ -211,7 +219,7 @@ class SubscriptionServiceResourceLinkTest {
         // The second cluster is created against the second subscription, and the
         // first subscription's items are never written again.
         verify(clusterService).createCluster(orgId.toHexString(), secondSubscriptionId,
-            "ap-southeast-1", "qa-cluster-b", "basic", "leon.li@tapdata.io");
+            "ap-southeast-1", "qa-cluster-b", "basic", "leon.li@tapdata.io", "0.6.0");
         verify(itemRepository, org.mockito.Mockito.times(1)).save(runtimeItem);
         verify(itemRepository, org.mockito.Mockito.times(1)).save(storageItem);
         verify(itemRepository).save(secondRuntimeItem);

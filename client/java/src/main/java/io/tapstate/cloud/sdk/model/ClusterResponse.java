@@ -42,7 +42,8 @@ import java.util.StringJoiner;
   ClusterResponse.JSON_PROPERTY_EC2_PUBLIC_IP,
   ClusterResponse.JSON_PROPERTY_LAST_HEARTBEAT_AT,
   ClusterResponse.JSON_PROPERTY_CREATED_AT,
-  ClusterResponse.JSON_PROPERTY_READY_AT
+  ClusterResponse.JSON_PROPERTY_READY_AT,
+  ClusterResponse.JSON_PROPERTY_CLUSTER_VERSION
 })
 @jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", comments = "Generator version: 7.25.0")
 public class ClusterResponse {
@@ -133,7 +134,9 @@ public class ClusterResponse {
     
     TLS_CERTIFICATE_UNAVAILABLE(String.valueOf("TLS_CERTIFICATE_UNAVAILABLE")),
     
-    TLS_CERTIFICATE_INSTALL_FAILED(String.valueOf("TLS_CERTIFICATE_INSTALL_FAILED"));
+    TLS_CERTIFICATE_INSTALL_FAILED(String.valueOf("TLS_CERTIFICATE_INSTALL_FAILED")),
+    
+    CLUSTER_VERSION_UNAVAILABLE(String.valueOf("CLUSTER_VERSION_UNAVAILABLE"));
 
     private String value;
 
@@ -189,6 +192,10 @@ public class ClusterResponse {
   public static final String JSON_PROPERTY_READY_AT = "readyAt";
   @jakarta.annotation.Nullable
   private String readyAt;
+
+  public static final String JSON_PROPERTY_CLUSTER_VERSION = "clusterVersion";
+  @jakarta.annotation.Nullable
+  private String clusterVersion;
 
   public ClusterResponse() {
   }
@@ -518,6 +525,31 @@ public class ClusterResponse {
     this.readyAt = readyAt;
   }
 
+  public ClusterResponse clusterVersion(@jakarta.annotation.Nullable String clusterVersion) {
+    
+    this.clusterVersion = clusterVersion;
+    return this;
+  }
+
+  /**
+   * Cluster version pinned at subscription time; selects the runtime container image tag
+   * @return clusterVersion
+   */
+  @jakarta.annotation.Nullable
+  @JsonProperty(value = JSON_PROPERTY_CLUSTER_VERSION, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+
+  public String getClusterVersion() {
+    return clusterVersion;
+  }
+
+
+  @JsonProperty(value = JSON_PROPERTY_CLUSTER_VERSION, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+  public void setClusterVersion(@jakarta.annotation.Nullable String clusterVersion) {
+    this.clusterVersion = clusterVersion;
+  }
+
 
   @Override
   public boolean equals(Object o) {
@@ -540,12 +572,13 @@ public class ClusterResponse {
         Objects.equals(this.ec2PublicIp, clusterResponse.ec2PublicIp) &&
         Objects.equals(this.lastHeartbeatAt, clusterResponse.lastHeartbeatAt) &&
         Objects.equals(this.createdAt, clusterResponse.createdAt) &&
-        Objects.equals(this.readyAt, clusterResponse.readyAt);
+        Objects.equals(this.readyAt, clusterResponse.readyAt) &&
+        Objects.equals(this.clusterVersion, clusterResponse.clusterVersion);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(id, orgId, region, name, specKey, state, provisionErrorCode, runtimeId, publicDns, ec2PublicIp, lastHeartbeatAt, createdAt, readyAt);
+    return Objects.hash(id, orgId, region, name, specKey, state, provisionErrorCode, runtimeId, publicDns, ec2PublicIp, lastHeartbeatAt, createdAt, readyAt, clusterVersion);
   }
 
   @Override
@@ -565,6 +598,7 @@ public class ClusterResponse {
     sb.append("    lastHeartbeatAt: ").append(toIndentedString(lastHeartbeatAt)).append("\n");
     sb.append("    createdAt: ").append(toIndentedString(createdAt)).append("\n");
     sb.append("    readyAt: ").append(toIndentedString(readyAt)).append("\n");
+    sb.append("    clusterVersion: ").append(toIndentedString(clusterVersion)).append("\n");
     sb.append("}");
     return sb.toString();
   }
@@ -733,6 +767,16 @@ public class ClusterResponse {
     if (getReadyAt() != null) {
       try {
         joiner.add(String.format(java.util.Locale.ROOT, "%sreadyAt%s=%s", prefix, suffix, URLEncoder.encode(String.valueOf(getReadyAt()), "UTF-8").replaceAll("\\+", "%20")));
+      } catch (UnsupportedEncodingException e) {
+        // Should never happen, UTF-8 is always supported
+        throw new RuntimeException(e);
+      }
+    }
+
+    // add `clusterVersion` to the URL query string
+    if (getClusterVersion() != null) {
+      try {
+        joiner.add(String.format(java.util.Locale.ROOT, "%sclusterVersion%s=%s", prefix, suffix, URLEncoder.encode(String.valueOf(getClusterVersion()), "UTF-8").replaceAll("\\+", "%20")));
       } catch (UnsupportedEncodingException e) {
         // Should never happen, UTF-8 is always supported
         throw new RuntimeException(e);

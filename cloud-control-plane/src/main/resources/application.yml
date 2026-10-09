@@ -117,6 +117,10 @@ tapstate:
     sample-sources:
       host: ${TAPSTATE_SAMPLE_SOURCES_HOST:113.98.206.139}
       password: ${TAPSTATE_SAMPLE_SOURCES_PASSWORD:}
+    # Cluster version management. The static release token protects the operator
+    # publish/delist endpoints; a blank value disables those endpoints (fail closed).
+    cluster-version:
+      release-token: ${CLOUD_CLUSTER_VERSION_RELEASE_TOKEN:}
     # Atlas MDB allocation engine.
     # mock=true skips every real Atlas Admin API call (local dev / fast IT).
     # Real deployments set TAPSTATE_CLOUD_MDB_ATLAS_MOCK=false and provide the
@@ -139,6 +143,11 @@ tapstate:
       environment: ${TAPSTATE_CLOUD_IAC_ENVIRONMENT:dev}
       # Blank provisions a MongoDB sidecar on each node; set for externally managed MongoDB
       runtime-atlas-uri: ${TAPSTATE_CLOUD_IAC_RUNTIME_ATLAS_URI:}
+      # Runtime container image coordinates; a new Cluster runs
+      # <registry>/<repository>:<resolved clusterVersion>.
+      runtime-image:
+        registry: ${TAPSTATE_CLOUD_IAC_RUNTIME_IMAGE_REGISTRY:ghcr.io}
+        repository: ${TAPSTATE_CLOUD_IAC_RUNTIME_IMAGE_REPOSITORY:tapstate/tapstate-cloud}
       aws:
         instance-type: ${TAPSTATE_CLOUD_IAC_AWS_INSTANCE_TYPE:t3.medium}
         disk-size-gb: ${TAPSTATE_CLOUD_IAC_AWS_DISK_SIZE_GB:40}

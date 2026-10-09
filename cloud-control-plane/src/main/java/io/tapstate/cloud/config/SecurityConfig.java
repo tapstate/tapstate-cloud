@@ -98,6 +98,12 @@ public class SecurityConfig {
                 // Regions — public (user sees before login)
                 .requestMatchers(HttpMethod.GET, "/v1/api/regions").permitAll()
 
+                // Cluster version publish / delist — operator automation authenticates
+                // with a static Bearer token inside the controller; the console GET list
+                // of /v1/api/cluster-versions stays session-authenticated.
+                .requestMatchers(HttpMethod.POST, "/v1/api/cluster-versions").permitAll()
+                .requestMatchers(HttpMethod.PATCH, "/v1/api/cluster-versions/*/state").permitAll()
+
                 // All other endpoints — authenticated
                 .anyRequest().authenticated()
             )

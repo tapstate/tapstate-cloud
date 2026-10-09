@@ -32,6 +32,15 @@ public enum AppErrorCode implements ErrorCode {
     CLUSTER_CANCEL_NOT_ALLOWED("cluster.cancel-not-allowed", "Cluster cannot be cancelled while in state {0}"),
     CLUSTER_PROVISION_FAILED("cluster.provision-failed", "Cluster provisioning {0}"),
 
+    // ---------- Cluster versions ----------
+    CLUSTER_VERSION_UNAVAILABLE("cluster.version-unavailable", "No active Cluster version is available"),
+    CLUSTER_VERSION_NOT_FOUND("cluster.version-not-found", "Cluster version {0} not found"),
+    CLUSTER_VERSION_NOT_ACTIVE("cluster.version-not-active", "Cluster version {0} is not active"),
+    CLUSTER_VERSION_DUPLICATE("cluster.version-duplicate", "Cluster version {0} already exists"),
+    CLUSTER_VERSION_RELEASE_TOKEN_MISSING("cluster.release-token-missing", "Cluster release static token is required (Bearer header)"),
+    CLUSTER_VERSION_RELEASE_TOKEN_INVALID("cluster.release-token-invalid", "Cluster release static token is invalid"),
+    CLUSTER_VERSION_RELEASE_DISABLED("cluster.release-disabled", "Cluster version release endpoint is not configured (release token unset)"),
+
     // ---------- Infrastructure as Code ----------
     IAC_COMPUTE_PROVISION_FAILED("iac.compute-provision-failed", "Compute provisioning failed: {0}"),
     IAC_COMPUTE_TERMINATE_FAILED("iac.compute-terminate-failed", "Compute termination failed: {0}"),
@@ -43,6 +52,7 @@ public enum AppErrorCode implements ErrorCode {
     IAC_MDB_NOT_READY("iac.mdb-not-ready", "Allocated MongoDB database is not ready: {0}"),
     IAC_TLS_CERTIFICATE_UNAVAILABLE("iac.tls-certificate-unavailable", "No usable TLS certificate covering the Cluster domain: {0}"),
     IAC_TLS_CERTIFICATE_INSTALL_FAILED("iac.tls-certificate-install-failed", "TLS certificate installation on the Cluster node failed: {0}"),
+    IAC_CLUSTER_VERSION_UNAVAILABLE("iac.cluster-version-unavailable", "No deployable Cluster version is available: {0}"),
 
     // ---------- Region ----------
     REGION_NOT_FOUND("region.not-found", "Region {0} is not available"),

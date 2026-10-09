@@ -1047,6 +1047,12 @@ components:
           type: string
           maxLength: 50
           minLength: 0
+        version:
+          type: string
+          maxLength: 100
+          description: Cluster version to deploy; omit/blank to use the latest ACTIVE
+            version
+          example: 1.4.0
       required:
       - clusterName
       - region
@@ -1229,6 +1235,7 @@ components:
           - PROVISIONING_TIMEOUT
           - TLS_CERTIFICATE_UNAVAILABLE
           - TLS_CERTIFICATE_INSTALL_FAILED
+          - CLUSTER_VERSION_UNAVAILABLE
         runtimeId:
           type: string
           description: Pipeline Runtime ID (EC2 instance identifier)
@@ -1247,6 +1254,10 @@ components:
         readyAt:
           type: string
           description: Ready timestamp (ISO-8601 UTC) — null until state = READY
+        clusterVersion:
+          type: string
+          description: Cluster version pinned at subscription time; selects the
+            runtime container image tag
     StatusReportRequest:
       type: object
       description: C2 status report payload — runtime heartbeat + infrastructure metrics

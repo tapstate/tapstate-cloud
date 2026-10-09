@@ -229,6 +229,21 @@ public abstract class BaseIT {
         }
     }
 
+    protected HttpResponse<String> patch(String path, String body, java.util.Map<String, String> headers) {
+        try {
+            HttpRequest.Builder req = HttpRequest.newBuilder()
+                .uri(URI.create(BASE_URL + path))
+                .method("PATCH", HttpRequest.BodyPublishers.ofString(body))
+                .header("Content-Type", "application/json");
+            if (headers != null) headers.forEach(req::header);
+            HttpResponse<String> resp = httpClient.send(req.build(), HttpResponse.BodyHandlers.ofString());
+            traceResponse("PATCH", path, resp);
+            return resp;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     /**
      * Surface non-2xx raw responses in failsafe output. Polling helpers used to
      * treat every error envelope as "resource not visible yet", which hid the
@@ -289,6 +304,10 @@ public abstract class BaseIT {
         //   regions — seeded once by RegionSeeder on app startup
         //   mdb_clusters + atlas_configs — seeded by MdbClusterSeeder / AtlasConfigSeeder
         //   jwks_keys — seeded by JwksRotationService on startup
+        //   cluster_versions + counters — global operator catalog seeded once by
+        //       ClusterVersionSeeder (bootstrap 0.6.0) and its sequence counter;
+        //       tests release uniquely suffixed versions and restore any mutated
+        //       bootstrap state instead of relying on a reseed
         //   cluster_status_report_history — time-series collection, must NOT be dropped
         //       (MongoInitListener only creates it on app startup — a drop would
         //       silently recreate it as a plain collection on next insert)
@@ -307,7 +326,7 @@ public abstract class BaseIT {
             String output = mongoshEval(
                 "print(' [wipe] database=' + db.getName());" +
                 "const keep = new Set(['sessions','regions','mdb_clusters','atlas_configs','jwks_keys'," +
-                "'cluster_status_report_history','system.indexes']);" +
+                "'cluster_versions','counters','cluster_status_report_history','system.indexes']);" +
                 // Time-series logical names are discovered at runtime (their physical
                 // system.buckets.* collections are filtered by prefix) so the
                 // wipe never depends on listCollections ordering.

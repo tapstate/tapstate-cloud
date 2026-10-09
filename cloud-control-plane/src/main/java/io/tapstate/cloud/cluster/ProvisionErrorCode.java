@@ -28,5 +28,8 @@ public enum ProvisionErrorCode {
     TLS_CERTIFICATE_UNAVAILABLE,
 
     /** TLS certificate upload or Nginx reload failed on the Cluster node */
-    TLS_CERTIFICATE_INSTALL_FAILED
+    TLS_CERTIFICATE_INSTALL_FAILED,
+
+    /** No deployable Cluster version is available (catalog empty) */
+    CLUSTER_VERSION_UNAVAILABLE
 }
