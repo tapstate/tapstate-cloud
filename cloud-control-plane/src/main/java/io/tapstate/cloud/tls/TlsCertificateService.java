@@ -201,13 +201,7 @@ public class TlsCertificateService {
      * safe for RSA, EC and Ed25519 keys.
      */
     private boolean keyMatchesCertificate(PrivateKey privateKey, X509Certificate certificate) {
-        String algorithm = switch (privateKey.getAlgorithm()) {
-            case "RSA" -> "SHA256withRSA";
-            case "EC" -> "SHA256withECDSA";
-            case "Ed25519" -> "Ed25519";
-            case "DSA" -> "SHA256withDSA";
-            default -> null;
-        };
+        String algorithm = challengeSignatureAlgorithm(privateKey.getAlgorithm());
         if (algorithm == null) {
             log.warn("Unsupported TLS private key algorithm: {}", privateKey.getAlgorithm());
             return false;
@@ -228,6 +222,26 @@ public class TlsCertificateService {
             log.warn("TLS private key/certificate match check failed: {}", e.getMessage());
             return false;
         }
+    }
+
+    /**
+     * Map a provider-specific key algorithm name to the JCA Signature algorithm
+     * used for the ownership challenge. JCE providers disagree on EC key naming —
+     * the JDK names an EC key {@code EC} while BouncyCastle names the same key
+     * {@code ECDSA} — so the raw {@code PrivateKey.getAlgorithm()} value cannot
+     * be switched on directly.
+     */
+    static String challengeSignatureAlgorithm(String keyAlgorithm) {
+        if (keyAlgorithm == null) {
+            return null;
+        }
+        return switch (keyAlgorithm.trim().toUpperCase()) {
+            case "RSA" -> "SHA256withRSA";
+            case "EC", "ECDSA" -> "SHA256withECDSA";
+            case "ED25519", "EDDSA" -> "Ed25519";
+            case "DSA" -> "SHA256withDSA";
+            default -> null;
+        };
     }
 
     private static boolean isBlank(String value) {
