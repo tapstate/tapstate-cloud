@@ -75,6 +75,7 @@ public class ClusterRuntimeConfigs {
                 ports:
                   - "127.0.0.1:8080:8080"
                 environment:
+                  SERVER_FORWARD_HEADERS_STRATEGY: native
                   TAPSTATE_CLOUD_BASE_URL: "%s"
                   TAPSTATE_CLOUD_TOKEN: "%s"
                   TAPSTATE_CLOUD_CLUSTER_ID: "%s"
