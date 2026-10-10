@@ -122,7 +122,7 @@ class ClusterRuntimeConfigsTest {
 
     private Map<?, ?> services(String atlasUri) {
         Map<?, ?> compose = new Yaml().load(
-            configs.dockerComposeYaml(cluster(), "https://cloud.example.test", atlasUri));
+            configs.dockerComposeYaml(cluster(), "https://cloud.example.test", atlasUri, RUNTIME_IMAGE));
         return (Map<?, ?>) compose.get("services");
     }
 }
