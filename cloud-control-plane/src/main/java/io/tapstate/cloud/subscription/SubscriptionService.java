@@ -10,6 +10,8 @@ import io.tapstate.cloud.progress.DeploymentOpType;
 import io.tapstate.cloud.progress.DeploymentStepRecorder;
 import io.tapstate.cloud.subscription.fsm.SubscriptionEventType;
 import io.tapstate.cloud.subscription.fsm.SubscriptionStateMachineService;
+import io.tapstate.cloud.version.ClusterVersion;
+import io.tapstate.cloud.version.ClusterVersionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.bson.types.ObjectId;
@@ -57,6 +59,7 @@ public class SubscriptionService {
     private final ClusterService clusterService;
     private final MdbAllocationService mdbAllocationService;
     private final DeploymentStepRecorder deploymentStepRecorder;
+    private final ClusterVersionService clusterVersionService;
 
     /** Default trial period — 30 days. */
     private static final int TRIAL_DAYS = 30;
@@ -72,11 +75,22 @@ public class SubscriptionService {
      * @param clusterName  Cluster display name (unique within org + region)
      * @param specKey      provisioning spec (e.g. "basic")
      * @param creatorEmail user email for audit
+     * @param version      requested Cluster version, or null/blank for the latest ACTIVE version
      * @return the persisted subscription with Cluster and MDB allocation records
      */
     @Transactional
     public Subscription createSubscription(String orgId, String region, String clusterName,
-                                           String specKey, String creatorEmail) {
+                                           String specKey, String creatorEmail, String version) {
+        // Resolve the deployable version before any resource is created: a blank
+        // request picks the latest ACTIVE version; an explicit request must
+        // identify an existing ACTIVE version (404 / 409 otherwise). The resolved
+        // string is pinned onto the Cluster and never re-validated at deploy time.
+        String requestedVersion = version == null ? null : version.trim();
+        ClusterVersion clusterVersion = (requestedVersion == null || requestedVersion.isEmpty())
+            ? clusterVersionService.findClusterLastVersion()
+            : clusterVersionService.findActiveByVersion(requestedVersion);
+        String resolvedVersion = clusterVersion.getVersion();
+
         // 1. Subscription shell + the two default billable items.
         Subscription subscription = createSubscriptionShell(orgId);
         ObjectId subscriptionId = subscription.getId();
@@ -87,7 +101,7 @@ public class SubscriptionService {
         // 2. Sync: create Cluster record (provisioning starts only after the
         //    allocation link below is durable).
         Cluster cluster = clusterService.createCluster(
-            orgId, subscriptionId, region, clusterName, specKey, creatorEmail);
+            orgId, subscriptionId, region, clusterName, specKey, creatorEmail, resolvedVersion);
         log.info("[Subscription] Cluster created: clusterId={}, subscriptionId={}",
             cluster.getId().toHexString(), subscriptionId.toHexString());
 

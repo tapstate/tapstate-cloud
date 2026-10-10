@@ -32,7 +32,8 @@ import java.util.StringJoiner;
 @JsonPropertyOrder({
   CreateSubscriptionRequest.JSON_PROPERTY_REGION,
   CreateSubscriptionRequest.JSON_PROPERTY_CLUSTER_NAME,
-  CreateSubscriptionRequest.JSON_PROPERTY_SPEC_KEY
+  CreateSubscriptionRequest.JSON_PROPERTY_SPEC_KEY,
+  CreateSubscriptionRequest.JSON_PROPERTY_VERSION
 })
 @jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", comments = "Generator version: 7.25.0")
 public class CreateSubscriptionRequest {
@@ -47,6 +48,10 @@ public class CreateSubscriptionRequest {
   public static final String JSON_PROPERTY_SPEC_KEY = "specKey";
   @jakarta.annotation.Nullable
   private String specKey;
+
+  public static final String JSON_PROPERTY_VERSION = "version";
+  @jakarta.annotation.Nullable
+  private String version;
 
   public CreateSubscriptionRequest() {
   }
@@ -126,6 +131,31 @@ public class CreateSubscriptionRequest {
     this.specKey = specKey;
   }
 
+  public CreateSubscriptionRequest version(@jakarta.annotation.Nullable String version) {
+    
+    this.version = version;
+    return this;
+  }
+
+  /**
+   * Cluster version to deploy; omit/blank to use the latest ACTIVE version
+   * @return version
+   */
+  @jakarta.annotation.Nullable
+  @JsonProperty(value = JSON_PROPERTY_VERSION, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+
+  public String getVersion() {
+    return version;
+  }
+
+
+  @JsonProperty(value = JSON_PROPERTY_VERSION, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+  public void setVersion(@jakarta.annotation.Nullable String version) {
+    this.version = version;
+  }
+
 
   @Override
   public boolean equals(Object o) {
@@ -138,12 +168,13 @@ public class CreateSubscriptionRequest {
     CreateSubscriptionRequest createSubscriptionRequest = (CreateSubscriptionRequest) o;
     return Objects.equals(this.region, createSubscriptionRequest.region) &&
         Objects.equals(this.clusterName, createSubscriptionRequest.clusterName) &&
-        Objects.equals(this.specKey, createSubscriptionRequest.specKey);
+        Objects.equals(this.specKey, createSubscriptionRequest.specKey) &&
+        Objects.equals(this.version, createSubscriptionRequest.version);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(region, clusterName, specKey);
+    return Objects.hash(region, clusterName, specKey, version);
   }
 
   @Override
@@ -153,6 +184,7 @@ public class CreateSubscriptionRequest {
     sb.append("    region: ").append(toIndentedString(region)).append("\n");
     sb.append("    clusterName: ").append(toIndentedString(clusterName)).append("\n");
     sb.append("    specKey: ").append(toIndentedString(specKey)).append("\n");
+    sb.append("    version: ").append(toIndentedString(version)).append("\n");
     sb.append("}");
     return sb.toString();
   }
@@ -221,6 +253,16 @@ public class CreateSubscriptionRequest {
     if (getSpecKey() != null) {
       try {
         joiner.add(String.format(java.util.Locale.ROOT, "%sspecKey%s=%s", prefix, suffix, URLEncoder.encode(String.valueOf(getSpecKey()), "UTF-8").replaceAll("\\+", "%20")));
+      } catch (UnsupportedEncodingException e) {
+        // Should never happen, UTF-8 is always supported
+        throw new RuntimeException(e);
+      }
+    }
+
+    // add `version` to the URL query string
+    if (getVersion() != null) {
+      try {
+        joiner.add(String.format(java.util.Locale.ROOT, "%sversion%s=%s", prefix, suffix, URLEncoder.encode(String.valueOf(getVersion()), "UTF-8").replaceAll("\\+", "%20")));
       } catch (UnsupportedEncodingException e) {
         // Should never happen, UTF-8 is always supported
         throw new RuntimeException(e);

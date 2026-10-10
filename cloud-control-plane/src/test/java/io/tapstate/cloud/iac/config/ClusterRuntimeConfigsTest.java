@@ -21,6 +21,7 @@ class ClusterRuntimeConfigsTest {
 
     private static final String CLUSTER_HEX = "6475a2b3c1d4e5f6a7b8c9d1";
     private static final String STATIC_TOKEN = "sdk-static-token-xyz";
+    private static final String RUNTIME_IMAGE = "ghcr.io/tapstate/tapstate-cloud:1.4.0";
 
     private final ClusterRuntimeConfigs configs = new ClusterRuntimeConfigs();
 
@@ -36,8 +37,13 @@ class ClusterRuntimeConfigsTest {
         String atlasUri = "mongodb+srv://owner_mdb_x:secret@tapstate-shared.mongodb.net"
             + "/mdb_" + CLUSTER_HEX + "?authSource=admin";
 
-        String yaml = configs.dockerComposeYaml(cluster(), "https://cloud.tapstate.com", atlasUri);
+        String yaml = configs.dockerComposeYaml(cluster(), "https://cloud.tapstate.com",
+            atlasUri, RUNTIME_IMAGE);
 
+        assertTrue(yaml.contains("image: " + RUNTIME_IMAGE),
+            "compose must pin the runtime image resolved from the Cluster version:\n" + yaml);
+        assertFalse(yaml.contains(":0.6.0"),
+            "the legacy hardcoded 0.6.0 image tag must not remain:\n" + yaml);
         assertTrue(yaml.contains("TAPSTATE_CLOUD_ATLAS_URI: \"" + atlasUri + "\""),
             "compose must inject the per-allocation Atlas URI:\n" + yaml);
         assertFalse(yaml.contains("container_name: tapstate-mongo"),
@@ -76,8 +82,11 @@ class ClusterRuntimeConfigsTest {
 
     @Test
     void blankAtlasUriProvisionsLocalSidecarAndPointsRuntimeAtIt() {
-        String yaml = configs.dockerComposeYaml(cluster(), "https://cloud.tapstate.com", "  ");
+        String yaml = configs.dockerComposeYaml(cluster(), "https://cloud.tapstate.com",
+            "  ", RUNTIME_IMAGE);
 
+        assertTrue(yaml.contains("image: " + RUNTIME_IMAGE),
+            "compose must pin the runtime image resolved from the Cluster version:\n" + yaml);
         assertTrue(yaml.contains("tapstate-mongo:"),
             "a blank Atlas URI must render the local MongoDB sidecar:\n" + yaml);
         assertTrue(yaml.contains("image: mongo:7"),
@@ -113,7 +122,7 @@ class ClusterRuntimeConfigsTest {
 
     private Map<?, ?> services(String atlasUri) {
         Map<?, ?> compose = new Yaml().load(
-            configs.dockerComposeYaml(cluster(), "https://cloud.example.test", atlasUri));
+            configs.dockerComposeYaml(cluster(), "https://cloud.example.test", atlasUri, RUNTIME_IMAGE));
         return (Map<?, ?>) compose.get("services");
     }
 }

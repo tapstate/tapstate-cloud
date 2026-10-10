@@ -31,6 +31,9 @@ config:
   # Required secrets beyond the base set:
   #   tapstate-cloud-control-dns      (api-key / api-secret)
   #   tapstate-cloud-control-iac      (master-key, base64 32 bytes)
+  # Optional:
+  #   tapstate-cloud-control-cluster-version (release-token) — enables the
+  #   Cluster version release/offline operator endpoints; absent = fail-closed
   # Atlas access additionally needs Activated atlas_configs + ACTIVE
   # mdb_clusters documents seeded in the control-plane store.
   iacMode: real

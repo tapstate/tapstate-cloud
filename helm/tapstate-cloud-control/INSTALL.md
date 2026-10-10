@@ -48,6 +48,13 @@ kubectl create secret generic tapstate-cloud-control-iac \
 # tapstate-cloud-control-runtime-atlas-uri (atlas-uri) — legacy Clusters
 #   without a linked MdbAllocation; leave absent for per-allocation URIs
 
+# ---- Optional: Cluster version release operator token ----
+# Enables the version release/offline operator endpoints. Leave absent: the
+# endpoints then stay fail-closed (503).
+kubectl create secret generic tapstate-cloud-control-cluster-version \
+  -n tapstate-cloud-control \
+  --from-literal=release-token="$(openssl rand -hex 32)"
+
 # ---- Shared sample database password ----
 # Keep this file outside the repository with owner-only permissions.
 # The Secret must be in the same namespace as the Control Plane release.

@@ -64,6 +64,12 @@ secrets:
   sampleSources:
     name: tapstate-cloud-control-sample-sources
     passwordKey: password
+  # Static bearer token guarding the Cluster version release/offline operator
+  # endpoints. Optional: when the Secret is absent the endpoints stay
+  # fail-closed (503), so environments that never publish versions need no key.
+  clusterVersionReleaseToken:
+    name: tapstate-cloud-control-cluster-version
+    key: release-token
 
 # ========== ConfigMap (non-sensitive config) ==========
 config:
