@@ -67,6 +67,7 @@ public class ExchangeService {
     private final UserRepository userRepo;
     private final JtiRecordRepository jtiRecordRepo;
     private final JwksRotationService jwksRotationService;
+    private final LocalClusterEndpoints endpoints;
 
     @Value("${tapstate.cloud.issuer:https://cloud.tapstate.io}")
     private String issuer;
@@ -89,7 +90,8 @@ public class ExchangeService {
                            OrganizationRepository organizationRepo,
                            UserRepository userRepo,
                            JtiRecordRepository jtiRecordRepo,
-                           JwksRotationService jwksRotationService) {
+                           JwksRotationService jwksRotationService,
+                           LocalClusterEndpoints endpoints) {
         this.codeRepo = codeRepo;
         this.mongoTemplate = mongoTemplate;
         this.clusterRepo = clusterRepo;
@@ -98,6 +100,7 @@ public class ExchangeService {
         this.userRepo = userRepo;
         this.jtiRecordRepo = jtiRecordRepo;
         this.jwksRotationService = jwksRotationService;
+        this.endpoints = endpoints;
     }
 
     // ========== Step 1: Issue exchange code ==========
@@ -153,9 +156,7 @@ public class ExchangeService {
             .userId(user.getId())
             .orgId(new ObjectId(orgId))
             .clusterId(new ObjectId(clusterId))
-            .targetOrigin(cluster.getPublicDns() != null
-                ? "https://" + cluster.getPublicDns()
-                : "http://localhost:30080") // Week 2 scaffold fallback
+            .targetOrigin(endpoints.publicOrigin(cluster))
             .createdAt(now)
             .expiresAt(expires)
             .consumedAt(null)
@@ -222,7 +223,7 @@ public class ExchangeService {
         // Issue resolve JWT — claims per ADR-0122 D4 + Issue #5 item 1 (user_id)
         String jwtId = UUID.randomUUID().toString();
         Instant jwtExp = now.plus(jwtExpiryMinutes, ChronoUnit.MINUTES);
-        String aud = consumed.getClusterId() + ".dev.cloud.tapstate.com";
+        String aud = endpoints.audience(consumed.getClusterId().toHexString());
 
         // Live-read the CURRENT active signing key from MongoDB — rotation-aware:
         // if JwksRotationService rotated since this service bean was built, the new

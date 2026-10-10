@@ -13,6 +13,7 @@ import io.tapstate.cloud.common.api.BusinessException;
 import io.tapstate.cloud.resolve.CallbackSignService;
 import io.tapstate.cloud.resolve.JtiRecord;
 import io.tapstate.cloud.resolve.JtiRecordRepository;
+import io.tapstate.cloud.resolve.LocalClusterEndpoints;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
@@ -59,6 +60,7 @@ public class AuthController extends BaseController {
     private final AuthenticationManager authenticationManager;
     private final JtiRecordRepository jtiRecordRepo;
     private final CallbackSignService callbackSignService;
+    private final LocalClusterEndpoints endpoints;
 
     private final HttpClient httpClient = HttpClient.newBuilder()
         .connectTimeout(java.time.Duration.ofSeconds(3)).build();
@@ -213,7 +215,7 @@ public class AuthController extends BaseController {
         String canonicalBody = rec.getJti();
         String sign = callbackSignService.sign("POST", ts, nonce, canonicalBody);
 
-        String url = rec.getClusterBaseUri() + "/auth/invalidate-session"
+        String url = endpoints.callbackOrigin(rec) + "/auth/invalidate-session"
             + "?jti=" + java.net.URLEncoder.encode(rec.getJti(), java.nio.charset.StandardCharsets.UTF_8)
             + "&ts=" + ts
             + "&nonce=" + java.net.URLEncoder.encode(nonce, java.nio.charset.StandardCharsets.UTF_8)
