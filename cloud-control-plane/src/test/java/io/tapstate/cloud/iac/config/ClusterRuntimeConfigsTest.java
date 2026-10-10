@@ -3,7 +3,11 @@ package io.tapstate.cloud.iac.config;
 import io.tapstate.cloud.cluster.Cluster;
 import org.bson.types.ObjectId;
 import org.junit.jupiter.api.Test;
+import org.yaml.snakeyaml.Yaml;
 
+import java.util.Map;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -92,5 +96,33 @@ class ClusterRuntimeConfigsTest {
         assertTrue(yaml.contains("condition: service_healthy"),
             "runtime must wait for sidecar health:\n" + yaml);
         assertTrue(yaml.contains("tapstate-mongo:/data/db"));
+    }
+
+    @Test
+    void atlasRuntimeResolvesItsVersionTagBeforeDeployment() {
+        Map<?, ?> services = services("mongodb://metadata.example.test/cluster_metadata");
+        Map<?, ?> runtime = (Map<?, ?>) services.get("tapstate-runtime");
+
+        assertEquals("always", runtime.get("pull_policy"),
+            "A cached runtime tag must not hide newly published connectors.");
+        assertFalse(services.containsKey("tapstate-mongo"));
+    }
+
+    @Test
+    void sidecarDeploymentRefreshesOnlyTheRuntimeImage() {
+        Map<?, ?> services = services(null);
+        Map<?, ?> runtime = (Map<?, ?>) services.get("tapstate-runtime");
+        Map<?, ?> mongo = (Map<?, ?>) services.get("tapstate-mongo");
+
+        assertEquals("always", runtime.get("pull_policy"),
+            "The selected runtime version must be resolved even when its tag is cached.");
+        assertFalse(mongo.containsKey("pull_policy"),
+            "Refreshing the runtime must not change the MongoDB sidecar's image policy.");
+    }
+
+    private Map<?, ?> services(String atlasUri) {
+        Map<?, ?> compose = new Yaml().load(
+            configs.dockerComposeYaml(cluster(), "https://cloud.example.test", atlasUri));
+        return (Map<?, ?>) compose.get("services");
     }
 }

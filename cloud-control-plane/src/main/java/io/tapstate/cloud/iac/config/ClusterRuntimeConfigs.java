@@ -70,6 +70,7 @@ public class ClusterRuntimeConfigs {
         String runtime = """
               tapstate-runtime:
                 image: %s
+                pull_policy: always
                 container_name: tapstate-runtime
                 restart: unless-stopped
                 ports:
