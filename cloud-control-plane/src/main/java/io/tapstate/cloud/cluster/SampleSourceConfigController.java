@@ -32,7 +32,7 @@ public class SampleSourceConfigController extends BaseController {
     private final String password;
 
     public SampleSourceConfigController(ClusterService clusterService,
-            @Value("${tapstate.cloud.sample-sources.host:113.98.206.139}") String host,
+            @Value("${tapstate.cloud.sample-sources.host:47.238.126.103}") String host,
             @Value("${tapstate.cloud.sample-sources.password:}") String password) {
         this.clusterService = clusterService;
         this.host = host;

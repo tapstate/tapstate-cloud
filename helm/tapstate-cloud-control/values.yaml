@@ -75,7 +75,7 @@ config:
   defaultRegion: ap-southeast-1
   awsRegion: ap-southeast-1
   corsAllowedOrigins: "https://cloud.tapstate.io,https://*.cloud.tapstate.io"
-  sampleSourcesHost: "113.98.206.139"
+  sampleSourcesHost: "47.238.126.103"
 
   # ----- API docs -----
   swaggerUiEnabled: "true"
