@@ -1,5 +1,7 @@
 package io.tapstate.cloud.it;
 
+import io.tapstate.cloud.it.support.WildcardTlsFixture;
+import io.tapstate.cloud.it.support.WildcardTlsFixture.SeededCertificate;
 import io.tapstate.cloud.sdk.model.CreateSubscriptionRequest;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -64,6 +66,13 @@ class AwsClusterDeployIT extends BaseIT {
 
     private static Process realAppProcess;
 
+    /**
+     * The real app's server-side health check validates HTTPS with its JVM
+     * trust store, so it must trust the self-signed IT wildcard certificate.
+     */
+    private static File tlsTrustStore;
+    private static SeededCertificate tlsFixture;
+
     private String orgId;
     private String subscriptionId;
     private String clusterName;
@@ -77,6 +86,12 @@ class AwsClusterDeployIT extends BaseIT {
         assertTrue(jar.exists(),
             "Packaged application jar must exist: " + jar.getPath());
 
+        // One certificate for the whole class: the forked app pins it as a
+        // trust anchor; each test re-seeds the same material after the wipe.
+        tlsFixture = WildcardTlsFixture.generate("*.dev.cloud.tapstate.com");
+        tlsTrustStore = new File(moduleDir, "target/it-wildcard-truststore.p12");
+        tlsFixture.writeJvmTrustStore(tlsTrustStore);
+
         String javaBinary = System.getProperty("java.home") + File.separator + "bin"
             + File.separator + "java";
 
@@ -84,7 +99,9 @@ class AwsClusterDeployIT extends BaseIT {
             javaBinary,
             "-Dspring.profiles.active=it",
             "-Dserver.port=" + REAL_APP_PORT,
-            "-Dtapstate.cloud.iac.mode=real"));
+            "-Dtapstate.cloud.iac.mode=real",
+            "-Djavax.net.ssl.trustStore=" + tlsTrustStore.getPath(),
+            "-Djavax.net.ssl.trustStorePassword=changeit"));
         addProxyArgs(command);
         command.addAll(java.util.List.of("-jar", jar.getPath()));
 
@@ -162,6 +179,10 @@ class AwsClusterDeployIT extends BaseIT {
             "name", "AWS-Deploy-IT",
             "slug", "aws-deploy-" + System.nanoTime())).getData().getId();
 
+        // Provisioning resolves the wildcard certificate before any cloud
+        // resource is created, so the document must exist before subscribing.
+        tlsFixture.seed(MONGO_URI);
+
         clusterName = "aws-it-" + Long.toHexString(System.nanoTime());
         var created = subscriptionApi.createSubscription(orgId, new CreateSubscriptionRequest()
             .region(REGION).clusterName(clusterName).specKey("basic")).getData();
@@ -210,6 +231,7 @@ class AwsClusterDeployIT extends BaseIT {
         // ---------- 3. HTTPS endpoint answers through Nginx + TLS ----------
         HttpClient.Builder httpsBuilder = HttpClient.newBuilder()
             .followRedirects(HttpClient.Redirect.NORMAL)
+            .sslContext(tlsFixture.sslContext())
             .connectTimeout(Duration.ofSeconds(15));
         if (!"none".equalsIgnoreCase(PROXY_HOST)) {
             httpsBuilder.proxy(java.net.ProxySelector.of(

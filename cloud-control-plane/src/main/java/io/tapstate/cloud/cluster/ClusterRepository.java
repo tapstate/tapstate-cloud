@@ -24,7 +24,8 @@ public interface ClusterRepository extends MongoRepository<Cluster, ObjectId> {
 
     Optional<Cluster> findByIdAndSubscriptionId(ObjectId id, ObjectId subscriptionId);
 
-    boolean existsByOrgIdAndRegionAndName(ObjectId orgId, String region, String name);
+    boolean existsByOrgIdAndRegionAndNameAndStateNot(ObjectId orgId, String region, String name,
+                                                      ClusterState state);
 
     /**
      * Find READY clusters whose last heartbeat was more than 5 minutes ago.
@@ -44,4 +45,12 @@ public interface ClusterRepository extends MongoRepository<Cluster, ObjectId> {
      * (runtime authenticates itself with its per-Cluster Bearer token).
      */
     Optional<Cluster> findBySdkStaticToken(String sdkStaticToken);
+
+    /**
+     * Find live Clusters in the given states that have a reachable node
+     * (public IP and encrypted SSH key recorded). Used by the TLS certificate
+     * distribution sweep over READY and DEGRADED Clusters.
+     */
+    List<Cluster> findByStateInAndEc2PublicIpIsNotNullAndSshPrivateKeyEncIsNotNull(
+        java.util.Collection<ClusterState> states);
 }

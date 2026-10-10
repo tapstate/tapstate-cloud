@@ -102,6 +102,19 @@
       <version>${sshj.version}</version>
     </dependency>
 
+    <!-- Bouncy Castle — parse PKCS#1/PKCS#8 PEM private keys when validating
+         stored TLS certificates (already on the runtime classpath via sshj) -->
+    <dependency>
+      <groupId>org.bouncycastle</groupId>
+      <artifactId>bcpkix-jdk18on</artifactId>
+      <version>${bouncycastle.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>org.bouncycastle</groupId>
+      <artifactId>bcprov-jdk18on</artifactId>
+      <version>${bouncycastle.version}</version>
+    </dependency>
+
     <!-- ShedLock — distributed scheduling lock for JWKS rotation -->
     <dependency>
       <groupId>net.javacrumbs.shedlock</groupId>

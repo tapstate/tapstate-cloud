@@ -4,7 +4,7 @@
 # resource (instance, firewall rules, root disk) together.
 # ============================================================
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Tapstate Cloud Cluster node with Nginx, Docker and Certbot
+Description: Tapstate Cloud Cluster node with Nginx and Docker
 
 Parameters:
   ClusterId:
@@ -83,8 +83,8 @@ Resources:
         Fn::Base64: !Sub |
           #!/bin/bash -ex
           # Machine-level bootstrap only: package installation and the SSH key.
-          # Service configuration and certificate issuance run over the SSH
-          # session opened by the control plane, never from this script.
+          # Service configuration and TLS certificate installation run over the
+          # SSH session opened by the control plane, never from this script.
           export DEBIAN_FRONTEND=noninteractive
 
           apt-get update
@@ -96,7 +96,7 @@ Resources:
           echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" > /etc/apt/sources.list.d/docker.list
 
           apt-get update
-          apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin nginx certbot python3-certbot-nginx
+          apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin nginx
 
           systemctl enable docker nginx
           systemctl start docker nginx

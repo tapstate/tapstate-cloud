@@ -2,17 +2,18 @@ package io.tapstate.cloud.config;
 
 import net.javacrumbs.shedlock.core.LockProvider;
 import net.javacrumbs.shedlock.provider.mongo.MongoLockProvider;
+import net.javacrumbs.shedlock.spring.annotation.EnableSchedulerLock;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.mongodb.core.MongoTemplate;
 
-import java.time.Duration;
-
 /**
  * ShedLock configuration for distributed scheduling.
- * Uses MongoDB as the lock provider to prevent duplicate JWKS rotation jobs.
+ * Uses MongoDB as the lock provider so scheduled maintenance jobs
+ * (JWKS rotation, TLS certificate distribution) run once across replicas.
  */
 @Configuration
+@EnableSchedulerLock(defaultLockAtMostFor = "10m")
 public class ShedLockConfig {
 
     /**

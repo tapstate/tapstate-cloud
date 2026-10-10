@@ -28,7 +28,9 @@ import org.bson.types.ObjectId;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@CompoundIndex(name = "org_region_name_unique", def = "{'orgId': 1, 'region': 1, 'name': 1}", unique = true)
+@CompoundIndex(name = "org_region_name_active_unique", def = "{'orgId': 1, 'region': 1, 'name': 1}",
+    unique = true,
+    partialFilter = "{'state': {'$in': ['PROVISIONING_PENDING', 'PROVISIONING', 'READY', 'PROVISIONING_FAILED', 'DEGRADED', 'DRAINED']}}")
 @Schema(description = "Tapstate Cloud Cluster — per-user-isolated runtime EC2 instance")
 public class Cluster {
 
@@ -97,6 +99,9 @@ public class Cluster {
 
     @Schema(description = "DNS A record created for the Cluster node")
     private String dnsRecord;
+
+    @Schema(description = "Id of the TLS certificate currently installed on the node (tls_certificates._id)")
+    private ObjectId tlsCertificateId;
 
     // ========== SDK status ==========
     @Schema(description = "Last SDK C2 heartbeat timestamp (UTC)")

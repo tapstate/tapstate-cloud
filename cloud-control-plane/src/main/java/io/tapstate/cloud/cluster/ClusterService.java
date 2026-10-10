@@ -76,7 +76,8 @@ public class ClusterService {
             throw new BusinessException(AppErrorCode.ORG_NOT_MEMBER, 403, orgId);
         }
         regionService.getByCode(region);
-        if (clusterRepository.existsByOrgIdAndRegionAndName(new ObjectId(orgId), region, name)) {
+        if (clusterRepository.existsByOrgIdAndRegionAndNameAndStateNot(
+                new ObjectId(orgId), region, name, ClusterState.TERMINATED)) {
             throw new BusinessException(AppErrorCode.CLUSTER_ALREADY_EXISTS, 409, name, orgId, region);
         }
 
