@@ -32,6 +32,42 @@ import static org.mockito.Mockito.*;
 class ExchangeServiceLocalEndpointsTest {
     @Test
     void usesMappedOriginAndSignedAudienceWhileKeepingAtomicCodeAndOrgBinding() throws Exception {
+        assertExchangeContract(local(properties("http://cluster-1:28443")),
+            "http://localhost:28443", "localhost", true);
+    }
+
+    @Test
+    void ordinaryExchangeKeepsDomainOriginAudienceAndItsExistingAtomicConditions() throws Exception {
+        var properties = properties("http://cluster-1:28443");
+        properties.setEnabled(false);
+        var resolver = new LocalClusterEndpoints(properties, new org.springframework.mock.env.MockEnvironment(),
+            "https://cloud.tapstate.io");
+        assertExchangeContract(resolver, "https://ignored.example", CLUSTER_ID + ".dev.cloud.tapstate.com", false);
+    }
+
+    @Test
+    void foreignStoredOriginIsRejectedByTheAtomicConditionBeforeSigningOrRecordingAJwt() {
+        var codes = mock(ExchangeCodeRepository.class);
+        var mongo = mock(MongoTemplate.class);
+        var records = mock(JtiRecordRepository.class);
+        var keys = mock(JwksRotationService.class);
+        var resolver = local(properties("http://cluster-1:28443"));
+        var service = new ExchangeService(codes, mongo, mock(ClusterRepository.class), mock(MemberRepository.class),
+            mock(OrganizationRepository.class), mock(UserRepository.class), records, keys, resolver);
+        var stored = ExchangeCode.builder().clusterId(new ObjectId(CLUSTER_ID))
+            .targetOrigin("http://localhost:28444").expiresAt(java.time.Instant.now().plusSeconds(60)).build();
+        when(codes.findByCodeHashAndConsumedAtIsNull(anyString())).thenReturn(Optional.of(stored));
+        BusinessException mismatch = assertThrows(BusinessException.class,
+            () -> service.redeemExchangeCode("unconsumed-code", CLUSTER_ID));
+        assertEquals(AppErrorCode.EXCHANGE_CODE_CLUSTER_MISMATCH, mismatch.getErrorCode());
+        var query = ArgumentCaptor.forClass(Query.class);
+        verify(mongo).findAndModify(query.capture(), any(Update.class), eq(ExchangeCode.class));
+        assertEquals("http://localhost:28443", query.getValue().getQueryObject().get("targetOrigin"));
+        verifyNoInteractions(records, keys);
+    }
+
+    private void assertExchangeContract(LocalClusterEndpoints resolver, String expectedOrigin,
+                                        String expectedAudience, boolean local) throws Exception {
         var codes = mock(ExchangeCodeRepository.class);
         var mongo = mock(MongoTemplate.class);
         var clusters = mock(ClusterRepository.class);
@@ -40,9 +76,9 @@ class ExchangeServiceLocalEndpointsTest {
         var users = mock(UserRepository.class);
         var records = mock(JtiRecordRepository.class);
         var keys = mock(JwksRotationService.class);
-        var resolver = local(properties("http://cluster-1:28443"));
         var service = new ExchangeService(codes, mongo, clusters, members, organizations, users, records, keys, resolver);
-        ReflectionTestUtils.setField(service, "issuer", ISSUER);
+        String expectedIssuer = local ? ISSUER : "https://cloud.tapstate.io";
+        ReflectionTestUtils.setField(service, "issuer", expectedIssuer);
         ReflectionTestUtils.setField(service, "jwtExpiryMinutes", 15);
         ObjectId clusterId = new ObjectId(CLUSTER_ID);
         ObjectId orgId = new ObjectId("111111111111111111111111");
@@ -54,7 +90,7 @@ class ExchangeServiceLocalEndpointsTest {
         when(clusters.findById(clusterId)).thenReturn(Optional.of(cluster));
         when(organizations.findById(orgId)).thenReturn(Optional.of(Organization.builder().id(orgId).name("org").build()));
         var issued = service.issueExchangeCode("user@example.com", orgId.toHexString(), CLUSTER_ID);
-        assertEquals("http://localhost:28443", issued.baseUri());
+        assertEquals(expectedOrigin, issued.baseUri());
         var codeCaptor = ArgumentCaptor.forClass(ExchangeCode.class);
         verify(codes).save(codeCaptor.capture());
         var stored = codeCaptor.getValue();
@@ -66,14 +102,19 @@ class ExchangeServiceLocalEndpointsTest {
         when(keys.buildActiveSigningKeyPair()).thenReturn(keyPair);
 
         var redeemed = service.redeemExchangeCode(issued.rawCode(), CLUSTER_ID);
-        var claims = Jwts.parser().verifyWith(keyPair.getPublic()).requireIssuer(ISSUER)
+        var claims = Jwts.parser().verifyWith(keyPair.getPublic()).requireIssuer(expectedIssuer)
             .build().parseSignedClaims(redeemed.jwt()).getPayload();
-        assertEquals(java.util.Set.of("localhost"), claims.getAudience());
+        assertEquals(java.util.Set.of(expectedAudience), claims.getAudience());
         assertEquals(CLUSTER_ID, claims.get("cluster_id"));
         assertEquals(orgId.toHexString(), claims.get("org_id"));
         var queryCaptor = ArgumentCaptor.forClass(Query.class);
         verify(mongo).findAndModify(queryCaptor.capture(), any(Update.class), eq(ExchangeCode.class));
         assertEquals(clusterId, queryCaptor.getValue().getQueryObject().get("clusterId"));
+        if (local) {
+            assertEquals(expectedOrigin, queryCaptor.getValue().getQueryObject().get("targetOrigin"));
+        } else {
+            assertFalse(queryCaptor.getValue().getQueryObject().containsKey("targetOrigin"));
+        }
         assertTrue(queryCaptor.getValue().getQueryObject().containsKey("consumedAt"));
         assertTrue(queryCaptor.getValue().getQueryObject().containsKey("expiresAt"));
         BusinessException consumed = assertThrows(BusinessException.class,

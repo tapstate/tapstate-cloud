@@ -33,6 +33,7 @@ class LocalClusterEndpointsTest {
                 "tapstate.cloud.issuer=" + ISSUER,
                 "tapstate.cloud.local-development.enabled=true",
                 "tapstate.cloud.local-development.console-origin=http://localhost:28175",
+                "tapstate.cloud.local-development.control-plane-origin=" + ISSUER,
                 "tapstate.cloud.local-development.trusted-internal-origins[0]=" + ISSUER,
                 "tapstate.cloud.local-development.trusted-internal-origins[1]=http://cluster-1:28443",
                 "tapstate.cloud.local-development.clusters." + CLUSTER_ID + ".public-origin=http://localhost:28443",
@@ -48,6 +49,7 @@ class LocalClusterEndpointsTest {
         var properties = new LocalClusterEndpointProperties();
         properties.setEnabled(true);
         properties.setConsoleOrigin("http://localhost:28175");
+        properties.setControlPlaneOrigin(ISSUER);
         properties.setTrustedInternalOrigins(List.of(ISSUER, callback));
         var endpoint = new LocalClusterEndpointProperties.Endpoint();
         endpoint.setPublicOrigin("http://localhost:28443");
@@ -118,6 +120,63 @@ class LocalClusterEndpointsTest {
         var invalidConsole = properties("http://cluster-1:28443");
         invalidConsole.setConsoleOrigin("http://remote.example:28175");
         assertThrows(BusinessException.class, () -> local(invalidConsole));
+    }
+
+    @Test
+    void rejectsIssuerRoleConfusionEvenWhenBothOriginsAreTrusted() {
+        var properties = properties("http://cluster-1:28443");
+        var environment = new MockEnvironment();
+        environment.setActiveProfiles("local-development");
+        assertThrows(BusinessException.class,
+            () -> new LocalClusterEndpoints(properties, environment, "http://cluster-1:28443"));
+    }
+
+    @Test
+    void requiresADedicatedControlPlaneOriginRatherThanAGenericTrustList() {
+        var missingControlPlane = properties("http://cluster-1:28443");
+        missingControlPlane.setControlPlaneOrigin(null);
+        assertThrows(BusinessException.class, () -> local(missingControlPlane));
+        var wrongControlPlane = properties("http://cluster-1:28443");
+        wrongControlPlane.setControlPlaneOrigin("http://cluster-1:28443");
+        assertThrows(BusinessException.class, () -> local(wrongControlPlane));
+        var roleCollision = properties("http://cluster-1:28443");
+        String origin = "http://control-plane:28443";
+        roleCollision.setControlPlaneOrigin(origin);
+        roleCollision.setTrustedInternalOrigins(List.of(origin));
+        roleCollision.getClusters().get(CLUSTER_ID).setCallbackOrigin(origin);
+        var environment = new MockEnvironment();
+        environment.setActiveProfiles("local-development");
+        assertThrows(BusinessException.class,
+            () -> new LocalClusterEndpoints(roleCollision, environment, origin));
+    }
+
+    @Test
+    void preservesTrustedIpv6CallbacksAtTheSelectedPort() {
+        var resolver = local(properties("http://[fd00::11]:28443"));
+        var record = JtiRecord.builder().clusterId(new ObjectId(CLUSTER_ID))
+            .clusterBaseUri("http://localhost:28443").build();
+        assertEquals("http://[fd00::11]:28443", resolver.callbackOrigin(record));
+    }
+
+    @Test
+    void requiresTheCallbackToKeepTheSelectedClusterPort() {
+        assertThrows(BusinessException.class, () -> local(properties("http://cluster-1:28444")));
+        assertThrows(BusinessException.class, () -> local(properties(ISSUER)));
+    }
+
+    @Test
+    void rejectsNoncanonicalInternalPortsEvenWhenTheInputIsTrusted() {
+        assertThrows(BusinessException.class, () -> local(properties("http://cluster-1:028443")));
+    }
+
+    @Test
+    void incompleteCollectionsProduceCodedConfigurationFailures() {
+        var missingOrigins = properties("http://cluster-1:28443");
+        missingOrigins.setTrustedInternalOrigins(null);
+        assertThrows(BusinessException.class, () -> local(missingOrigins));
+        var missingClusters = properties("http://cluster-1:28443");
+        missingClusters.setClusters(null);
+        assertThrows(BusinessException.class, () -> local(missingClusters));
     }
 
     @Test

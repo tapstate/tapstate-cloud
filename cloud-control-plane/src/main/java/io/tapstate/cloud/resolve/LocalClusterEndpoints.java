@@ -33,17 +33,24 @@ public class LocalClusterEndpoints {
             throw invalid("the local-development profile is required");
         }
         String console = origin(properties.getConsoleOrigin(), true);
+        String controlPlane = origin(properties.getControlPlaneOrigin(), false);
+        if (console.equals(controlPlane) || !controlPlane.equals(origin(issuer, false))) {
+            throw invalid("issuer must equal the dedicated internal Control Plane origin");
+        }
+        if (properties.getTrustedInternalOrigins() == null || properties.getClusters() == null) {
+            throw invalid("trusted origins and Cluster mappings are required");
+        }
         Set<String> trusted = new HashSet<>();
         for (String value : properties.getTrustedInternalOrigins()) {
             trusted.add(origin(value, false));
         }
-        if (!trusted.contains(origin(issuer, false))) {
+        if (!trusted.contains(controlPlane)) {
             throw invalid("issuer must be a trusted internal origin matching the SDK base URL");
         }
         Map<String, Endpoint> validated = new LinkedHashMap<>();
         Set<String> publicOrigins = new HashSet<>();
         for (var entry : properties.getClusters().entrySet()) {
-            if (!entry.getKey().matches("[0-9a-f]{24}") || entry.getValue() == null) {
+            if (entry.getKey() == null || !entry.getKey().matches("[0-9a-f]{24}") || entry.getValue() == null) {
                 throw invalid("Cluster mappings require a canonical Cluster ID");
             }
             var configured = entry.getValue();
@@ -54,6 +61,10 @@ public class LocalClusterEndpoints {
             }
             if (!"localhost".equals(configured.getAudience())) {
                 throw invalid("audience must match the literal localhost public host");
+            }
+            if (callbackOrigin.equals(controlPlane)
+                || URI.create(callbackOrigin).getPort() != URI.create(publicOrigin).getPort()) {
+                throw invalid("callback must target the Cluster role at its selected public/backend port");
             }
             if (!trusted.contains(callbackOrigin)) {
                 throw invalid("callback must be a trusted internal deployment origin");
@@ -69,6 +80,10 @@ public class LocalClusterEndpoints {
     public String publicOrigin(Cluster cluster) {
         if (enabled) return endpoint(cluster.getId().toHexString()).publicOrigin();
         return cluster.getPublicDns() != null ? "https://" + cluster.getPublicDns() : "http://localhost:30080";
+    }
+
+    String exchangeOrigin(String clusterId) {
+        return enabled ? endpoint(clusterId).publicOrigin() : null;
     }
 
     public String audience(String clusterId) {
@@ -97,7 +112,8 @@ public class LocalClusterEndpoints {
             if (!("http".equals(uri.getScheme()) || "https".equals(uri.getScheme()))
                 || uri.getHost() == null || uri.getUserInfo() != null
                 || uri.getRawQuery() != null || uri.getRawFragment() != null
-                || !"".equals(uri.getRawPath()) || uri.getPort() < 1 || uri.getPort() > 65535) {
+                || !"".equals(uri.getRawPath()) || uri.getPort() < 1 || uri.getPort() > 65535
+                || !uri.getRawAuthority().equals(uri.getHost() + ":" + uri.getPort())) {
                 throw invalid("origins require a host and explicit port, without path, query, credentials or fragment");
             }
             if (publicOrigin && (!"http".equals(uri.getScheme()) || !"localhost".equals(uri.getHost())

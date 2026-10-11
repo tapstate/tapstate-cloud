@@ -17,6 +17,7 @@ import java.util.Map;
 public class LocalClusterEndpointProperties {
     private boolean enabled;
     private String consoleOrigin;
+    private String controlPlaneOrigin;
     private List<String> trustedInternalOrigins = List.of();
     private Map<String, Endpoint> clusters = new LinkedHashMap<>();
 

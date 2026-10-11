@@ -32,22 +32,27 @@ class LocalRevocationCallbackTest {
     void sendsRealSignedCallbackToConfiguredInternalOriginInsteadOfBrowserOrigin() throws Exception {
         var requestQuery = new AtomicReference<String>();
         var requestMethod = new AtomicReference<String>();
-        HttpServer server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
+        var requestHost = new AtomicReference<String>();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/auth/invalidate-session", exchange -> {
             requestMethod.set(exchange.getRequestMethod());
+            requestHost.set(exchange.getRequestHeaders().getFirst("Host"));
             requestQuery.set(exchange.getRequestURI().getRawQuery());
             exchange.sendResponseHeaders(204, -1);
             exchange.close();
         });
         server.start();
         try {
-            var resolver = local(properties("http://localhost:" + server.getAddress().getPort()));
+            String clusterOrigin = "http://localhost:" + server.getAddress().getPort();
+            var deployment = properties("http://127.0.0.1:" + server.getAddress().getPort());
+            deployment.getClusters().get(CLUSTER_ID).setPublicOrigin(clusterOrigin);
+            var resolver = local(deployment);
             var keyPair = KeyPairGenerator.getInstance("RSA").generateKeyPair();
             var keys = mock(JwksRotationService.class);
             when(keys.buildActiveSigningKeyPair()).thenReturn(keyPair);
             var records = mock(JtiRecordRepository.class);
             var record = JtiRecord.builder().jti("local-jti").clusterId(new ObjectId(CLUSTER_ID))
-                .clusterBaseUri("http://localhost:28443").build();
+                .clusterBaseUri(clusterOrigin).build();
             when(records.findByUserEmailAndRevokedAtIsNull("user@example.com")).thenReturn(List.of(record));
             var controller = new AuthController(mock(AuthService.class), mock(UserRepository.class),
                 mock(AuthenticationManager.class), records, new CallbackSignService(keys), resolver);
@@ -55,6 +60,7 @@ class LocalRevocationCallbackTest {
                 new UsernamePasswordAuthenticationToken("user@example.com", null, List.of()));
             assertEquals(200, controller.logout(new MockHttpServletRequest()).getStatusCode().value());
             assertEquals("POST", requestMethod.get());
+            assertEquals("127.0.0.1:" + server.getAddress().getPort(), requestHost.get());
             assertNotNull(requestQuery.get());
             Map<String, String> values = java.util.Arrays.stream(requestQuery.get().split("&"))
                 .map(part -> part.split("=", 2))

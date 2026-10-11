@@ -187,6 +187,10 @@ public class ExchangeService {
             .and("consumedAt").isNull()
             .and("expiresAt").gt(now)
             .and("clusterId").is(new ObjectId(expectedClusterId)));
+        String expectedOrigin = endpoints.exchangeOrigin(expectedClusterId);
+        if (expectedOrigin != null) {
+            query.addCriteria(Criteria.where("targetOrigin").is(expectedOrigin));
+        }
         Update update = Update.update("consumedAt", now);
 
         ExchangeCode consumed = mongoTemplate.findAndModify(query, update, ExchangeCode.class);
@@ -200,7 +204,8 @@ public class ExchangeService {
                 throw new BusinessException(AppErrorCode.EXCHANGE_CODE_CONSUMED, 401);
             } else if (existing.getExpiresAt().isBefore(now)) {
                 throw new BusinessException(AppErrorCode.EXCHANGE_CODE_EXPIRED, 401);
-            } else if (!existing.getClusterId().equals(new ObjectId(expectedClusterId))) {
+            } else if (!existing.getClusterId().equals(new ObjectId(expectedClusterId))
+                || expectedOrigin != null && !expectedOrigin.equals(existing.getTargetOrigin())) {
                 throw new BusinessException(AppErrorCode.EXCHANGE_CODE_CLUSTER_MISMATCH, 401);
             } else {
                 log.error("Exchange code validation failed unexpectedly for cluster={}", expectedClusterId);
