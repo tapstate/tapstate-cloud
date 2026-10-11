@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import java.util.List;
+import java.util.Optional;
 
 import io.tapstate.cloud.common.api.BusinessException;
 import org.bson.types.ObjectId;
@@ -22,7 +24,7 @@ class SampleSourceConfigControllerTest {
         Cluster cluster = Cluster.builder().id(clusterId).state(ClusterState.READY).build();
         when(clusters.getBySdkToken("runtime-token")).thenReturn(cluster);
         SampleSourceConfigController controller =
-                new SampleSourceConfigController(clusters, "sample.internal", "server-secret");
+                controller(clusters, "server-secret");
 
         var availability = controller.availability(clusterId.toHexString(), "Bearer runtime-token");
         var credentials = controller.credentials(clusterId.toHexString(), "Bearer runtime-token");
@@ -41,7 +43,7 @@ class SampleSourceConfigControllerTest {
         when(clusters.getBySdkToken("runtime-token"))
                 .thenReturn(Cluster.builder().id(clusterId).state(ClusterState.PROVISIONING).build());
         SampleSourceConfigController controller =
-                new SampleSourceConfigController(clusters, "sample.internal", "server-secret");
+                controller(clusters, "server-secret");
 
         BusinessException failure = assertThrows(BusinessException.class,
                 () -> controller.credentials(clusterId.toHexString(), "Bearer runtime-token"));
@@ -57,7 +59,7 @@ class SampleSourceConfigControllerTest {
         when(clusters.getBySdkToken("runtime-token"))
                 .thenReturn(Cluster.builder().id(ownerId).state(ClusterState.READY).build());
         SampleSourceConfigController controller =
-                new SampleSourceConfigController(clusters, "sample.internal", "server-secret");
+                controller(clusters, "server-secret");
 
         BusinessException failure = assertThrows(BusinessException.class,
                 () -> controller.credentials(requestedId.toHexString(), "Bearer runtime-token"));
@@ -72,7 +74,7 @@ class SampleSourceConfigControllerTest {
         when(clusters.getBySdkToken("runtime-token"))
                 .thenReturn(Cluster.builder().id(clusterId).state(ClusterState.READY).build());
         SampleSourceConfigController controller =
-                new SampleSourceConfigController(clusters, "sample.internal", " ");
+                controller(clusters, " ");
 
         var availability = controller.availability(clusterId.toHexString(), "Bearer runtime-token");
 
@@ -81,5 +83,16 @@ class SampleSourceConfigControllerTest {
                 () -> controller.credentials(clusterId.toHexString(), "Bearer runtime-token"));
         assertEquals(HttpStatus.SERVICE_UNAVAILABLE.value(), failure.getHttpStatus());
         assertFalse(failure.getMessage().contains("server-secret"));
+    }
+
+    private SampleSourceConfigController controller(ClusterService clusters, String password) {
+        SampleSourceProfileRepository profiles = mock(SampleSourceProfileRepository.class);
+        SampleSourceProfile profile = new SampleSourceProfile("sample_core_banking", "MySQL order sample",
+                "Orders", "mysql", "sample.internal", 33306, "tpcc_331", null, "root",
+                "shared-sample-password", "bmsql_oorder", "bmsql_order_line", "bmsql_customer",
+                true, true, 10);
+        when(profiles.findAllByOrderBySortOrderAsc()).thenReturn(List.of(profile));
+        when(profiles.findById("sample_core_banking")).thenReturn(Optional.of(profile));
+        return new SampleSourceConfigController(clusters, profiles, password);
     }
 }
