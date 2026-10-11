@@ -63,7 +63,7 @@ public class OrganizationController extends BaseController {
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Organization created"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Invalid input (missing name/slug, slug format)"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "Not authenticated"),
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "Slug already taken")
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "Slug already taken or account already belongs to an organization")
     })
     public ResponseEntity<ApiResponse<OrganizationResponse>> create(
             @io.swagger.v3.oas.annotations.parameters.RequestBody(description = "Organization create payload: {\"name\": \"Acme Corp\", \"slug\": \"acme-corp\"}")
