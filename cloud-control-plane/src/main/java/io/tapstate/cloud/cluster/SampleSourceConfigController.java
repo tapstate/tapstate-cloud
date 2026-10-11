@@ -18,6 +18,8 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import java.util.List;
+import java.util.Map;
 
 /** Server-to-server access to the shared sample database configuration. */
 @RestController
@@ -28,14 +30,14 @@ import org.springframework.web.bind.annotation.RestController;
 public class SampleSourceConfigController extends BaseController {
 
     private final ClusterService clusterService;
-    private final String host;
+    private final SampleSourceProfileRepository profiles;
     private final String password;
 
     public SampleSourceConfigController(ClusterService clusterService,
-            @Value("${tapstate.cloud.sample-sources.host:47.238.126.103}") String host,
+            SampleSourceProfileRepository profiles,
             @Value("${tapstate.cloud.sample-sources.password:}") String password) {
         this.clusterService = clusterService;
-        this.host = host;
+        this.profiles = profiles;
         this.password = password;
     }
 
@@ -60,7 +62,42 @@ public class SampleSourceConfigController extends BaseController {
             throw new BusinessException(AppErrorCode.SAMPLE_SOURCE_CREDENTIALS_NOT_CONFIGURED,
                     HttpStatus.SERVICE_UNAVAILABLE.value());
         }
+        String host = profiles.findById("sample_core_banking")
+                .map(SampleSourceProfile::host).orElse("");
         return noStore(new Credentials(host, password));
+    }
+
+    @GetMapping("/catalog")
+    @Operation(summary = "List editable sample source profiles")
+    public ResponseEntity<ApiResponse<List<SampleSourceProfile>>> catalog(
+            @PathVariable String clusterId,
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization) {
+        requireReadyCluster(clusterId, authorization);
+        return noStore(profiles.findAllByOrderBySortOrderAsc());
+    }
+
+    @PostMapping("/credentials/{sourceId}")
+    @Operation(summary = "Resolve one sample source connection privately")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> sourceCredentials(
+            @PathVariable String clusterId, @PathVariable String sourceId,
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization) {
+        requireReadyCluster(clusterId, authorization);
+        SampleSourceProfile profile = profiles.findById(sourceId)
+                .filter(SampleSourceProfile::available)
+                .orElseThrow(() -> new BusinessException(AppErrorCode.SAMPLE_SOURCE_CREDENTIALS_NOT_CONFIGURED,
+                        HttpStatus.NOT_FOUND.value()));
+        if (!"shared-sample-password".equals(profile.secretRef()) || !configured()) {
+            throw new BusinessException(AppErrorCode.SAMPLE_SOURCE_CREDENTIALS_NOT_CONFIGURED,
+                    HttpStatus.SERVICE_UNAVAILABLE.value());
+        }
+        Map<String, Object> config = new java.util.LinkedHashMap<>();
+        config.put("host", profile.host());
+        config.put("port", profile.port());
+        config.put("database", profile.database());
+        if (profile.schema() != null) config.put("schema", profile.schema());
+        config.put("username", profile.username());
+        config.put("password", password);
+        return noStore(config);
     }
 
     private Cluster requireReadyCluster(String clusterId, String authorization) {
@@ -79,7 +116,10 @@ public class SampleSourceConfigController extends BaseController {
     }
 
     private boolean configured() {
-        return host != null && !host.isBlank() && password != null && !password.isBlank();
+        return password != null && !password.isBlank()
+                && profiles.findAllByOrderBySortOrderAsc().stream()
+                        .anyMatch(profile -> profile.available() && profile.host() != null
+                                && !profile.host().isBlank());
     }
 
     private <T> ResponseEntity<ApiResponse<T>> noStore(T data) {
