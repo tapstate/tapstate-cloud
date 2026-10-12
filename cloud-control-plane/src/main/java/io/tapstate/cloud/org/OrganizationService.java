@@ -29,6 +29,9 @@ public class OrganizationService {
 
     @Transactional
     public Organization createOrganization(String name, String slug, String ownerEmail) {
+        if (!memberRepository.findByUserEmail(ownerEmail).isEmpty()) {
+            throw new BusinessException(AppErrorCode.ORG_LIMIT_REACHED, 409);
+        }
         // Auto-generate slug if not provided
         String effectiveSlug = slug != null ? slug : generateSlug(name);
 

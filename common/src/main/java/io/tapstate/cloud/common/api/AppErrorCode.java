@@ -23,6 +23,7 @@ public enum AppErrorCode implements ErrorCode {
     ORG_NOT_FOUND("org.not-found", "Organization {0} not found"),
     ORG_NOT_MEMBER("org.not-member", "User is not a member of organization {0}"),
     ORG_ALREADY_EXISTS("org.already-exists", "Organization with slug {0} already exists"),
+    ORG_LIMIT_REACHED("org.limit-reached", "This account already belongs to an organization"),
 
     // ---------- Cluster ----------
     CLUSTER_NOT_FOUND("cluster.not-found", "Cluster {0} not found"),
