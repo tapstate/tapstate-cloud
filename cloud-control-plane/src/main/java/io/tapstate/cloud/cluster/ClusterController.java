@@ -116,7 +116,8 @@ public class ClusterController extends BaseController {
         @Schema(description = "EC2 node public IPv4 address") String ec2PublicIp,
         @Schema(description = "Last C2 heartbeat timestamp (ISO-8601 UTC)") String lastHeartbeatAt,
         @Schema(description = "Cluster creation timestamp (ISO-8601 UTC)") String createdAt,
-        @Schema(description = "Ready timestamp (ISO-8601 UTC) — null until state = READY") String readyAt
+        @Schema(description = "Ready timestamp (ISO-8601 UTC) — null until state = READY") String readyAt,
+        @Schema(description = "Cluster version pinned at subscription time; selects the runtime container image tag") String clusterVersion
     ) {
         public static ClusterResponse from(Cluster c) {
             return new ClusterResponse(
@@ -126,7 +127,8 @@ public class ClusterController extends BaseController {
                 c.getRuntimeId(), c.getPublicDns(), c.getEc2PublicIp(),
                 c.getLastHeartbeatAt() != null ? c.getLastHeartbeatAt().toString() : null,
                 c.getCreatedAt() != null ? c.getCreatedAt().toString() : null,
-                c.getReadyAt() != null ? c.getReadyAt().toString() : null);
+                c.getReadyAt() != null ? c.getReadyAt().toString() : null,
+                c.getClusterVersion());
         }
     }
 }

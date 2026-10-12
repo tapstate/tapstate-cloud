@@ -103,6 +103,9 @@ public class Cluster {
     @Schema(description = "Id of the TLS certificate currently installed on the node (tls_certificates._id)")
     private ObjectId tlsCertificateId;
 
+    @Schema(description = "Cluster version pinned at subscription time; selects the runtime container image tag")
+    private String clusterVersion;
+
     // ========== SDK status ==========
     @Schema(description = "Last SDK C2 heartbeat timestamp (UTC)")
     private Instant lastHeartbeatAt;

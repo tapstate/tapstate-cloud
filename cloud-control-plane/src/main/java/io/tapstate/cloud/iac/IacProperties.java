@@ -33,6 +33,9 @@ public class IacProperties {
      */
     private String runtimeAtlasUri = "";
 
+    /** Runtime container image coordinates; the tag is the Cluster version. */
+    private RuntimeImage runtimeImage = new RuntimeImage();
+
     /** AWS-specific settings. */
     private Aws aws = new Aws();
 
@@ -82,6 +85,14 @@ public class IacProperties {
         this.runtimeAtlasUri = runtimeAtlasUri;
     }
 
+    public RuntimeImage getRuntimeImage() {
+        return runtimeImage;
+    }
+
+    public void setRuntimeImage(RuntimeImage runtimeImage) {
+        this.runtimeImage = runtimeImage;
+    }
+
     public Aws getAws() {
         return aws;
     }
@@ -104,6 +115,36 @@ public class IacProperties {
 
     public void setCrypto(Crypto crypto) {
         this.crypto = crypto;
+    }
+
+    /**
+     * Runtime container image coordinates. A Cluster runs
+     * {@code <registry>/<repository>:<clusterVersion>}; defaults resolve to the
+     * public published image with zero configuration.
+     */
+    public static class RuntimeImage {
+
+        /** Container registry host. */
+        private String registry = "ghcr.io";
+
+        /** Repository (namespace/name) within the registry. */
+        private String repository = "tapstate/tapstate-cloud";
+
+        public String getRegistry() {
+            return registry;
+        }
+
+        public void setRegistry(String registry) {
+            this.registry = registry;
+        }
+
+        public String getRepository() {
+            return repository;
+        }
+
+        public void setRepository(String repository) {
+            this.repository = repository;
+        }
     }
 
     /** AWS compute settings. */

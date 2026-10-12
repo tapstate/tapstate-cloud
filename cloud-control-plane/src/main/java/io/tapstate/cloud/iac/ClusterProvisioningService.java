@@ -4,6 +4,7 @@ import io.tapstate.cloud.cluster.Cluster;
 import io.tapstate.cloud.cluster.ClusterRepository;
 import io.tapstate.cloud.cluster.ProvisionErrorCode;
 import io.tapstate.cloud.common.api.AppErrorCode;
+import io.tapstate.cloud.iac.config.ClusterImageResolver;
 import io.tapstate.cloud.iac.config.ClusterRuntimeConfigs;
 import io.tapstate.cloud.iac.config.RuntimeAtlasUriResolver;
 import io.tapstate.cloud.iac.crypto.SshKeyCrypto;
@@ -19,6 +20,8 @@ import io.tapstate.cloud.progress.DeploymentStepRecorder;
 import io.tapstate.cloud.tls.TlsCertificate;
 import io.tapstate.cloud.tls.TlsCertificateService;
 import io.tapstate.cloud.tls.TlsNodeInstaller;
+import io.tapstate.cloud.version.ClusterVersion;
+import io.tapstate.cloud.version.ClusterVersionService;
 import lombok.extern.slf4j.Slf4j;
 import org.bson.types.ObjectId;
 import org.springframework.stereotype.Service;
@@ -61,6 +64,8 @@ public class ClusterProvisioningService {
     private final DeploymentStepRecorder recorder;
     private final TlsCertificateService tlsCertificateService;
     private final TlsNodeInstaller tlsInstaller;
+    private final ClusterVersionService clusterVersionService;
+    private final ClusterImageResolver imageResolver;
 
     // ---- Timing budget ----
     private static final Duration STACK_TIMEOUT = Duration.ofMinutes(15);
@@ -86,7 +91,9 @@ public class ClusterProvisioningService {
         RuntimeAtlasUriResolver runtimeAtlasUriResolver,
         DeploymentStepRecorder recorder,
         TlsCertificateService tlsCertificateService,
-        TlsNodeInstaller tlsInstaller) {
+        TlsNodeInstaller tlsInstaller,
+        ClusterVersionService clusterVersionService,
+        ClusterImageResolver imageResolver) {
         this.clusterRepository = clusterRepository;
         this.properties = properties;
         this.dns = dns;
@@ -98,6 +105,8 @@ public class ClusterProvisioningService {
         this.recorder = recorder;
         this.tlsCertificateService = tlsCertificateService;
         this.tlsInstaller = tlsInstaller;
+        this.clusterVersionService = clusterVersionService;
+        this.imageResolver = imageResolver;
 
         CloudProvider provider = CloudProvider.fromId(properties.getProvider());
         ComputeInfrastructure selected = computeBeans.values().stream()
@@ -119,6 +128,28 @@ public class ClusterProvisioningService {
         String clusterId = cluster.getId().toHexString();
         String domain = clusterDomain(clusterId);
         ProxyConfig proxy = resolveProxy();
+
+        // Resolve the deployable Cluster version before touching any cloud
+        // resource. A subscription normally pins the version before this runs;
+        // a blank field is a defensive fallback to the latest ACTIVE version,
+        // persisted onto the Cluster for an auditable, reproducible image.
+        // A pinned version is deployed even if it has since been delisted —
+        // delisting affects only new subscriptions.
+        String clusterVersion = cluster.getClusterVersion();
+        if (clusterVersion == null || clusterVersion.isBlank()) {
+            ClusterVersion fallback = clusterVersionService.findLastActive().orElse(null);
+            if (fallback == null) {
+                IacException unavailable = new IacException(AppErrorCode.IAC_CLUSTER_VERSION_UNAVAILABLE,
+                    "No active Cluster version is available for Cluster provisioning");
+                recorder.fail(cluster, DeploymentOperation.START_RUNTIME_STACK, unavailable.getMessage());
+                log.error("[IaC] provision aborted cluster={}: {}", clusterId, unavailable.getMessage());
+                return recordFailure(cluster, unavailable);
+            }
+            cluster.setClusterVersion(fallback.getVersion());
+            persist(cluster);
+            clusterVersion = fallback.getVersion();
+        }
+        final String runtimeImage = imageResolver.runtimeImage(clusterVersion);
 
         // Resolve the centrally managed wildcard certificate before touching any
         // cloud resource: a missing certificate fails provisioning instantly
@@ -210,7 +241,7 @@ public class ClusterProvisioningService {
 
                         session.uploadFile("/tmp/docker-compose.yml",
                             configs.dockerComposeYaml(cluster, properties.getPublicBaseUrl(),
-                                runtimeAtlasUri)
+                                runtimeAtlasUri, runtimeImage)
                                 .getBytes(StandardCharsets.UTF_8));
                         remoteExec(session,
                             "sudo mv /tmp/docker-compose.yml " + ClusterRuntimeConfigs.REMOTE_COMPOSE_PATH
@@ -617,6 +648,7 @@ public class ClusterProvisioningService {
             case IAC_MDB_NOT_READY -> ProvisionErrorCode.ATLAS_DB_CREATE_FAILED;
             case IAC_TLS_CERTIFICATE_UNAVAILABLE -> ProvisionErrorCode.TLS_CERTIFICATE_UNAVAILABLE;
             case IAC_TLS_CERTIFICATE_INSTALL_FAILED -> ProvisionErrorCode.TLS_CERTIFICATE_INSTALL_FAILED;
+            case IAC_CLUSTER_VERSION_UNAVAILABLE -> ProvisionErrorCode.CLUSTER_VERSION_UNAVAILABLE;
             default -> ProvisionErrorCode.CLOUDFORMATION_FAILED;
         };
         String detail = e.errorCode().getCode() + ": " + e.getMessage();

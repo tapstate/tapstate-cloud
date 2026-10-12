@@ -118,7 +118,7 @@ public class SubscriptionController extends BaseController {
         }
 
         Subscription subscription = subscriptionService.createSubscription(
-            orgId, request.region(), request.clusterName(), request.specKey(), userEmail);
+            orgId, request.region(), request.clusterName(), request.specKey(), userEmail, request.version());
 
         return okCreated(toResponse(subscription));
     }
@@ -233,7 +233,10 @@ public class SubscriptionController extends BaseController {
         @Parameter(description = "Cluster display name (unique within org + region)", example = "Production Pipeline")
         String clusterName,
         @Size(max = 50) @Parameter(description = "Provisioning spec_key (Week 2: 'basic' only)", example = "basic")
-        String specKey
+        String specKey,
+        @Size(max = 100)
+        @Parameter(description = "Cluster version to deploy; omit/blank to use the latest ACTIVE version", example = "1.4.0")
+        String version
     ) {}
 
     // ========== Response DTOs ==========

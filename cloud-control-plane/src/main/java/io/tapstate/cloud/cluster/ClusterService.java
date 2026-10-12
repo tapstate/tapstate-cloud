@@ -67,11 +67,13 @@ public class ClusterService {
      * flow after {@code SubscriptionService} has validated the subscription is
      * active/valid. No subscription validity gate here (that lives upstream).
      *
+     * @param clusterVersion version string pinned onto the Cluster; used as the runtime image tag
      * @return the persisted Cluster (state PROVISIONING_PENDING, provisioning not yet started)
      */
     @Transactional
     public Cluster createCluster(String orgId, ObjectId subscriptionId, String region,
-                                 String name, String specKey, String creatorEmail) {
+                                 String name, String specKey, String creatorEmail,
+                                 String clusterVersion) {
         if (!memberRepository.existsByOrgIdAndUserEmail(new ObjectId(orgId), creatorEmail)) {
             throw new BusinessException(AppErrorCode.ORG_NOT_MEMBER, 403, orgId);
         }
@@ -89,6 +91,7 @@ public class ClusterService {
             .name(name)
             .specKey(specKey != null ? specKey : "basic")
             .state(ClusterState.PROVISIONING_PENDING)
+            .clusterVersion(clusterVersion)
             .runtimeId(generateId("rt-"))
             .bootstrapToken(generateSecureToken())
             .sdkStaticToken(generateSecureToken())

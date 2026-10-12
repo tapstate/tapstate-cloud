@@ -3,9 +3,12 @@
 # Per ADR-0124 D6: helm is the single deployment tool
 #
 #   main branch          → awsdev environment  (values-awsdev.yaml,  namespace: tapstate)
-#                           gated: the deploy waits for the CI and Full
-#                           Integration runs of the same pushed SHA to pass
-#                           (see the await-main-gate job below)
+#                           gated: the deploy waits for the CI run of
+#                           the same pushed SHA, and for the Full
+#                           Integration run only while the repository
+#                           variable FULL_INTEGRATION_ENABLED is "true"
+#                           and the push touches Full Integration trigger
+#                           paths (see the await-main-gate job below)
 #   release-v*.x.x       → production environment (values-aws.yaml, namespace: tapstate-cloud-control)
 # ============================================================
 # Prerequisites (GitHub Repository Secrets):
@@ -37,11 +40,15 @@ concurrency:
 
 jobs:
   # ============================================================
-  # main gate — nothing deploys until both the CI workflow and the
-  # Full Integration workflow have passed on THIS commit. GitHub
-  # Actions has no cross-workflow needs, so the script polls the runs
-  # for the pushed SHA. release-v* pushes skip this job and deploy
-  # directly, exactly as before.
+  # main gate — nothing deploys until the CI workflow has passed on
+  # THIS commit; the Full Integration workflow is additionally
+  # required only while the repository variable
+  # FULL_INTEGRATION_ENABLED is "true" AND this push touches its
+  # trigger paths — the same two conditions under which that
+  # workflow actually runs. GitHub Actions has no cross-workflow
+  # needs, so the script polls the runs for the pushed SHA.
+  # release-v* pushes skip this job and deploy directly, exactly
+  # as before.
   # ============================================================
   await-main-gate:
     name: Gate — CI and Full Integration green
@@ -57,6 +64,9 @@ jobs:
       - name: Wait for CI and Full Integration on this SHA
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Same repository variable that gates full-integration.yml;
+          # anything but the exact string "true" waives the Full IT wait.
+          FULL_INTEGRATION_ENABLED: ${{ vars.FULL_INTEGRATION_ENABLED }}
         run: bash .github/workflows/scripts/await-green.sh
 
   # ============================================================

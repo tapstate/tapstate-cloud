@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Gate for main-branch CD: block until the CI and Full Integration
-# workflow runs triggered by the push of this exact SHA have succeeded.
+# Gate for main-branch CD: block until the CI run triggered by the push of
+# this exact SHA has succeeded, and the Full Integration run as well while
+# that workflow is switched on (repository variable) and triggered.
 # Fail fast on any failure or cancellation; time out after GATE_TIMEOUT_S.
 #
 # Cross-workflow `needs` does not exist in GitHub Actions, so the CD
@@ -12,6 +13,11 @@
 # Optional:
 #   GATE_TIMEOUT_S  overall wait deadline (default 2400 = 40 minutes)
 #   GATE_POLL_S     polling interval in seconds (default 30)
+#   FULL_INTEGRATION_ENABLED
+#                   repository variable forwarded from deploy.yaml; the
+#                   Full Integration wait applies only while it is the
+#                   exact string "true" — the same condition the workflow
+#                   itself is gated on
 set -euo pipefail
 
 : "${GITHUB_SHA:?GITHUB_SHA is required}"
@@ -21,12 +27,17 @@ set -euo pipefail
 TIMEOUT_S="${GATE_TIMEOUT_S:-2400}"
 POLL_S="${GATE_POLL_S:-30}"
 
-# Full Integration's push trigger is path-filtered. A main push that
-# changes none of its trigger paths produces no run, so it is required
-# only when this push actually touches one. Keep the pathspec list in
-# sync with the &it_paths anchor in full-integration.yml.
+# Full Integration is required only when BOTH hold:
+#   1. the repository switch FULL_INTEGRATION_ENABLED is "true" (every job
+#      in full-integration.yml is skipped otherwise), and
+#   2. this push touches one of its path-filtered triggers.
+# Keep the pathspec list in sync with the &it_paths anchor in
+# full-integration.yml.
 needs_full_it=1
-if ! git diff --name-only HEAD^ HEAD -- \
+if [[ "${FULL_INTEGRATION_ENABLED:-}" != "true" ]]; then
+  needs_full_it=0
+  echo "gate: repository variable FULL_INTEGRATION_ENABLED is not 'true'; Full Integration is switched off — waiving Full IT"
+elif ! git diff --name-only HEAD^ HEAD -- \
       ':(glob)**/src/main/**' \
       ':(glob)**/src/it/**' \
       ':(glob)**/pom.xml' \
