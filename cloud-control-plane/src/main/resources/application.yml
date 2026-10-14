@@ -21,10 +21,12 @@ spring:
       # Control Plane metadata DB (User/Org/Cluster/CloudFormation templates)
       # Separate Atlas project from per-Cluster runtime DBs (ADR-0123 D2)
 
-  # ========== Session — Tomcat HttpSession (Spring Session MongoDB deferred) ==========
-  # Session cookie name TAPSTATE_CLOUD_SESSION handled by server.servlet.session.cookie below
-  # 7-day idle timeout via server.servlet.session.timeout
-  # Spring Session MongoDB will replace this when mongodb-spring-session 4.x stabilizes
+  # ========== Session ==========
+  # HTTP sessions are backed by the control-plane MongoDB (collection
+  # "sessions") via Spring Session MongoDB, so all replicas share sessions.
+  # The cookie contract below (server.servlet.session.cookie.*) is applied by
+  # SessionConfig; idle expiry is tapstate.cloud.session-expiry-days.
+  # server.servlet.session.timeout does NOT apply under Spring Session.
 
   # ========== Spring Security ==========
   security:
@@ -43,11 +45,11 @@ server:
   servlet:
     context-path: ${SERVER_CONTEXT_PATH:/}
     session:
-      timeout: 7d
+      # Cookie contract consumed by SessionConfig's CookieSerializer.
       cookie:
         name: TAPSTATE_CLOUD_SESSION
         http-only: true
-        secure: false    # dev; production set to true
+        secure: false    # dev; production may override via env
         same-site: lax
 
 # ========== Actuator — health endpoints (ADR-0120 acceptance) ==========

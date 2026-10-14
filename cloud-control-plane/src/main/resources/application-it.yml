@@ -26,7 +26,7 @@ server:
   port: ${it.server.port:8081}
   servlet:
     session:
-      timeout: 7d
+      # Cookie contract consumed by SessionConfig's CookieSerializer.
       cookie:
         name: TAPSTATE_CLOUD_SESSION
         http-only: true
