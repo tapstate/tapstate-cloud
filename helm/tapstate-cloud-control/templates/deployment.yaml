@@ -67,6 +67,26 @@ spec:
               value: {{ .Values.config.springProfilesActive | quote }}
             - name: CORS_ALLOWED_ORIGINS
               value: {{ .Values.config.corsAllowedOrigins | quote }}
+            - name: SMTP_PORT
+              value: {{ .Values.config.smtpPort | quote }}
+            - name: SMTP_AUTH
+              value: {{ .Values.config.smtpAuth | quote }}
+            - name: SMTP_STARTTLS
+              value: {{ .Values.config.smtpStarttls | quote }}
+            - name: CLOUD_AUTH_OTP_MAX_ATTEMPTS
+              value: {{ .Values.config.authOtpMaxAttempts | quote }}
+            - name: CLOUD_AUTH_OTP_SENDS_PER_HOUR
+              value: {{ .Values.config.authOtpSendsPerHour | quote }}
+            - name: CLOUD_AUTH_OTP_COOLDOWN_SECONDS
+              value: {{ .Values.config.authOtpCooldownSeconds | quote }}
+            - name: CLOUD_AUTH_OTP_LIFETIME_MINUTES
+              value: {{ .Values.config.authOtpLifetimeMinutes | quote }}
+            - name: CLOUD_AUTH_MAIL_FROM
+              value: {{ .Values.config.authMailFrom | quote }}
+            - name: CLOUD_AUTH_OAUTH_CALLBACK_BASE_URL
+              value: {{ .Values.config.oauthCallbackBaseUrl | quote }}
+            - name: CLOUD_CONSOLE_URL
+              value: {{ .Values.config.cloudConsoleUrl | quote }}
             - name: SWAGGER_UI_ENABLED
               value: {{ .Values.config.swaggerUiEnabled | quote }}
             - name: KNIFE4J_ENABLED
@@ -207,6 +227,56 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.secrets.clusterVersionReleaseToken.name }}
                   key: {{ .Values.secrets.clusterVersionReleaseToken.key }}
+                  optional: true
+
+            # ========== Secrets for invited authentication (optional) ==========
+            - name: CLOUD_AUTH_OTP_HMAC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.authHmacKey.name }}
+                  key: {{ .Values.secrets.authHmacKey.key }}
+                  optional: true
+            - name: GOOGLE_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.googleOAuth.name }}
+                  key: {{ .Values.secrets.googleOAuth.clientIdKey }}
+                  optional: true
+            - name: GOOGLE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.googleOAuth.name }}
+                  key: {{ .Values.secrets.googleOAuth.clientSecretKey }}
+                  optional: true
+            - name: GITHUB_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.githubOAuth.name }}
+                  key: {{ .Values.secrets.githubOAuth.clientIdKey }}
+                  optional: true
+            - name: GITHUB_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.githubOAuth.name }}
+                  key: {{ .Values.secrets.githubOAuth.clientSecretKey }}
+                  optional: true
+            - name: SMTP_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.smtp.name }}
+                  key: {{ .Values.secrets.smtp.hostKey }}
+                  optional: true
+            - name: SMTP_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.smtp.name }}
+                  key: {{ .Values.secrets.smtp.usernameKey }}
+                  optional: true
+            - name: SMTP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.smtp.name }}
+                  key: {{ .Values.secrets.smtp.passwordKey }}
                   optional: true
 
             # ========== JVM config ==========

@@ -13,6 +13,8 @@ image:
 config:
   springProfilesActive: dev
   corsAllowedOrigins: "http://localhost:5173,http://localhost:5174"
+  oauthCallbackBaseUrl: http://localhost:30080
+  cloudConsoleUrl: http://localhost:5174
 
 service:
   type: NodePort
