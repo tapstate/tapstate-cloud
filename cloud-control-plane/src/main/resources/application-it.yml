@@ -37,6 +37,8 @@ tapstate:
   cloud:
     issuer: https://cloud.tapstate.io
     resolve-jwt-expiry-minutes: 15
+    # IT provisions mock/dev Clusters under the dev subdomain.
+    resolve-jwt-audience-suffix: .dev.cloud.tapstate.com
     session-expiry-days: 7
     default-region: ap-southeast-1
     mdb:

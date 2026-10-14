@@ -74,6 +74,14 @@ public class ExchangeService {
     @Value("${tapstate.cloud.resolve-jwt-expiry-minutes:15}")
     private int jwtExpiryMinutes;
 
+    /**
+     * DNS suffix appended to the Cluster id when building the resolve JWT
+     * audience, e.g. {@code <clusterId>.cloud.tapstate.com} in production and
+     * {@code <clusterId>.dev.cloud.tapstate.com} in dev/it.
+     */
+    @Value("${tapstate.cloud.resolve-jwt-audience-suffix:.cloud.tapstate.com}")
+    private String jwtAudienceSuffix;
+
     /** Exchange code TTL — 60 seconds (ADR-0125 D2). */
     private static final int EXCHANGE_CODE_TTL_SECONDS = 60;
 
@@ -222,7 +230,7 @@ public class ExchangeService {
         // Issue resolve JWT — claims per ADR-0122 D4 + Issue #5 item 1 (user_id)
         String jwtId = UUID.randomUUID().toString();
         Instant jwtExp = now.plus(jwtExpiryMinutes, ChronoUnit.MINUTES);
-        String aud = consumed.getClusterId() + ".dev.cloud.tapstate.com";
+        String aud = consumed.getClusterId() + jwtAudienceSuffix;
 
         // Live-read the CURRENT active signing key from MongoDB — rotation-aware:
         // if JwksRotationService rotated since this service bean was built, the new
