@@ -9,7 +9,8 @@
 #                           variable FULL_INTEGRATION_ENABLED is "true"
 #                           and the push touches Full Integration trigger
 #                           paths (see the await-main-gate job below)
-#   release-v*.x.x       → production environment (values-awsprod.yaml, namespace: tapstate-cloud-control)
+#   release-v<version>    → production environment (values-awsprod.yaml, namespace: tapstate-cloud-control)
+#                           e.g. release-v0.2.0; '*' matches any version suffix
 # ============================================================
 # Prerequisites (GitHub Repository Secrets):
 #   AWS_ACCESS_KEY_ID       — AWS credentials for ECR push
@@ -27,7 +28,10 @@ on:
   push:
     branches:
       - main
-      - 'release-v*.x.x'
+      # Matches release-v followed by any version suffix, e.g.
+      # release-v0.2.0. The deploy-prod / deploy-sdk job conditions use
+      # the same startsWith('refs/heads/release-v') prefix.
+      - 'release-v*'
 
 permissions:
   contents: read
