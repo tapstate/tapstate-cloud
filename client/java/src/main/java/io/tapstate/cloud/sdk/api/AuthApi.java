@@ -1,6 +1,6 @@
 /*
  * Tapstate Cloud — Global Control Plane API
- * Global Control Plane backend API for Tapstate Cloud.  ## Authentication  Three authentication contexts (ADR-0122 D2): - **Session Cookie** — Cloud Console users (type ①) - **Static Token** — SDK status sender (type ②, `/api/sdk/_*`) - **Resolve JWT** — issued by this service for Cluster Console access  ## Regions  Week 2: only `ap-southeast-1` (Singapore) available. Production regions to be added post-W4.  ## Clusters  Clusters are auto-provisioned via CloudFormation + EC2 + Docker. Lifecycle state machine has 6 states in Week 2. 
+ * Global Control Plane backend API for Tapstate Cloud.  ## Authentication  Three authentication contexts (ADR-0122 D2): - **Session Cookie** — Cloud Console users (type ①) - **Static Token** — SDK status sender (type ②, `/api/sdk/_*`) - **Resolve JWT** — issued by this service for Cluster Console access  ## Regions  Week 2: only `ap-southeast-1` (Singapore) available. Production regions to be added post-W4.  ## Clusters  Clusters are auto-provisioned via CloudFormation + EC2 + Docker. Lifecycle state machine has 6 states in Week 2.
  *
  * The version of the OpenAPI document: v1
  * Contact: cloud@tapstate.io
@@ -20,10 +20,16 @@ import io.tapstate.cloud.sdk.BaseApi;
 import io.tapstate.cloud.sdk.Configuration;
 import io.tapstate.cloud.sdk.Pair;
 
+import io.tapstate.cloud.sdk.model.AcceptInvitationRequest;
+import io.tapstate.cloud.sdk.model.ApiResponseListIdentityView;
 import io.tapstate.cloud.sdk.model.ApiResponseLoginResult;
-import io.tapstate.cloud.sdk.model.ApiResponseUserResponse;
+import io.tapstate.cloud.sdk.model.ApiResponseOAuthStartResult;
 import io.tapstate.cloud.sdk.model.ApiResponseVoid;
+import io.tapstate.cloud.sdk.model.EmailCodeRequest;
+import io.tapstate.cloud.sdk.model.EmailRegistrationRequest;
 import io.tapstate.cloud.sdk.model.LoginRequest;
+import io.tapstate.cloud.sdk.model.OAuthStartRequest;
+import io.tapstate.cloud.sdk.model.ReauthenticationRequest;
 import io.tapstate.cloud.sdk.model.RegisterRequest;
 
 
@@ -43,6 +49,147 @@ public class AuthApi extends BaseApi {
 
   public AuthApi(ApiClient apiClient) {
     super(apiClient);
+  }
+
+  /**
+   * Accept an invitation as an existing user
+   * Adds the authenticated user to the invitation&#39;s organization without creating a duplicate account.
+   * @param acceptInvitationRequest  (required)
+   * @return ApiResponseLoginResult
+   * @throws ApiException if fails to make API call
+   */
+  public ApiResponseLoginResult acceptInvitation(@jakarta.annotation.Nonnull AcceptInvitationRequest acceptInvitationRequest) throws ApiException {
+    return this.acceptInvitation(acceptInvitationRequest, Collections.emptyMap());
+  }
+
+
+  /**
+   * Accept an invitation as an existing user
+   * Adds the authenticated user to the invitation&#39;s organization without creating a duplicate account.
+   * @param acceptInvitationRequest  (required)
+   * @param additionalHeaders additionalHeaders for this call
+   * @return ApiResponseLoginResult
+   * @throws ApiException if fails to make API call
+   */
+  public ApiResponseLoginResult acceptInvitation(@jakarta.annotation.Nonnull AcceptInvitationRequest acceptInvitationRequest, Map<String, String> additionalHeaders) throws ApiException {
+    Object localVarPostBody = acceptInvitationRequest;
+
+    // verify the required parameter 'acceptInvitationRequest' is set
+    if (acceptInvitationRequest == null) {
+      throw new ApiException(400, "Missing the required parameter 'acceptInvitationRequest' when calling acceptInvitation");
+    }
+
+    // create path and map variables
+    String localVarPath = "/v1/api/auth/invitations/accept";
+
+    StringJoiner localVarQueryStringJoiner = new StringJoiner("&");
+    String localVarQueryParameterBaseName;
+    List<Pair> localVarQueryParams = new ArrayList<Pair>();
+    List<Pair> localVarCollectionQueryParams = new ArrayList<Pair>();
+    Map<String, String> localVarHeaderParams = new HashMap<String, String>();
+    Map<String, String> localVarCookieParams = new HashMap<String, String>();
+    Map<String, Object> localVarFormParams = new HashMap<String, Object>();
+
+
+    localVarHeaderParams.putAll(additionalHeaders);
+
+
+
+    final String[] localVarAccepts = {
+      "*/*"
+    };
+    final String localVarAccept = apiClient.selectHeaderAccept(localVarAccepts);
+
+    final String[] localVarContentTypes = {
+      "application/json"
+    };
+    final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
+
+    String[] localVarAuthNames = new String[] { "session-cookie" };
+
+    TypeReference<ApiResponseLoginResult> localVarReturnType = new TypeReference<ApiResponseLoginResult>() {};
+    return apiClient.invokeAPI(
+        localVarPath,
+        "POST",
+        localVarQueryParams,
+        localVarCollectionQueryParams,
+        localVarQueryStringJoiner.toString(),
+        localVarPostBody,
+        localVarHeaderParams,
+        localVarCookieParams,
+        localVarFormParams,
+        localVarAccept,
+        localVarContentType,
+        localVarAuthNames,
+        localVarReturnType
+    );
+  }
+
+  /**
+   * List linked sign-in identities
+   *
+   * @return ApiResponseListIdentityView
+   * @throws ApiException if fails to make API call
+   */
+  public ApiResponseListIdentityView listIdentities() throws ApiException {
+    return this.listIdentities(Collections.emptyMap());
+  }
+
+
+  /**
+   * List linked sign-in identities
+   *
+   * @param additionalHeaders additionalHeaders for this call
+   * @return ApiResponseListIdentityView
+   * @throws ApiException if fails to make API call
+   */
+  public ApiResponseListIdentityView listIdentities(Map<String, String> additionalHeaders) throws ApiException {
+    Object localVarPostBody = null;
+
+    // create path and map variables
+    String localVarPath = "/v1/api/auth/identities";
+
+    StringJoiner localVarQueryStringJoiner = new StringJoiner("&");
+    String localVarQueryParameterBaseName;
+    List<Pair> localVarQueryParams = new ArrayList<Pair>();
+    List<Pair> localVarCollectionQueryParams = new ArrayList<Pair>();
+    Map<String, String> localVarHeaderParams = new HashMap<String, String>();
+    Map<String, String> localVarCookieParams = new HashMap<String, String>();
+    Map<String, Object> localVarFormParams = new HashMap<String, Object>();
+
+
+    localVarHeaderParams.putAll(additionalHeaders);
+
+
+
+    final String[] localVarAccepts = {
+      "*/*"
+    };
+    final String localVarAccept = apiClient.selectHeaderAccept(localVarAccepts);
+
+    final String[] localVarContentTypes = {
+
+    };
+    final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
+
+    String[] localVarAuthNames = new String[] { "session-cookie" };
+
+    TypeReference<ApiResponseListIdentityView> localVarReturnType = new TypeReference<ApiResponseListIdentityView>() {};
+    return apiClient.invokeAPI(
+        localVarPath,
+        "GET",
+        localVarQueryParams,
+        localVarCollectionQueryParams,
+        localVarQueryStringJoiner.toString(),
+        localVarPostBody,
+        localVarHeaderParams,
+        localVarCookieParams,
+        localVarFormParams,
+        localVarAccept,
+        localVarContentType,
+        localVarAuthNames,
+        localVarReturnType
+    );
   }
 
   /**
@@ -67,12 +214,12 @@ public class AuthApi extends BaseApi {
    */
   public ApiResponseLoginResult login(@jakarta.annotation.Nonnull LoginRequest loginRequest, Map<String, String> additionalHeaders) throws ApiException {
     Object localVarPostBody = loginRequest;
-    
+
     // verify the required parameter 'loginRequest' is set
     if (loginRequest == null) {
       throw new ApiException(400, "Missing the required parameter 'loginRequest' when calling login");
     }
-    
+
     // create path and map variables
     String localVarPath = "/v1/api/auth/login";
 
@@ -84,11 +231,11 @@ public class AuthApi extends BaseApi {
     Map<String, String> localVarCookieParams = new HashMap<String, String>();
     Map<String, Object> localVarFormParams = new HashMap<String, Object>();
 
-    
+
     localVarHeaderParams.putAll(additionalHeaders);
 
-    
-    
+
+
     final String[] localVarAccepts = {
       "*/*"
     };
@@ -139,7 +286,7 @@ public class AuthApi extends BaseApi {
    */
   public ApiResponseVoid logout(Map<String, String> additionalHeaders) throws ApiException {
     Object localVarPostBody = null;
-    
+
     // create path and map variables
     String localVarPath = "/v1/api/auth/logout";
 
@@ -151,18 +298,18 @@ public class AuthApi extends BaseApi {
     Map<String, String> localVarCookieParams = new HashMap<String, String>();
     Map<String, Object> localVarFormParams = new HashMap<String, Object>();
 
-    
+
     localVarHeaderParams.putAll(additionalHeaders);
 
-    
-    
+
+
     final String[] localVarAccepts = {
       "*/*"
     };
     final String localVarAccept = apiClient.selectHeaderAccept(localVarAccepts);
 
     final String[] localVarContentTypes = {
-      
+
     };
     final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
 
@@ -206,7 +353,7 @@ public class AuthApi extends BaseApi {
    */
   public ApiResponseLoginResult me(Map<String, String> additionalHeaders) throws ApiException {
     Object localVarPostBody = null;
-    
+
     // create path and map variables
     String localVarPath = "/v1/api/auth/me";
 
@@ -218,18 +365,18 @@ public class AuthApi extends BaseApi {
     Map<String, String> localVarCookieParams = new HashMap<String, String>();
     Map<String, Object> localVarFormParams = new HashMap<String, Object>();
 
-    
+
     localVarHeaderParams.putAll(additionalHeaders);
 
-    
-    
+
+
     final String[] localVarAccepts = {
       "*/*"
     };
     final String localVarAccept = apiClient.selectHeaderAccept(localVarAccepts);
 
     final String[] localVarContentTypes = {
-      
+
     };
     final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
 
@@ -254,35 +401,35 @@ public class AuthApi extends BaseApi {
   }
 
   /**
-   * Register new user
-   * Create a new Cloud Console account with email + password. In Week 2 preview, email is auto-verified (magic link deferred).
-   * @param registerRequest  (required)
-   * @return ApiResponseUserResponse
+   * Reauthenticate before linking a provider identity
+   *
+   * @param reauthenticationRequest  (required)
+   * @return ApiResponseVoid
    * @throws ApiException if fails to make API call
    */
-  public ApiResponseUserResponse register(@jakarta.annotation.Nonnull RegisterRequest registerRequest) throws ApiException {
-    return this.register(registerRequest, Collections.emptyMap());
+  public ApiResponseVoid reauthenticate(@jakarta.annotation.Nonnull ReauthenticationRequest reauthenticationRequest) throws ApiException {
+    return this.reauthenticate(reauthenticationRequest, Collections.emptyMap());
   }
 
 
   /**
-   * Register new user
-   * Create a new Cloud Console account with email + password. In Week 2 preview, email is auto-verified (magic link deferred).
-   * @param registerRequest  (required)
+   * Reauthenticate before linking a provider identity
+   *
+   * @param reauthenticationRequest  (required)
    * @param additionalHeaders additionalHeaders for this call
-   * @return ApiResponseUserResponse
+   * @return ApiResponseVoid
    * @throws ApiException if fails to make API call
    */
-  public ApiResponseUserResponse register(@jakarta.annotation.Nonnull RegisterRequest registerRequest, Map<String, String> additionalHeaders) throws ApiException {
-    Object localVarPostBody = registerRequest;
-    
-    // verify the required parameter 'registerRequest' is set
-    if (registerRequest == null) {
-      throw new ApiException(400, "Missing the required parameter 'registerRequest' when calling register");
+  public ApiResponseVoid reauthenticate(@jakarta.annotation.Nonnull ReauthenticationRequest reauthenticationRequest, Map<String, String> additionalHeaders) throws ApiException {
+    Object localVarPostBody = reauthenticationRequest;
+
+    // verify the required parameter 'reauthenticationRequest' is set
+    if (reauthenticationRequest == null) {
+      throw new ApiException(400, "Missing the required parameter 'reauthenticationRequest' when calling reauthenticate");
     }
-    
+
     // create path and map variables
-    String localVarPath = "/v1/api/auth/register";
+    String localVarPath = "/v1/api/auth/identities/reauthenticate";
 
     StringJoiner localVarQueryStringJoiner = new StringJoiner("&");
     String localVarQueryParameterBaseName;
@@ -292,11 +439,11 @@ public class AuthApi extends BaseApi {
     Map<String, String> localVarCookieParams = new HashMap<String, String>();
     Map<String, Object> localVarFormParams = new HashMap<String, Object>();
 
-    
+
     localVarHeaderParams.putAll(additionalHeaders);
 
-    
-    
+
+
     final String[] localVarAccepts = {
       "*/*"
     };
@@ -309,7 +456,308 @@ public class AuthApi extends BaseApi {
 
     String[] localVarAuthNames = new String[] { "session-cookie" };
 
-    TypeReference<ApiResponseUserResponse> localVarReturnType = new TypeReference<ApiResponseUserResponse>() {};
+    TypeReference<ApiResponseVoid> localVarReturnType = new TypeReference<ApiResponseVoid>() {};
+    return apiClient.invokeAPI(
+        localVarPath,
+        "POST",
+        localVarQueryParams,
+        localVarCollectionQueryParams,
+        localVarQueryStringJoiner.toString(),
+        localVarPostBody,
+        localVarHeaderParams,
+        localVarCookieParams,
+        localVarFormParams,
+        localVarAccept,
+        localVarContentType,
+        localVarAuthNames,
+        localVarReturnType
+    );
+  }
+
+  /**
+   * Reject open registration
+   * New accounts require an organization invitation and email verification.
+   * @param registerRequest  (required)
+   * @throws ApiException if fails to make API call
+   */
+  public void register(@jakarta.annotation.Nonnull RegisterRequest registerRequest) throws ApiException {
+    this.register(registerRequest, Collections.emptyMap());
+  }
+
+
+  /**
+   * Reject open registration
+   * New accounts require an organization invitation and email verification.
+   * @param registerRequest  (required)
+   * @param additionalHeaders additionalHeaders for this call
+   * @throws ApiException if fails to make API call
+   */
+  public void register(@jakarta.annotation.Nonnull RegisterRequest registerRequest, Map<String, String> additionalHeaders) throws ApiException {
+    Object localVarPostBody = registerRequest;
+
+    // verify the required parameter 'registerRequest' is set
+    if (registerRequest == null) {
+      throw new ApiException(400, "Missing the required parameter 'registerRequest' when calling register");
+    }
+
+    // create path and map variables
+    String localVarPath = "/v1/api/auth/register";
+
+    StringJoiner localVarQueryStringJoiner = new StringJoiner("&");
+    String localVarQueryParameterBaseName;
+    List<Pair> localVarQueryParams = new ArrayList<Pair>();
+    List<Pair> localVarCollectionQueryParams = new ArrayList<Pair>();
+    Map<String, String> localVarHeaderParams = new HashMap<String, String>();
+    Map<String, String> localVarCookieParams = new HashMap<String, String>();
+    Map<String, Object> localVarFormParams = new HashMap<String, Object>();
+
+
+    localVarHeaderParams.putAll(additionalHeaders);
+
+
+
+    final String[] localVarAccepts = {
+      "*/*"
+    };
+    final String localVarAccept = apiClient.selectHeaderAccept(localVarAccepts);
+
+    final String[] localVarContentTypes = {
+      "application/json"
+    };
+    final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
+
+    String[] localVarAuthNames = new String[] {  };
+
+    apiClient.invokeAPI(
+        localVarPath,
+        "POST",
+        localVarQueryParams,
+        localVarCollectionQueryParams,
+        localVarQueryStringJoiner.toString(),
+        localVarPostBody,
+        localVarHeaderParams,
+        localVarCookieParams,
+        localVarFormParams,
+        localVarAccept,
+        localVarContentType,
+        localVarAuthNames,
+        null
+    );
+  }
+
+  /**
+   * Complete invited email registration
+   * Verifies the one-time code and atomically consumes the invitation while creating the account and organization membership.
+   * @param emailRegistrationRequest  (required)
+   * @return ApiResponseLoginResult
+   * @throws ApiException if fails to make API call
+   */
+  public ApiResponseLoginResult registerWithEmailCode(@jakarta.annotation.Nonnull EmailRegistrationRequest emailRegistrationRequest) throws ApiException {
+    return this.registerWithEmailCode(emailRegistrationRequest, Collections.emptyMap());
+  }
+
+
+  /**
+   * Complete invited email registration
+   * Verifies the one-time code and atomically consumes the invitation while creating the account and organization membership.
+   * @param emailRegistrationRequest  (required)
+   * @param additionalHeaders additionalHeaders for this call
+   * @return ApiResponseLoginResult
+   * @throws ApiException if fails to make API call
+   */
+  public ApiResponseLoginResult registerWithEmailCode(@jakarta.annotation.Nonnull EmailRegistrationRequest emailRegistrationRequest, Map<String, String> additionalHeaders) throws ApiException {
+    Object localVarPostBody = emailRegistrationRequest;
+
+    // verify the required parameter 'emailRegistrationRequest' is set
+    if (emailRegistrationRequest == null) {
+      throw new ApiException(400, "Missing the required parameter 'emailRegistrationRequest' when calling registerWithEmailCode");
+    }
+
+    // create path and map variables
+    String localVarPath = "/v1/api/auth/email/register";
+
+    StringJoiner localVarQueryStringJoiner = new StringJoiner("&");
+    String localVarQueryParameterBaseName;
+    List<Pair> localVarQueryParams = new ArrayList<Pair>();
+    List<Pair> localVarCollectionQueryParams = new ArrayList<Pair>();
+    Map<String, String> localVarHeaderParams = new HashMap<String, String>();
+    Map<String, String> localVarCookieParams = new HashMap<String, String>();
+    Map<String, Object> localVarFormParams = new HashMap<String, Object>();
+
+
+    localVarHeaderParams.putAll(additionalHeaders);
+
+
+
+    final String[] localVarAccepts = {
+      "*/*"
+    };
+    final String localVarAccept = apiClient.selectHeaderAccept(localVarAccepts);
+
+    final String[] localVarContentTypes = {
+      "application/json"
+    };
+    final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
+
+    String[] localVarAuthNames = new String[] {  };
+
+    TypeReference<ApiResponseLoginResult> localVarReturnType = new TypeReference<ApiResponseLoginResult>() {};
+    return apiClient.invokeAPI(
+        localVarPath,
+        "POST",
+        localVarQueryParams,
+        localVarCollectionQueryParams,
+        localVarQueryStringJoiner.toString(),
+        localVarPostBody,
+        localVarHeaderParams,
+        localVarCookieParams,
+        localVarFormParams,
+        localVarAccept,
+        localVarContentType,
+        localVarAuthNames,
+        localVarReturnType
+    );
+  }
+
+  /**
+   * Request an invited email verification code
+   * Sends a short-lived, one-time code. The response does not disclose whether the address already has an account.
+   * @param emailCodeRequest  (required)
+   * @return ApiResponseVoid
+   * @throws ApiException if fails to make API call
+   */
+  public ApiResponseVoid requestEmailCode(@jakarta.annotation.Nonnull EmailCodeRequest emailCodeRequest) throws ApiException {
+    return this.requestEmailCode(emailCodeRequest, Collections.emptyMap());
+  }
+
+
+  /**
+   * Request an invited email verification code
+   * Sends a short-lived, one-time code. The response does not disclose whether the address already has an account.
+   * @param emailCodeRequest  (required)
+   * @param additionalHeaders additionalHeaders for this call
+   * @return ApiResponseVoid
+   * @throws ApiException if fails to make API call
+   */
+  public ApiResponseVoid requestEmailCode(@jakarta.annotation.Nonnull EmailCodeRequest emailCodeRequest, Map<String, String> additionalHeaders) throws ApiException {
+    Object localVarPostBody = emailCodeRequest;
+
+    // verify the required parameter 'emailCodeRequest' is set
+    if (emailCodeRequest == null) {
+      throw new ApiException(400, "Missing the required parameter 'emailCodeRequest' when calling requestEmailCode");
+    }
+
+    // create path and map variables
+    String localVarPath = "/v1/api/auth/email/code";
+
+    StringJoiner localVarQueryStringJoiner = new StringJoiner("&");
+    String localVarQueryParameterBaseName;
+    List<Pair> localVarQueryParams = new ArrayList<Pair>();
+    List<Pair> localVarCollectionQueryParams = new ArrayList<Pair>();
+    Map<String, String> localVarHeaderParams = new HashMap<String, String>();
+    Map<String, String> localVarCookieParams = new HashMap<String, String>();
+    Map<String, Object> localVarFormParams = new HashMap<String, Object>();
+
+
+    localVarHeaderParams.putAll(additionalHeaders);
+
+
+
+    final String[] localVarAccepts = {
+      "*/*"
+    };
+    final String localVarAccept = apiClient.selectHeaderAccept(localVarAccepts);
+
+    final String[] localVarContentTypes = {
+      "application/json"
+    };
+    final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
+
+    String[] localVarAuthNames = new String[] {  };
+
+    TypeReference<ApiResponseVoid> localVarReturnType = new TypeReference<ApiResponseVoid>() {};
+    return apiClient.invokeAPI(
+        localVarPath,
+        "POST",
+        localVarQueryParams,
+        localVarCollectionQueryParams,
+        localVarQueryStringJoiner.toString(),
+        localVarPostBody,
+        localVarHeaderParams,
+        localVarCookieParams,
+        localVarFormParams,
+        localVarAccept,
+        localVarContentType,
+        localVarAuthNames,
+        localVarReturnType
+    );
+  }
+
+  /**
+   * Start Google or GitHub OAuth sign-in
+   * Stores only a hash of the invitation in the server session and returns the provider authorization path.
+   * @param provider  (required)
+   * @param oauthStartRequest  (required)
+   * @return ApiResponseOAuthStartResult
+   * @throws ApiException if fails to make API call
+   */
+  public ApiResponseOAuthStartResult startOAuth(@jakarta.annotation.Nonnull String provider, @jakarta.annotation.Nonnull OAuthStartRequest oauthStartRequest) throws ApiException {
+    return this.startOAuth(provider, oauthStartRequest, Collections.emptyMap());
+  }
+
+
+  /**
+   * Start Google or GitHub OAuth sign-in
+   * Stores only a hash of the invitation in the server session and returns the provider authorization path.
+   * @param provider  (required)
+   * @param oauthStartRequest  (required)
+   * @param additionalHeaders additionalHeaders for this call
+   * @return ApiResponseOAuthStartResult
+   * @throws ApiException if fails to make API call
+   */
+  public ApiResponseOAuthStartResult startOAuth(@jakarta.annotation.Nonnull String provider, @jakarta.annotation.Nonnull OAuthStartRequest oauthStartRequest, Map<String, String> additionalHeaders) throws ApiException {
+    Object localVarPostBody = oauthStartRequest;
+
+    // verify the required parameter 'provider' is set
+    if (provider == null) {
+      throw new ApiException(400, "Missing the required parameter 'provider' when calling startOAuth");
+    }
+
+    // verify the required parameter 'oauthStartRequest' is set
+    if (oauthStartRequest == null) {
+      throw new ApiException(400, "Missing the required parameter 'oauthStartRequest' when calling startOAuth");
+    }
+
+    // create path and map variables
+    String localVarPath = "/v1/api/auth/oauth/{provider}/start"
+      .replaceAll("\\{" + "provider" + "\\}", apiClient.escapeString(apiClient.parameterToString(provider)));
+
+    StringJoiner localVarQueryStringJoiner = new StringJoiner("&");
+    String localVarQueryParameterBaseName;
+    List<Pair> localVarQueryParams = new ArrayList<Pair>();
+    List<Pair> localVarCollectionQueryParams = new ArrayList<Pair>();
+    Map<String, String> localVarHeaderParams = new HashMap<String, String>();
+    Map<String, String> localVarCookieParams = new HashMap<String, String>();
+    Map<String, Object> localVarFormParams = new HashMap<String, Object>();
+
+
+    localVarHeaderParams.putAll(additionalHeaders);
+
+
+
+    final String[] localVarAccepts = {
+      "*/*"
+    };
+    final String localVarAccept = apiClient.selectHeaderAccept(localVarAccepts);
+
+    final String[] localVarContentTypes = {
+      "application/json"
+    };
+    final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
+
+    String[] localVarAuthNames = new String[] { "session-cookie" };
+
+    TypeReference<ApiResponseOAuthStartResult> localVarReturnType = new TypeReference<ApiResponseOAuthStartResult>() {};
     return apiClient.invokeAPI(
         localVarPath,
         "POST",
