@@ -12,6 +12,10 @@ import io.tapstate.cloud.sdk.api.SubscriptionApi;
 import io.tapstate.cloud.sdk.model.LoginRequest;
 import io.tapstate.cloud.sdk.model.LoginResult;
 import io.tapstate.cloud.sdk.model.RegisterRequest;
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoClients;
+import org.bson.Document;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -24,6 +28,8 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.time.Instant;
+import java.util.Date;
 
 /**
  * Base class for failsafe integration tests — runs against a LIVE Spring Boot
@@ -125,10 +131,32 @@ public abstract class BaseIT {
 
     // ---- Auth helpers ----
 
-    /** Register a new user (auto-verified in Week 2 preview). */
+    /** Seed an already-verified account for tests that exercise authenticated APIs. */
     protected void register(String email, String password) throws ApiException {
-        authApi.register(new io.tapstate.cloud.sdk.model.RegisterRequest()
-            .email(email).password(password).displayName(email.split("@")[0]));
+        try (MongoClient mongo = MongoClients.create(MONGO_URI)) {
+            mongo.getDatabase(MONGO_DB).getCollection("users").insertOne(new Document()
+                .append("email", email.trim().toLowerCase(java.util.Locale.ROOT))
+                .append("passwordHash", new BCryptPasswordEncoder().encode(password))
+                .append("displayName", email.split("@")[0])
+                .append("emailVerified", true)
+                .append("status", "active")
+                .append("createdAt", Date.from(Instant.now()))
+                .append("updatedAt", Date.from(Instant.now())));
+        }
+    }
+
+    protected long countUsers(String email) {
+        try (MongoClient mongo = MongoClients.create(MONGO_URI)) {
+            return mongo.getDatabase(MONGO_DB).getCollection("users")
+                .countDocuments(new Document("email", email.trim().toLowerCase(java.util.Locale.ROOT)));
+        }
+    }
+
+    protected long countMembers(String email) {
+        try (MongoClient mongo = MongoClients.create(MONGO_URI)) {
+            return mongo.getDatabase(MONGO_DB).getCollection("org_members")
+                .countDocuments(new Document("userEmail", email.trim().toLowerCase(java.util.Locale.ROOT)));
+        }
     }
 
     /** Login — SDK ApiClient uses Apache HttpClient which does NOT auto-persist session

@@ -157,8 +157,9 @@ public class MongoInitListener implements ApplicationListener<ApplicationReadyEv
             } catch (ClassNotFoundException e) {
                 log.error("[Mongo Init] Could not load entity class: {}", beanDef.getBeanClassName(), e);
             } catch (Exception e) {
-                if (Cluster.class.getName().equals(beanDef.getBeanClassName())) {
-                    throw new IllegalStateException("Cluster name index migration failed", e);
+                if (mustHaveIndexes(beanDef.getBeanClassName())) {
+                    throw new IllegalStateException("Required Mongo indexes could not be applied for "
+                        + beanDef.getBeanClassName(), e);
                 }
                 log.error("[Mongo Init] Failed to apply indexes for {}: {}", beanDef.getBeanClassName(), e.getMessage());
             }
@@ -195,5 +196,14 @@ public class MongoInitListener implements ApplicationListener<ApplicationReadyEv
         if (!unlabeled.isEmpty()) {
             log.info("[Mongo Init] Backfilled dnsLabel on {} Cluster document(s)", unlabeled.size());
         }
+    }
+
+    private boolean mustHaveIndexes(String className) {
+        return Cluster.class.getName().equals(className)
+            || "io.tapstate.cloud.org.Member".equals(className)
+            || "io.tapstate.cloud.identity.LinkedIdentity".equals(className)
+            || "io.tapstate.cloud.identity.OrganizationInvitation".equals(className)
+            || "io.tapstate.cloud.identity.EmailVerificationChallenge".equals(className)
+            || "io.tapstate.cloud.identity.AuthRateLimitWindow".equals(className);
     }
 }

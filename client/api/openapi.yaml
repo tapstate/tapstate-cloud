@@ -452,10 +452,10 @@ paths:
     post:
       tags:
       - Auth
-      summary: Register new user
-      description: "Create a new Cloud Console account with email + password. In Week\
-        \ 2 preview, email is auto-verified (magic link deferred)."
+      summary: Reject open registration
+      description: New accounts require an organization invitation and email verification.
       operationId: register
+      security: []
       requestBody:
         content:
           application/json:
@@ -463,18 +463,230 @@ paths:
               $ref: "#/components/schemas/RegisterRequest"
         required: true
       responses:
-        "201":
-          description: User created
+        "403":
+          description: Open registration is disabled
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/ApiResponseUserResponse"
+                $ref: "#/components/schemas/ApiResponseVoid"
+  /v1/api/auth/email/code:
+    post:
+      tags:
+      - Auth
+      summary: Request an invited email verification code
+      description: Sends a short-lived, one-time code. The response does not disclose whether the address already has an account.
+      operationId: requestEmailCode
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailCodeRequest"
+      responses:
+        "202":
+          description: Request accepted
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseVoid"
         "400":
-          description: Invalid input or email already registered
+          description: Invitation or request is invalid
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/ApiResponseUserResponse"
+                $ref: "#/components/schemas/ApiResponseVoid"
+        "403":
+          description: Invitation email does not match
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseVoid"
+        "410":
+          description: Invitation expired or revoked
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseVoid"
+        "429":
+          description: Request cooldown or hourly limit reached
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseVoid"
+        "503":
+          description: Email delivery is unavailable
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseVoid"
+  /v1/api/auth/email/register:
+    post:
+      tags:
+      - Auth
+      summary: Complete invited email registration
+      description: Verifies the one-time code and atomically consumes the invitation while creating the account and organization membership.
+      operationId: registerWithEmailCode
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailRegistrationRequest"
+      responses:
+        "201":
+          description: Account created and signed in
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseLoginResult"
+        "400":
+          description: Verification code or request is invalid
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseLoginResult"
+        "403":
+          description: Invitation cannot be used for this email
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseLoginResult"
+        "409":
+          description: Invitation was already consumed
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseLoginResult"
+        "410":
+          description: Invitation or verification code expired
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseLoginResult"
+        "429":
+          description: Verification attempts exceeded
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseLoginResult"
+        "503":
+          description: OTP verification is not configured
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseLoginResult"
+  /v1/api/auth/invitations/accept:
+    post:
+      tags:
+      - Auth
+      summary: Accept an invitation as an existing user
+      description: Adds the authenticated user to the invitation's organization without creating a duplicate account.
+      operationId: acceptInvitation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AcceptInvitationRequest"
+      responses:
+        "200":
+          description: Invitation accepted
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseLoginResult"
+        "401":
+          description: Authentication required
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseLoginResult"
+        "403":
+          description: Invitation email does not match the account
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseLoginResult"
+        "409":
+          description: Invitation was already consumed
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseLoginResult"
+  /v1/api/auth/oauth/{provider}/start:
+    post:
+      tags:
+      - Auth
+      summary: Start Google or GitHub OAuth sign-in
+      description: Stores only a hash of the invitation in the server session and returns the provider authorization path.
+      operationId: startOAuth
+      security:
+      - session-cookie: []
+      - {}
+      parameters:
+      - name: provider
+        in: path
+        required: true
+        schema:
+          type: string
+          enum: [google, github]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OAuthStartRequest"
+      responses:
+        "200":
+          description: Provider authorization path
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseOAuthStartResult"
+        "400":
+          description: Unsupported OAuth flow
+        "401":
+          description: Recent authentication is required to link an identity
+        "503":
+          description: Provider is not configured
+  /v1/api/auth/identities:
+    get:
+      tags:
+      - Auth
+      summary: List linked sign-in identities
+      operationId: listIdentities
+      responses:
+        "200":
+          description: Linked identities
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseListIdentityView"
+        "401":
+          description: Authentication required
+  /v1/api/auth/identities/reauthenticate:
+    post:
+      tags:
+      - Auth
+      summary: Reauthenticate before linking a provider identity
+      operationId: reauthenticate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReauthenticationRequest"
+      responses:
+        "200":
+          description: Reauthentication accepted for five minutes
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseVoid"
+        "401":
+          description: Current account credentials are invalid
   /v1/api/auth/logout:
     post:
       tags:
@@ -664,6 +876,87 @@ paths:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseOrganizationResponse"
+  /v1/api/orgs/{orgId}/invitations:
+    get:
+      tags:
+      - Organizations
+      summary: List organization invitations
+      description: Returns invitation status without exposing invitation tokens. Organization owner only.
+      operationId: listInvitations
+      parameters:
+      - name: orgId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          description: Invitation records
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseListInvitationView"
+        "403":
+          description: Organization owner required
+    post:
+      tags:
+      - Organizations
+      summary: Create a single-use organization invitation
+      description: Creates a seven-day invitation for an optional email address. The high-entropy token is returned once.
+      operationId: createInvitation
+      parameters:
+      - name: orgId
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateInvitationRequest"
+      responses:
+        "201":
+          description: Invitation created; token is returned once
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseCreatedInvitation"
+        "403":
+          description: Organization owner required
+        "404":
+          description: Organization not found
+  /v1/api/orgs/{orgId}/invitations/{invitationId}:
+    delete:
+      tags:
+      - Organizations
+      summary: Revoke an unused organization invitation
+      operationId: revokeInvitation
+      parameters:
+      - name: orgId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: invitationId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          description: Invitation revoked
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseInvitationView"
+        "403":
+          description: Organization owner required
+        "404":
+          description: Invitation not found
+        "409":
+          description: Invitation was already consumed
   /v1/api/orgs/{orgId}/subscriptions/{subscriptionId}:
     get:
       tags:
@@ -1307,6 +1600,155 @@ components:
         status:
           type: string
           description: Always 'accepted' on success
+    EmailCodeRequest:
+      type: object
+      required: [email, invitationToken]
+      properties:
+        email:
+          type: string
+          format: email
+        invitationToken:
+          type: string
+    EmailRegistrationRequest:
+      type: object
+      required: [email, invitationToken, code, password]
+      properties:
+        email:
+          type: string
+          format: email
+        invitationToken:
+          type: string
+        code:
+          type: string
+          minLength: 6
+          maxLength: 6
+        password:
+          type: string
+          minLength: 8
+          maxLength: 128
+        displayName:
+          type: string
+          maxLength: 100
+    AcceptInvitationRequest:
+      type: object
+      required: [invitationToken]
+      properties:
+        invitationToken:
+          type: string
+    OAuthStartRequest:
+      type: object
+      required: [flow]
+      properties:
+        flow:
+          type: string
+          enum: [login, signup, link]
+        invitationToken:
+          type: string
+          nullable: true
+    OAuthStartResult:
+      type: object
+      properties:
+        authorizationUrl:
+          type: string
+    ReauthenticationRequest:
+      type: object
+      properties:
+        password:
+          type: string
+    CreateInvitationRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+    InvitationView:
+      type: object
+      properties:
+        id:
+          type: string
+        orgId:
+          type: string
+        invitedEmail:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [active, revoked, consumed, expired]
+    CreatedInvitation:
+      type: object
+      required: [invitation, token]
+      properties:
+        invitation:
+          $ref: "#/components/schemas/InvitationView"
+        token:
+          type: string
+          description: High-entropy invitation token; returned only at creation.
+    ApiResponseInvitationView:
+      type: object
+      properties:
+        opId:
+          type: string
+        code:
+          type: string
+        msg:
+          type: string
+        data:
+          $ref: "#/components/schemas/InvitationView"
+    ApiResponseListInvitationView:
+      type: object
+      properties:
+        opId:
+          type: string
+        code:
+          type: string
+        msg:
+          type: string
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/InvitationView"
+    ApiResponseCreatedInvitation:
+      type: object
+      properties:
+        opId:
+          type: string
+        code:
+          type: string
+        msg:
+          type: string
+        data:
+          $ref: "#/components/schemas/CreatedInvitation"
+    IdentityView:
+      type: object
+      properties:
+        provider:
+          type: string
+          enum: [google, github]
+        email:
+          type: string
+        linkedAt:
+          type: string
+          format: date-time
+    ApiResponseListIdentityView:
+      type: object
+      properties:
+        opId:
+          type: string
+        code:
+          type: string
+        msg:
+          type: string
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/IdentityView"
     RegisterRequest:
       type: object
       properties:
@@ -1421,6 +1863,15 @@ components:
           description: Detailed message — success info or failure reason
         data:
           $ref: "#/components/schemas/LoginResult"
+    ApiResponseOAuthStartResult:
+      type: object
+      properties:
+        code:
+          type: string
+        msg:
+          type: string
+        data:
+          $ref: "#/components/schemas/OAuthStartResult"
           description: "Response payload — object or array, null on void responses"
     LoginResult:
       type: object
