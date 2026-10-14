@@ -55,6 +55,41 @@ kubectl create secret generic tapstate-cloud-control-cluster-version \
   -n tapstate-cloud-control \
   --from-literal=release-token="$(openssl rand -hex 32)"
 
+# ---- Invited email registration and OAuth (optional) ----
+# Commands below use the local/production namespace. For awsdev, create each
+# Secret in the tapstate namespace instead.
+# Keep the OTP HMAC key stable across restarts. Rotating it invalidates any
+# outstanding email verification codes. Use a persistent value per environment;
+# do not put it in Helm values or source control.
+kubectl create secret generic tapstate-cloud-control-auth \
+  -n tapstate-cloud-control \
+  --from-literal=otp-hmac-key="$(openssl rand -hex 32)"
+
+# Google and GitHub OAuth app credentials are optional independently. Create
+# these Secrets only for configured providers. Register each callback URL in
+# the provider application:
+#   production: https://cloud.tapstate.com/login/oauth2/code/google
+#               https://cloud.tapstate.com/login/oauth2/code/github
+#   awsdev:     https://dev.cloud.tapstate.com/login/oauth2/code/google
+#               https://dev.cloud.tapstate.com/login/oauth2/code/github
+kubectl create secret generic tapstate-cloud-control-google-oauth \
+  -n tapstate-cloud-control \
+  --from-literal=client-id='<Google OAuth client ID>' \
+  --from-literal=client-secret='<Google OAuth client secret>'
+kubectl create secret generic tapstate-cloud-control-github-oauth \
+  -n tapstate-cloud-control \
+  --from-literal=client-id='<GitHub OAuth client ID>' \
+  --from-literal=client-secret='<GitHub OAuth client secret>'
+
+# SMTP credentials enable verification-code delivery. SMTP port, authentication,
+# STARTTLS, sender address, OAuth callback base URL and Console redirect URL are
+# read from the environment-specific Helm values.
+kubectl create secret generic tapstate-cloud-control-smtp \
+  -n tapstate-cloud-control \
+  --from-literal=host='<SMTP host>' \
+  --from-literal=username='<SMTP username>' \
+  --from-literal=password='<SMTP password>'
+
 # ---- Shared sample database password ----
 # Keep this file outside the repository with owner-only permissions.
 # The Secret must be in the same namespace as the Control Plane release.

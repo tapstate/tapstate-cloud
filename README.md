@@ -65,15 +65,20 @@ docker run -p 8080:8080 \
 ## API Endpoints
 
 - `GET /health` — liveness probe
-- `POST /api/auth/register` — register new user
-- `POST /api/auth/login` — login (sets HttpOnly session cookie)
+- `POST /v1/api/auth/email/code` and `POST /v1/api/auth/email/register` — register with an organization invitation and verified email
+- `POST /v1/api/auth/invitations/accept` — accept an invitation with an existing account
+- `POST /v1/api/auth/oauth/{provider}/start` — start Google or GitHub sign-in or account linking
+- `POST /v1/api/auth/login` — sign in with email and password (sets HttpOnly session cookie)
+- `POST /v1/api/auth/logout` — revoke Cloud and Cluster sessions
+- `GET /v1/api/auth/identities` — list linked sign-in identities
+- `GET|POST /v1/api/orgs/{orgId}/invitations` and `DELETE /v1/api/orgs/{orgId}/invitations/{invitationId}` — manage single-use invitations as the organization owner
 - `GET /api/regions` — list open AWS regions
 - `GET /api/orgs/{orgId}/clusters` — list clusters
 - `POST /api/orgs/{orgId}/clusters` — create cluster (async auto-provisioning)
 - `GET /api/jwks.json` — JWKS public key set
 - `POST /api/sdk/status` — SDK C2 status receiver
 
-OpenAPI docs: `http://localhost:8080/swagger-ui.html`
+OpenAPI docs: `http://localhost:8080/swagger-ui.html`. SMTP and OAuth secret setup is documented in `helm/tapstate-cloud-control/INSTALL.md`.
 
 ## OpenAPI SDK Generation
 
