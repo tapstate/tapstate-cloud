@@ -4,6 +4,10 @@ import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.index.Index;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -26,6 +30,7 @@ import java.util.*;
 public class JwksRotationService {
 
     private final JwksKeyRepository repository;
+    private final MongoTemplate mongoTemplate;
 
     @Value("${tapstate.cloud.jwks.rotation-enabled:true}")
     private boolean rotationEnabled;
@@ -43,16 +48,47 @@ public class JwksRotationService {
     private static final long OVERLAP_HOURS = 1;
     private static final long KEY_VALIDITY_HOURS = ROTATION_INTERVAL_HOURS + OVERLAP_HOURS * 2;
 
-    public JwksRotationService(JwksKeyRepository repository) {
+    public JwksRotationService(JwksKeyRepository repository,
+                               MongoTemplate mongoTemplate) {
         this.repository = repository;
+        this.mongoTemplate = mongoTemplate;
     }
 
     @PostConstruct
     public void init() {
         if (rotationEnabled) {
             log.info("JWKS rotation service initialized. Encryption enabled: {}", encryptionEnabled);
+            // The unique index on kid must exist BEFORE the first
+            // find-or-create below: with several replicas starting at once,
+            // the index is what turns concurrent bootstrap inserts into a
+            // deterministic winner/loser instead of two ACTIVE rows.
+            ensureKidUniqueIndex();
             // Ensure there is at least one active key on startup
             ensureActiveKey();
+        }
+    }
+
+    /**
+     * Ensure the unique index on {@code kid} exists up front. The global
+     * MongoInitListener only applies entity-declared indexes on
+     * ApplicationReadyEvent, which is too late to guard the bootstrap
+     * race between concurrently starting replicas.
+     * <p>
+     * The definition (name {@code kid}, unique) must stay in sync with
+     * {@link JwksKey}'s {@code @Indexed(unique = true)}; re-applying the
+     * same definition is an idempotent no-op, also for the listener.
+     */
+    private void ensureKidUniqueIndex() {
+        try {
+            Index kidUnique = new Index()
+                .on("kid", Sort.Direction.ASC)
+                .named("kid")
+                .unique();
+            mongoTemplate.indexOps(JwksKey.class).ensureIndex(kidUnique);
+        } catch (Exception e) {
+            throw new IllegalStateException(
+                "Cannot ensure the unique kid index on jwks_keys before JWKS bootstrap; "
+                    + "remove duplicate kids before restarting", e);
         }
     }
 
@@ -126,7 +162,10 @@ public class JwksRotationService {
     }
 
     /**
-     * Generate key ID in format: key-YYYY-MM-DD
+     * Generate key ID in format: key-YYYY-MM-DD.
+     * The deterministic value is intentional: backed by the unique kid
+     * index, it makes concurrent first-boot inserts on several replicas
+     * collide so exactly one key survives (see ensureActiveKey).
      */
     private String generateKeyId() {
         String today = LocalDate.now().format(DATE_FORMATTER);
@@ -234,6 +273,17 @@ public class JwksRotationService {
 
                 repository.save(initialKey);
                 log.info("Created initial active key with kid: {}", initialKid);
+            } catch (DuplicateKeyException e) {
+                // Another replica starting concurrently won the bootstrap
+                // race and inserted key-<today> first. Discard the generated
+                // pair and use the persisted winner; signing/JWKS must read
+                // the same key on every node.
+                JwksKey winner = repository
+                    .findFirstByStatusOrderByCreatedAtDesc(JwksKey.KeyStatus.ACTIVE)
+                    .orElseThrow(() -> new IllegalStateException(
+                        "Bootstrap insert collided on kid but no ACTIVE key is readable", e));
+                log.info("Active JWKS key {} was created by another instance; adopting it",
+                    winner.getKid());
             } catch (Exception e) {
                 log.error("Failed to generate initial key pair", e);
                 throw new RuntimeException("Failed to initialize JWKS keys", e);
