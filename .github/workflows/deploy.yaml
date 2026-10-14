@@ -211,10 +211,32 @@ jobs:
         id: login-ecr-dev
         uses: aws-actions/amazon-ecr-login@v2
 
+      - name: Check whether the SHA image already exists in ECR
+        id: image-exists
+        env:
+          ECR_REPO_URI: ${{ secrets.ECR_REPO_URI }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+        run: |
+          REPO_NAME="${ECR_REPO_URI#*/}"
+          if aws ecr describe-images --repository-name "$REPO_NAME" \
+               --image-ids "imageTag=${GITHUB_SHA}" --region "$AWS_REGION" \
+               >/dev/null 2>&1; then
+            # ECR tags are immutable: an existing SHA tag is the fixed
+            # artifact built from this exact commit, so pushing is both
+            # impossible and unnecessary. Both environments share one
+            # repository and tag by commit SHA, so the other environment
+            # (or an earlier run of this one) may have published it.
+            echo "Image ${REPO_NAME}:${GITHUB_SHA} already exists; skipping build and push."
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Build and push (awsdev)
+        if: steps.image-exists.outputs.exists != 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -294,10 +316,32 @@ jobs:
         id: login-ecr-prod
         uses: aws-actions/amazon-ecr-login@v2
 
+      - name: Check whether the SHA image already exists in ECR
+        id: image-exists
+        env:
+          ECR_REPO_URI: ${{ secrets.ECR_REPO_URI }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+        run: |
+          REPO_NAME="${ECR_REPO_URI#*/}"
+          if aws ecr describe-images --repository-name "$REPO_NAME" \
+               --image-ids "imageTag=${GITHUB_SHA}" --region "$AWS_REGION" \
+               >/dev/null 2>&1; then
+            # ECR tags are immutable: an existing SHA tag is the fixed
+            # artifact built from this exact commit, so pushing is both
+            # impossible and unnecessary. Both environments share one
+            # repository and tag by commit SHA, so the other environment
+            # (or an earlier run of this one) may have published it.
+            echo "Image ${REPO_NAME}:${GITHUB_SHA} already exists; skipping build and push."
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Build and push (prod)
+        if: steps.image-exists.outputs.exists != 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
