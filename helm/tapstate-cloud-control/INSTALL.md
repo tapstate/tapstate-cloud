@@ -80,17 +80,17 @@ helm install tapstate-cloud-control ./helm/tapstate-cloud-control \
   -n tapstate-cloud-control \
   --namespace-create
 
-# 3b. Helm install (AWS EC2 k3s preview)
+# 3b. Helm install (AWS production k3s)
 helm install tapstate-cloud-control ./helm/tapstate-cloud-control \
-  -f helm/tapstate-cloud-control/values-aws.yaml \
+  -f helm/tapstate-cloud-control/values-awsprod.yaml \
   -n tapstate-cloud-control
 
 # 4. Verify
 kubectl get pods -n tapstate-cloud-control
 kubectl get svc -n tapstate-cloud-control
-curl http://localhost:30080/health
+curl http://localhost:30180/health
 
 # 5. Upgrade
 helm upgrade tapstate-cloud-control ./helm/tapstate-cloud-control \
-  -f helm/tapstate-cloud-control/values-aws.yaml \
+  -f helm/tapstate-cloud-control/values-awsprod.yaml \
   -n tapstate-cloud-control

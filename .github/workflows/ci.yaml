@@ -145,5 +145,5 @@ jobs:
       - name: Template render check (local values)
         run: helm template tapstate-cloud-control helm/tapstate-cloud-control -f helm/tapstate-cloud-control/values-local.yaml > /dev/null
 
-      - name: Template render check (AWS values)
-        run: helm template tapstate-cloud-control helm/tapstate-cloud-control -f helm/tapstate-cloud-control/values-aws.yaml > /dev/null
+      - name: Template render check (AWS prod values)
+        run: helm template tapstate-cloud-control helm/tapstate-cloud-control -f helm/tapstate-cloud-control/values-awsprod.yaml > /dev/null

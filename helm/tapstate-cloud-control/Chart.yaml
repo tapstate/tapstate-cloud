@@ -10,7 +10,7 @@ version: 0.1.0
 appVersion: "0.1.0"
 
 # Chart can be installed to both local k3s and AWS EC2 self-hosted k3s
-# See values-local.yaml and values-aws.yaml for environment-specific overrides
+# See values-awsdev.yaml and values-awsprod.yaml for environment-specific overrides
 maintainers:
   - name: Tapstate Engineering
     email: cloud@tapstate.io

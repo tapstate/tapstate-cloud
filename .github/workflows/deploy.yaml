@@ -9,14 +9,16 @@
 #                           variable FULL_INTEGRATION_ENABLED is "true"
 #                           and the push touches Full Integration trigger
 #                           paths (see the await-main-gate job below)
-#   release-v*.x.x       → production environment (values-aws.yaml, namespace: tapstate-cloud-control)
+#   release-v*.x.x       → production environment (values-awsprod.yaml, namespace: tapstate-cloud-control)
 # ============================================================
 # Prerequisites (GitHub Repository Secrets):
 #   AWS_ACCESS_KEY_ID       — AWS credentials for ECR push
 #   AWS_SECRET_ACCESS_KEY   — AWS credentials for ECR push
-#   AWS_REGION              — ap-east-1 (both envs)
+#   AWS_REGION              — ap-east-1 (both envs share one ECR)
 #   ECR_REPO_URI            — e.g. 263186327888.dkr.ecr.ap-east-1.amazonaws.com/tapstate-cloud/tapstate-cloud-control
-#   KUBECONFIG_BASE64       — k3s kubeconfig (same cluster for both namespaces)
+#   KUBECONFIG_BASE64       — awsdev k3s kubeconfig (repo level); the
+#                             production environment overrides this name
+#                             with the production k3s kubeconfig
 # ============================================================
 
 name: CD — Deploy to k3s
@@ -262,7 +264,7 @@ jobs:
     if: startsWith(github.ref, 'refs/heads/release-v')
     environment:
       name: production
-      url: https://cloud.tapstate.io/health
+      url: https://cloud.tapstate.com/health
 
     steps:
       - uses: actions/checkout@v4
@@ -333,7 +335,7 @@ jobs:
             --set image.repository=${{ secrets.ECR_REPO_URI }} \
             --set image.tag=${{ github.sha }} \
             --set image.pullPolicy=Always \
-            --values helm/tapstate-cloud-control/values-aws.yaml \
+            --values helm/tapstate-cloud-control/values-awsprod.yaml \
             --timeout 5m \
             --wait
 

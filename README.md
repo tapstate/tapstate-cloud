@@ -62,12 +62,12 @@ helm install tapstate-cloud-control ./helm/tapstate-cloud-control \
   -n tapstate-cloud-control --create-namespace
 ```
 
-### AWS EC2 k3s preview
+### AWS production k3s
 
 ```bash
 # Prerequisites: ops pre-create k3s Secrets first (see helm/tapstate-cloud-control/INSTALL.md)
 helm install tapstate-cloud-control ./helm/tapstate-cloud-control \
-  -f helm/tapstate-cloud-control/values-aws.yaml \
+  -f helm/tapstate-cloud-control/values-awsprod.yaml \
   -n tapstate-cloud-control
 ```
 
