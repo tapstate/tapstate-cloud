@@ -71,6 +71,23 @@ secrets:
   clusterVersionReleaseToken:
     name: tapstate-cloud-control-cluster-version
     key: release-token
+  # Invited email registration and OAuth providers (optional per feature)
+  authHmacKey:
+    name: tapstate-cloud-control-auth
+    key: otp-hmac-key
+  googleOAuth:
+    name: tapstate-cloud-control-google-oauth
+    clientIdKey: client-id
+    clientSecretKey: client-secret
+  githubOAuth:
+    name: tapstate-cloud-control-github-oauth
+    clientIdKey: client-id
+    clientSecretKey: client-secret
+  smtp:
+    name: tapstate-cloud-control-smtp
+    hostKey: host
+    usernameKey: username
+    passwordKey: password
 
 # ========== ConfigMap (non-sensitive config) ==========
 config:
@@ -82,6 +99,16 @@ config:
   defaultRegion: ap-southeast-1
   awsRegion: ap-southeast-1
   corsAllowedOrigins: "https://cloud.tapstate.io,https://*.cloud.tapstate.io"
+  smtpPort: "587"
+  smtpAuth: "true"
+  smtpStarttls: "true"
+  authOtpMaxAttempts: "5"
+  authOtpSendsPerHour: "5"
+  authOtpCooldownSeconds: "60"
+  authOtpLifetimeMinutes: "10"
+  authMailFrom: no-reply@tapstate.io
+  oauthCallbackBaseUrl: https://dev.cloud.tapstate.com
+  cloudConsoleUrl: https://dev.cloud.tapstate.com
   sampleSourcesHost: "47.238.126.103"
 
   # ----- API docs -----
