@@ -53,6 +53,11 @@ public interface ComputeInfrastructure {
      */
     void terminate(String region, String clusterId);
 
+    /** Remove a failed node while preserving any Cluster-owned stable address for retry. */
+    default void terminateNodeForRetry(String region, String clusterId) {
+        terminate(region, clusterId);
+    }
+
     /**
      * Replace the temporary any-source port-22 rule with rules limited to the
      * observed control-plane egress ranges.

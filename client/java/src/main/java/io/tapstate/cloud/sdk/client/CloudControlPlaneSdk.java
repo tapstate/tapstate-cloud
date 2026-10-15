@@ -22,6 +22,12 @@ import org.slf4j.LoggerFactory;
 import java.security.interfaces.RSAPublicKey;
 import java.time.Duration;
 import java.time.Instant;
+import java.net.URI;
+import java.net.URLEncoder;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.List;
@@ -117,6 +123,52 @@ public final class CloudControlPlaneSdk {
 
     /** Runtime → GC C2 status-report (Function 3). Built lazily — only needed when callers invoke reportStatus(). */
     private C2StatusReportApi c2StatusReportApi;
+    private final HttpClient addressClient = HttpClient.newBuilder()
+        .connectTimeout(Duration.ofSeconds(5)).version(HttpClient.Version.HTTP_1_1)
+        .followRedirects(HttpClient.Redirect.NEVER).build();
+
+    /** Refresh mutable display metadata without redeeming another login code or refreshing a JWT. */
+    public ClusterEgressAddress currentEgressAddress() throws CloudControlPlaneException {
+        if (clusterId == null || clusterId.isBlank() || sdkStaticToken == null || sdkStaticToken.isBlank()) {
+            throw new CloudControlPlaneException("sdk.not-configured", 0, "Cluster identity is not configured");
+        }
+        String pathId = URLEncoder.encode(clusterId, StandardCharsets.UTF_8).replace("+", "%20");
+        HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl.replaceAll("/+$", "")
+                + "/v1/api/clusters/" + pathId + "/egress-address"))
+            .timeout(Duration.ofSeconds(5)).header("Authorization", "Bearer " + sdkStaticToken)
+            .header("User-Agent", USER_AGENT).header("Accept", "application/json").GET().build();
+        try {
+            HttpResponse<String> response = addressClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() != 200) {
+                throw new CloudControlPlaneException("sdk.context-unavailable", response.statusCode(),
+                    "Current Cluster address could not be read");
+            }
+            JsonNode body = new ObjectMapper().readTree(response.body());
+            if (body == null) {
+                throw new CloudControlPlaneException("sdk.context-unavailable", 200,
+                    "Current Cluster address response was empty");
+            }
+            JsonNode data = body.path("data");
+            if (!"ok".equals(body.path("code").asText()) || !data.isObject()
+                    || !clusterId.equals(data.path("clusterId").asText())
+                    || !data.path("organizationId").isTextual()
+                    || data.path("organizationId").asText().isBlank()
+                    || !(data.path("ec2PublicIp").isTextual() || data.path("ec2PublicIp").isNull()
+                        || data.path("ec2PublicIp").isMissingNode())
+                    || !(data.path("egressAddressStatus").isTextual() || data.path("egressAddressStatus").isNull()
+                        || data.path("egressAddressStatus").isMissingNode())) {
+                throw new CloudControlPlaneException("sdk.context-unavailable", 200,
+                    "Current Cluster address response was invalid");
+            }
+            return new ClusterEgressAddress(data.path("organizationId").asText(), clusterId,
+                data.path("ec2PublicIp").asText(null), data.path("egressAddressStatus").asText(null));
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new CloudControlPlaneException("sdk.context-unavailable", 0, "Cluster address read was interrupted");
+        } catch (java.io.IOException unavailable) {
+            throw new CloudControlPlaneException("sdk.context-unavailable", 0, "Cluster address service is unavailable");
+        }
+    }
 
     // ========== Construction ==========
 

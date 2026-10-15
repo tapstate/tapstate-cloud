@@ -422,6 +422,47 @@ paths:
           description: Cluster not found
         "409":
           description: Cluster is not live
+  /v1/api/clusters/{clusterId}/egress-address:
+    get:
+      tags: [C2 Status Report]
+      summary: Read the runtime Cluster's current outbound address
+      operationId: currentEgressAddress
+      description: Uses the per-Cluster SDK Bearer token and returns no credentials. The token must own the requested Cluster.
+      security: []
+      parameters:
+      - name: clusterId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: Authorization
+        in: header
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          description: Current Cluster address; response is not cacheable
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      organizationId:
+                        type: string
+                      clusterId:
+                        type: string
+                      ec2PublicIp:
+                        type: [string, "null"]
+                      egressAddressStatus:
+                        type: string
+        "401":
+          description: SDK token missing, invalid, or owned by another Cluster
   /v1/api/clusters/{clusterId}/status-report:
     post:
       tags:

@@ -2,6 +2,7 @@ package io.tapstate.cloud.cluster;
 
 import org.springframework.data.mongodb.repository.MongoRepository;
 import org.springframework.data.mongodb.repository.Query;
+import org.springframework.data.mongodb.repository.Update;
 import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
@@ -11,6 +12,12 @@ import org.bson.types.ObjectId;
 
 @Repository
 public interface ClusterRepository extends MongoRepository<Cluster, ObjectId> {
+
+    List<Cluster> findByState(ClusterState state);
+
+    @Query("{ '_id': ?0 }")
+    @Update("{ '$set': { 'cloudFormationStackStatus': ?1 } }")
+    void updateStackStatus(ObjectId id, String status);
 
     List<Cluster> findByOrgId(ObjectId orgId);
 

@@ -89,8 +89,10 @@ public class AwsComputeInfrastructure implements ComputeInfrastructure {
         CloudFormationClient cf = clientFor(spec.region());
         Network network = resolveNetwork(spec);
 
-        try {
-            cf.createStack(b -> b
+        Stack existing = describeStack(stackName, cf);
+        if (existing == null) {
+            try {
+                cf.createStack(b -> b
                 .stackName(stackName)
                 .templateBody(loadTemplate())
                 .parameters(
@@ -100,10 +102,11 @@ public class AwsComputeInfrastructure implements ComputeInfrastructure {
                     cfParameter("SshPublicKey", spec.sshPublicKey()),
                     cfParameter("VpcId", network.vpcId()),
                     cfParameter("SubnetId", network.subnetId())));
-            log.info("[AwsIaC] stack create requested stack={} region={} vpc={} subnet={}",
-                stackName, spec.region(), network.vpcId(), network.subnetId());
-        } catch (CloudFormationException e) {
-            throw new IacException(AppErrorCode.IAC_COMPUTE_PROVISION_FAILED, e, awsMessage(e));
+                log.info("[AwsIaC] stack create requested stack={} region={} vpc={} subnet={}",
+                    stackName, spec.region(), network.vpcId(), network.subnetId());
+            } catch (CloudFormationException e) {
+                throw new IacException(AppErrorCode.IAC_COMPUTE_PROVISION_FAILED, e, awsMessage(e));
+            }
         }
 
         Stack stack = awaitStatus(stackName, cf, CREATE_SUCCESS, CREATE_FAILED_STATES,
@@ -119,8 +122,10 @@ public class AwsComputeInfrastructure implements ComputeInfrastructure {
             NodeInstance node = new NodeInstance(CloudProvider.AWS, spec.clusterId(), instanceId, publicIp, privateIp);
             return ensureEgressAddress(spec.region(), node, null);
         } catch (RuntimeException provisioningFailure) {
+            // A repeated invocation does not own the node created by an earlier attempt.
+            if (existing != null) throw provisioningFailure;
             try {
-                terminate(spec.region(), spec.clusterId());
+                terminateNodeForRetry(spec.region(), spec.clusterId());
             } catch (RuntimeException cleanupFailure) {
                 provisioningFailure.addSuppressed(cleanupFailure);
                 log.error("[AwsIaC] compensation failed after node provisioning error cluster={} cleanupType={}",
@@ -153,6 +158,12 @@ public class AwsComputeInfrastructure implements ComputeInfrastructure {
 
     @Override
     public void terminate(String region, String clusterId) {
+        terminateNodeForRetry(region, clusterId);
+        releaseEgressAddresses(region, clusterId);
+    }
+
+    @Override
+    public void terminateNodeForRetry(String region, String clusterId) {
         String stackName = stackName(clusterId);
         CloudFormationClient cf = clientFor(region);
 
@@ -167,8 +178,6 @@ public class AwsComputeInfrastructure implements ComputeInfrastructure {
         } else {
             log.info("[AwsIaC] stack already absent stack={}", stackName);
         }
-
-        releaseEgressAddresses(region, clusterId);
     }
 
     @Override
@@ -255,6 +264,11 @@ public class AwsComputeInfrastructure implements ComputeInfrastructure {
     private NodeInstance ensureEgressAddress(String region, NodeInstance node, String preferredAllocationId) {
         Ec2Client ec2 = ec2ClientFor(region);
         Address address = findClusterAddress(ec2, node.clusterId(), preferredAllocationId, node.instanceId());
+        if (preferredAllocationId != null && !preferredAllocationId.isBlank()
+                && (address == null || !preferredAllocationId.equals(address.allocationId()))) {
+            throw new IacException(AppErrorCode.IAC_COMPUTE_PROVISION_FAILED,
+                "Pinned Cluster egress allocation is missing; refusing to change the allowlisted address");
+        }
         if (address == null) {
             try {
                 var allocated = ec2.allocateAddress(b -> b
@@ -457,6 +471,7 @@ public class AwsComputeInfrastructure implements ComputeInfrastructure {
                         .cidrIp("0.0.0.0/0").build()))));
             log.info("[AwsIaC] temporary SSH ingress opened sg={}", securityGroupId);
         } catch (software.amazon.awssdk.services.ec2.model.Ec2Exception e) {
+            if ("InvalidPermission.Duplicate".equals(awsErrorCode(e))) return;
             throw new IacException(AppErrorCode.IAC_COMPUTE_PROVISION_FAILED, e,
                 "failed to open temporary SSH ingress: " + e.getMessage());
         }

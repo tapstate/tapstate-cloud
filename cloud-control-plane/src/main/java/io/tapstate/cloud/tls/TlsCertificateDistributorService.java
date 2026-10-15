@@ -10,6 +10,10 @@ import lombok.extern.slf4j.Slf4j;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.mongodb.core.query.Update;
 
 import java.util.List;
 import java.util.Optional;
@@ -41,17 +45,20 @@ public class TlsCertificateDistributorService {
     private final TlsNodeInstaller installer;
     private final SshKeyCrypto keyCrypto;
     private final IacProperties properties;
+    private final MongoTemplate mongoTemplate;
 
     public TlsCertificateDistributorService(ClusterRepository clusterRepository,
                                             TlsCertificateService certificateService,
                                             TlsNodeInstaller installer,
                                             SshKeyCrypto keyCrypto,
-                                            IacProperties properties) {
+                                            IacProperties properties,
+                                            MongoTemplate mongoTemplate) {
         this.clusterRepository = clusterRepository;
         this.certificateService = certificateService;
         this.installer = installer;
         this.keyCrypto = keyCrypto;
         this.properties = properties;
+        this.mongoTemplate = mongoTemplate;
     }
 
     /**
@@ -139,8 +146,12 @@ public class TlsCertificateDistributorService {
         }
 
         try {
-            cluster.setTlsCertificateId(certificate.getId());
-            clusterRepository.save(cluster);
+            if (mongoTemplate.updateFirst(Query.query(Criteria.where("_id").is(cluster.getId())
+                    .and("state").in(ONLINE_STATES).and("ec2InstanceId").is(cluster.getEc2InstanceId())
+                    .and("ec2PublicIp").is(cluster.getEc2PublicIp())),
+                new Update().set("tlsCertificateId", certificate.getId()), Cluster.class).getMatchedCount() == 0) {
+                return false;
+            }
             log.info("[TLS-distribution] cluster {} now serves certificate {} ({})",
                 clusterId, certificate.getId().toHexString(), certificate.getDomain());
             return true;

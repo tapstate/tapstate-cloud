@@ -20,6 +20,7 @@ import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Value;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -38,6 +39,9 @@ public class ClusterEgressAddressService {
     private final ApplicationEventPublisher events;
     private final DnsInfrastructure dns;
     private final Map<String, ComputeInfrastructure> computeBeans;
+
+    @Value("${tapstate.cloud.iac.mode:real}")
+    private String mode = "real";
 
     public Cluster requestStabilization(Cluster cluster) {
         Cluster latest = clusterRepository.findById(cluster.getId()).orElse(cluster);
@@ -100,6 +104,9 @@ public class ClusterEgressAddressService {
                     "Stable egress address allocation was not returned for the Cluster");
             }
 
+            // Association has already replaced the dynamic address, even if DNS subsequently fails.
+            if (!recordAssociation(cluster.getId(), operationToken, node)) return;
+
             String domain = cluster.getDnsRecord() != null ? cluster.getDnsRecord() : cluster.getPublicDns();
             if (domain == null || domain.isBlank()) {
                 throw new IacException(AppErrorCode.IAC_COMPUTE_PROVISION_FAILED,
@@ -118,6 +125,33 @@ public class ClusterEgressAddressService {
             fail(cluster.getId(), operationToken);
             log.error("[EgressAddress] Cluster address stabilization failed cluster={} type={}",
                 request.clusterId().toHexString(), failure.getClass().getSimpleName());
+        } finally {
+            clusterRepository.findById(request.clusterId())
+                .filter(current -> current.getState() == ClusterState.TERMINATED)
+                .ifPresent(this::reclaimTerminatedResources);
+        }
+    }
+
+    /**
+     * TERMINATED records are durable cleanup intents. Keep reconciling their tagged resources:
+     * an in-flight worker may finish an AWS or DNS request after an earlier cleanup succeeds.
+     */
+    @Scheduled(fixedDelay = 60_000)
+    public void reconcileTerminatedClusters() {
+        if (!"real".equalsIgnoreCase(mode)) return;
+        for (Cluster cluster : clusterRepository.findByState(ClusterState.TERMINATED)) {
+            reclaimTerminatedResources(cluster);
+        }
+    }
+
+    private void reclaimTerminatedResources(Cluster cluster) {
+        try {
+            awsCompute().terminate(cluster.getRegion(), cluster.getId().toHexString());
+            String domain = cluster.getDnsRecord() != null ? cluster.getDnsRecord() : cluster.getPublicDns();
+            if (domain != null && !domain.isBlank()) dns.deleteRecord(domain);
+        } catch (Exception failure) {
+            log.warn("[EgressAddress] terminated Cluster cleanup will retry cluster={} type={}",
+                cluster.getId().toHexString(), failure.getClass().getSimpleName());
         }
     }
 
@@ -189,12 +223,18 @@ public class ClusterEgressAddressService {
     private boolean complete(ObjectId clusterId, Instant token, NodeInstance node) {
         Query query = Query.query(liveOperation(clusterId, token));
         Update update = new Update()
-            .set("ec2InstanceId", node.instanceId())
-            .set("ec2PublicIp", node.publicIp())
-            .set("egressAddressAllocationId", node.egressAddressAllocationId())
             .set("egressAddressStatus", ClusterEgressAddressStatus.STABLE)
             .unset("egressAddressOperationStartedAt");
-        return mongoTemplate.updateFirst(query, update, Cluster.class).getModifiedCount() == 1;
+        return mongoTemplate.updateFirst(query, update, Cluster.class).getMatchedCount() == 1;
+    }
+
+    private boolean recordAssociation(ObjectId clusterId, Instant token, NodeInstance node) {
+        Update update = new Update()
+            .set("ec2InstanceId", node.instanceId())
+            .set("ec2PublicIp", node.publicIp())
+            .set("egressAddressAllocationId", node.egressAddressAllocationId());
+        return mongoTemplate.updateFirst(Query.query(liveOperation(clusterId, token)), update, Cluster.class)
+            .getMatchedCount() == 1;
     }
 
     private void fail(ObjectId clusterId, Instant token) {

@@ -24,6 +24,10 @@ import org.springframework.statemachine.StateMachine;
 import org.springframework.statemachine.config.StateMachineFactory;
 import org.springframework.statemachine.support.DefaultStateMachineContext;
 import org.springframework.stereotype.Service;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.mongodb.core.query.Update;
 
 import java.security.SecureRandom;
 import java.time.Instant;
@@ -60,6 +64,7 @@ public class ClusterStateMachineService {
 
     private final StateMachineFactory<ClusterState, ClusterEventType> clusterStateMachineFactory;
     private final ClusterRepository clusterRepository;
+    private final MongoTemplate mongoTemplate;
     private final ClusterProvisioningService clusterProvisioningService;
     private final IacProperties iacProperties;
     private final ApplicationEventPublisher eventPublisher;
@@ -98,6 +103,7 @@ public class ClusterStateMachineService {
         @Qualifier("clusterStateMachineFactory")
         StateMachineFactory<ClusterState, ClusterEventType> clusterStateMachineFactory,
         ClusterRepository clusterRepository,
+        MongoTemplate mongoTemplate,
         ClusterProvisioningService clusterProvisioningService,
         IacProperties iacProperties,
         ApplicationEventPublisher eventPublisher,
@@ -106,6 +112,7 @@ public class ClusterStateMachineService {
         ObjectProvider<MockProvisionFailureService> mockFailureProvider) {
         this.clusterStateMachineFactory = clusterStateMachineFactory;
         this.clusterRepository = clusterRepository;
+        this.mongoTemplate = mongoTemplate;
         this.clusterProvisioningService = clusterProvisioningService;
         this.iacProperties = iacProperties;
         this.eventPublisher = eventPublisher;
@@ -145,7 +152,11 @@ public class ClusterStateMachineService {
             // new state and its side-effect fields become visible atomically;
             // async cloud operations are scheduled only after the save.
             applySynchronousMutations(cluster, prevState, newState, event);
-            clusterRepository.save(cluster);
+            if (!persistTransition(cluster, prevState)) {
+                sm.stop();
+                return TransitionResult.rejected(clusterRepository.findById(clusterId)
+                    .map(Cluster::getState).orElse(prevState));
+            }
 
             scheduleAsyncEffects(cluster, prevState, newState, event);
 
@@ -173,6 +184,27 @@ public class ClusterStateMachineService {
             .doWithAllRegions(accessor -> accessor.resetStateMachine(
                 new DefaultStateMachineContext<>(persistedState, null, null, null)
             ));
+    }
+
+    private boolean persistTransition(Cluster cluster, ClusterState from) {
+        Update update = new Update().set("state", cluster.getState()).set("updatedAt", cluster.getUpdatedAt());
+        if (from == ClusterState.PROVISIONING && cluster.getState() == ClusterState.READY) {
+            update.set("readyAt", cluster.getReadyAt());
+            if (!"real".equalsIgnoreCase(iacProperties.getMode())) {
+                update.set("ec2InstanceId", cluster.getEc2InstanceId())
+                    .set("ec2PublicIp", cluster.getEc2PublicIp()).set("publicDns", cluster.getPublicDns())
+                    .set("lastHeartbeatAt", cluster.getLastHeartbeatAt());
+            }
+        }
+        if (cluster.getState() == ClusterState.PROVISIONING_FAILED) {
+            update.set("provisionErrorCode", cluster.getProvisionErrorCode())
+                .set("provisionErrorDetail", cluster.getProvisionErrorDetail());
+        }
+        if (cluster.getState() == ClusterState.TERMINATED) {
+            update.set("terminatedAt", cluster.getTerminatedAt()).unset("sdkStaticToken").unset("bootstrapToken");
+        }
+        return mongoTemplate.updateFirst(Query.query(Criteria.where("_id").is(cluster.getId())
+                .and("state").is(from)), update, Cluster.class).getMatchedCount() == 1;
     }
 
     /**
@@ -300,7 +332,7 @@ public class ClusterStateMachineService {
                     return;
                 }
                 // Idempotent: a fully compensated attempt has no stack and no DNS.
-                clusterProvisioningService.terminate(latest);
+                clusterProvisioningService.prepareForRetry(latest);
                 transition(clusterId, ClusterEventType.START_PROVISION, "system:retry");
             } catch (Exception e) {
                 log.error("[Cluster FSM] retry restart failed for cluster {}: {}",

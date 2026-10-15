@@ -3,6 +3,7 @@ package io.tapstate.cloud.iac;
 import io.tapstate.cloud.cluster.Cluster;
 import io.tapstate.cloud.cluster.ClusterEgressAddressStatus;
 import io.tapstate.cloud.cluster.ClusterRepository;
+import io.tapstate.cloud.cluster.ClusterState;
 import io.tapstate.cloud.cluster.ProvisionErrorCode;
 import io.tapstate.cloud.common.api.AppErrorCode;
 import io.tapstate.cloud.iac.config.ClusterImageResolver;
@@ -26,6 +27,10 @@ import io.tapstate.cloud.version.ClusterVersionService;
 import lombok.extern.slf4j.Slf4j;
 import org.bson.types.ObjectId;
 import org.springframework.stereotype.Service;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.mongodb.core.query.Update;
 
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -67,6 +72,7 @@ public class ClusterProvisioningService {
     private final TlsNodeInstaller tlsInstaller;
     private final ClusterVersionService clusterVersionService;
     private final ClusterImageResolver imageResolver;
+    private final MongoTemplate mongoTemplate;
 
     // ---- Timing budget ----
     private static final Duration STACK_TIMEOUT = Duration.ofMinutes(15);
@@ -94,7 +100,8 @@ public class ClusterProvisioningService {
         TlsCertificateService tlsCertificateService,
         TlsNodeInstaller tlsInstaller,
         ClusterVersionService clusterVersionService,
-        ClusterImageResolver imageResolver) {
+        ClusterImageResolver imageResolver,
+        MongoTemplate mongoTemplate) {
         this.clusterRepository = clusterRepository;
         this.properties = properties;
         this.dns = dns;
@@ -108,6 +115,7 @@ public class ClusterProvisioningService {
         this.tlsInstaller = tlsInstaller;
         this.clusterVersionService = clusterVersionService;
         this.imageResolver = imageResolver;
+        this.mongoTemplate = mongoTemplate;
 
         CloudProvider provider = CloudProvider.fromId(properties.getProvider());
         ComputeInfrastructure selected = computeBeans.values().stream()
@@ -147,7 +155,7 @@ public class ClusterProvisioningService {
                 return recordFailure(cluster, unavailable);
             }
             cluster.setClusterVersion(fallback.getVersion());
-            persist(cluster);
+            persist(cluster, new Update().set("clusterVersion", fallback.getVersion()));
             clusterVersion = fallback.getVersion();
         }
         final String runtimeImage = imageResolver.runtimeImage(clusterVersion);
@@ -177,7 +185,8 @@ public class ClusterProvisioningService {
                         keyPair.privateKeyPem(), properties.getCrypto().getMasterKey());
                     cluster.setSshPublicKey(keyPair.openSshPublicKey());
                     cluster.setSshPrivateKeyEnc(encryptedKey);
-                    persist(cluster);
+                    persist(cluster, new Update().set("sshPublicKey", cluster.getSshPublicKey())
+                        .set("sshPrivateKeyEnc", encryptedKey));
                     return keyPair;
                 });
             String privateKeyPem = generated.privateKeyPem();
@@ -214,7 +223,11 @@ public class ClusterProvisioningService {
                     cluster.setEgressAddressStatus(compute.provider() == CloudProvider.AWS
                         ? ClusterEgressAddressStatus.STABLE : ClusterEgressAddressStatus.DYNAMIC);
                     cluster.setCloudFormationStackStatus("CREATE_COMPLETE");
-                    persist(cluster);
+                    persist(cluster, new Update().set("ec2InstanceId", provisioned.instanceId())
+                        .set("ec2PublicIp", provisioned.publicIp())
+                        .set("egressAddressAllocationId", provisioned.egressAddressAllocationId())
+                        .set("egressAddressStatus", cluster.getEgressAddressStatus())
+                        .set("cloudFormationStackStatus", "CREATE_COMPLETE"));
                     log.info("[IaC] node ready cluster={} ip={}", clusterId, provisioned.publicIp());
                     return provisioned;
                 });
@@ -233,7 +246,7 @@ public class ClusterProvisioningService {
                     dns.upsertARecord(domain, node.publicIp());
                     cluster.setDnsRecord(domain);
                     cluster.setPublicDns(domain);
-                    persist(cluster);
+                    persist(cluster, new Update().set("dnsRecord", domain).set("publicDns", domain));
                 });
 
             // 6. The Atlas allocation runs in parallel with the EC2 provisioning;
@@ -300,7 +313,7 @@ public class ClusterProvisioningService {
                         throw new IacException(AppErrorCode.IAC_SSH_COMMAND_FAILED, e, safeMessage(e));
                     }
                     cluster.setTlsCertificateId(tlsCertificate.getId());
-                    persist(cluster);
+                    persist(cluster, new Update().set("tlsCertificateId", tlsCertificate.getId()));
                     log.info("[IaC] TLS certificate {} installed cluster={}",
                         tlsCertificate.getId().toHexString(), clusterId);
                 });
@@ -346,6 +359,15 @@ public class ClusterProvisioningService {
         if (latest == null) {
             return;
         }
+        if (latest.getState() == ClusterState.TERMINATED) {
+            try {
+                terminate(latest);
+            } catch (Exception cleanupFailure) {
+                log.warn("[IaC] cancelled provisioning cleanup will be retried cluster={} type={}",
+                    clusterId, cleanupFailure.getClass().getSimpleName());
+            }
+            return;
+        }
         boolean stackCreated = "CREATE_COMPLETE".equals(latest.getCloudFormationStackStatus())
             || latest.getEc2InstanceId() != null;
         boolean dnsCreated = latest.getDnsRecord() != null;
@@ -358,14 +380,27 @@ public class ClusterProvisioningService {
      * @throws IacException when a resource cannot be reclaimed
      */
     public void terminate(Cluster cluster) {
+        terminate(cluster, false);
+    }
+
+    /** Clean up a failed attempt without releasing the Cluster's allowlisted identity. */
+    public void prepareForRetry(Cluster cluster) {
+        terminate(cluster, true);
+    }
+
+    private void terminate(Cluster cluster, boolean retry) {
         String clusterId = cluster.getId().toHexString();
         log.info("[IaC] terminate start cluster={}", clusterId);
         try {
             runStep(cluster, DeploymentOperation.TERMINATE_EC2,
                 "EC2 node terminated", () -> {
-                    compute.terminate(cluster.getRegion(), clusterId);
+                    if (retry) {
+                        compute.terminateNodeForRetry(cluster.getRegion(), clusterId);
+                    } else {
+                        compute.terminate(cluster.getRegion(), clusterId);
+                    }
                     cluster.setCloudFormationStackStatus("DELETE_COMPLETE");
-                    clusterRepository.save(cluster);
+                    clusterRepository.updateStackStatus(cluster.getId(), "DELETE_COMPLETE");
                 });
 
             String domain = cluster.getDnsRecord() != null ? cluster.getDnsRecord() : cluster.getPublicDns();
@@ -635,7 +670,7 @@ public class ClusterProvisioningService {
         }
         if (stackCreated) {
             try {
-                compute.terminate(cluster.getRegion(), clusterId);
+                compute.terminateNodeForRetry(cluster.getRegion(), clusterId);
                 cluster.setCloudFormationStackStatus("DELETE_COMPLETE");
             } catch (Exception e) {
                 log.error("[IaC] compensation failed to delete stack cluster={}: {}",
@@ -643,14 +678,17 @@ public class ClusterProvisioningService {
             }
         }
         try {
-            clusterRepository.save(cluster);
+            mongoTemplate.updateFirst(Query.query(Criteria.where("_id").is(cluster.getId())
+                    .and("sdkStaticToken").is(cluster.getSdkStaticToken())),
+                new Update().set("dnsRecord", cluster.getDnsRecord())
+                    .set("cloudFormationStackStatus", cluster.getCloudFormationStackStatus()), Cluster.class);
         } catch (Exception e) {
             log.error("[IaC] compensation state persist failed cluster={}: {}",
                 clusterId, safeMessage(e));
         }
     }
 
-    /** Map an operational failure, record it on the Cluster and persist the document. */
+    /** Record failure metadata only while this provisioning worker still owns the operation. */
     private ProvisionResult recordFailure(Cluster cluster, IacException e) {
         ProvisionErrorCode code = switch (e.errorCode()) {
             case IAC_SSH_COMMAND_FAILED -> ProvisionErrorCode.EC2_BOOTSTRAP_TIMEOUT;
@@ -664,12 +702,22 @@ public class ClusterProvisioningService {
         String detail = e.errorCode().getCode() + ": " + e.getMessage();
         cluster.setProvisionErrorCode(code);
         cluster.setProvisionErrorDetail(detail);
-        clusterRepository.save(cluster);
+        mongoTemplate.updateFirst(provisioningQuery(cluster),
+            new Update().set("provisionErrorCode", code).set("provisionErrorDetail", detail), Cluster.class);
         return ProvisionResult.failed(code, detail);
     }
 
-    private void persist(Cluster cluster) {
-        clusterRepository.save(cluster);
+    private void persist(Cluster cluster, Update update) {
+        if (mongoTemplate.updateFirst(provisioningQuery(cluster), update, Cluster.class).getMatchedCount() == 0) {
+            throw new IacException(AppErrorCode.IAC_COMPUTE_PROVISION_FAILED,
+                "Cluster provisioning was cancelled before its resource update could be recorded");
+        }
+    }
+
+    private static Query provisioningQuery(Cluster cluster) {
+        return Query.query(Criteria.where("_id").is(cluster.getId())
+            .and("state").is(ClusterState.PROVISIONING)
+            .and("sdkStaticToken").is(cluster.getSdkStaticToken()));
     }
 
     private static void sleep(long ms) {

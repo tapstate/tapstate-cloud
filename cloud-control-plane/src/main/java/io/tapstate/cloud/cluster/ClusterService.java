@@ -11,6 +11,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.mongodb.core.query.Update;
 
 import java.security.SecureRandom;
 import java.time.Instant;
@@ -53,6 +57,7 @@ public class ClusterService {
     private final MemberRepository memberRepository;
     private final RegionService regionService;
     private final ClusterStateMachineService clusterStateMachineService;
+    private final MongoTemplate mongoTemplate;
 
     private final SecureRandom secureRandom = new SecureRandom();
 
@@ -134,10 +139,8 @@ public class ClusterService {
      */
     @Transactional
     public void updateMdbAllocationId(ObjectId clusterId, ObjectId allocationId) {
-        clusterRepository.findById(clusterId).ifPresent(cluster -> {
-            cluster.setMdbAllocationId(allocationId);
-            clusterRepository.save(cluster);
-        });
+        mongoTemplate.updateFirst(Query.query(Criteria.where("_id").is(clusterId)),
+            new Update().set("mdbAllocationId", allocationId), Cluster.class);
     }
 
     // ========== List / Get ==========
@@ -189,7 +192,10 @@ public class ClusterService {
         cluster.setProvisionErrorCode(null);
         cluster.setProvisionErrorDetail(null);
         cluster.setUpdatedAt(Instant.now());
-        cluster = clusterRepository.save(cluster);
+        mongoTemplate.updateFirst(Query.query(Criteria.where("_id").is(cluster.getId())
+                .and("state").is(ClusterState.PROVISIONING_FAILED)),
+            new Update().unset("provisionErrorCode").unset("provisionErrorDetail")
+                .set("updatedAt", cluster.getUpdatedAt()), Cluster.class);
 
         clusterStateMachineService.transition(new ObjectId(clusterId), ClusterEventType.RETRY, "gc:" + userEmail);
 
@@ -269,10 +275,11 @@ public class ClusterService {
         Instant now = Instant.now();
 
         // --- 1. Update Cluster document — latest-only snapshot ---
-        cluster.setLastHeartbeatAt(now);
-        cluster.setLastC2Nonce(nonce);
-        cluster.setLastStatusReport(request);
-        clusterRepository.save(cluster);
+        long matched = mongoTemplate.updateFirst(Query.query(Criteria.where("_id").is(cluster.getId())
+                .and("lastC2Nonce").is(cluster.getLastC2Nonce())),
+            new Update().set("lastHeartbeatAt", now).set("lastC2Nonce", nonce)
+                .set("lastStatusReport", request), Cluster.class).getMatchedCount();
+        if (matched == 0) throw new BusinessException(AppErrorCode.NONCE_REPLAY, 409);
 
         // --- 2. Append to time-series history — every report preserved forever ---
         ClusterStatusReportHistory history = ClusterStatusReportHistory.builder()
