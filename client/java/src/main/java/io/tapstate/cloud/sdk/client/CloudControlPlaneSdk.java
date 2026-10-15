@@ -233,7 +233,9 @@ public final class CloudControlPlaneSdk {
             data.getClusterId(),
             data.getOrganizationName(),
             data.getClusterName(),
-            data.getRegion()
+            data.getRegion(),
+            data.getEc2PublicIp(),
+            data.getEgressAddressStatus() == null ? null : data.getEgressAddressStatus().getValue()
         );
     }
 

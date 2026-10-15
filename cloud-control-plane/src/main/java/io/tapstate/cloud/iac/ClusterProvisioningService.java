@@ -1,6 +1,7 @@
 package io.tapstate.cloud.iac;
 
 import io.tapstate.cloud.cluster.Cluster;
+import io.tapstate.cloud.cluster.ClusterEgressAddressStatus;
 import io.tapstate.cloud.cluster.ClusterRepository;
 import io.tapstate.cloud.cluster.ProvisionErrorCode;
 import io.tapstate.cloud.common.api.AppErrorCode;
@@ -201,8 +202,17 @@ public class ClusterProvisioningService {
                         properties.getAws().getSubnetId());
 
                     NodeInstance provisioned = compute.provision(spec);
+                    if (compute.provider() == CloudProvider.AWS
+                            && (provisioned.egressAddressAllocationId() == null
+                                || provisioned.egressAddressAllocationId().isBlank())) {
+                        throw new IacException(AppErrorCode.IAC_COMPUTE_PROVISION_FAILED,
+                            "AWS Cluster provisioning completed without a stable egress address allocation");
+                    }
                     cluster.setEc2InstanceId(provisioned.instanceId());
                     cluster.setEc2PublicIp(provisioned.publicIp());
+                    cluster.setEgressAddressAllocationId(provisioned.egressAddressAllocationId());
+                    cluster.setEgressAddressStatus(compute.provider() == CloudProvider.AWS
+                        ? ClusterEgressAddressStatus.STABLE : ClusterEgressAddressStatus.DYNAMIC);
                     cluster.setCloudFormationStackStatus("CREATE_COMPLETE");
                     persist(cluster);
                     log.info("[IaC] node ready cluster={} ip={}", clusterId, provisioned.publicIp());

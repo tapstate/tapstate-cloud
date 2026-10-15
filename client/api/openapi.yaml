@@ -52,7 +52,7 @@ tags:
   description: Organization subscriptions — each subscription provisions one Cluster
     + one MDB allocation
 - name: Clusters
-  description: Cluster read + retry — lifecycle managed via Subscription
+  description: Cluster read, retry, and egress address management — lifecycle managed via Subscription
 - name: Regions
   description: Available AWS regions for Cluster provisioning
 - name: Deployment Progress
@@ -389,6 +389,39 @@ paths:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseClusterResponse"
+  /v1/api/orgs/{orgId}/clusters/{clusterId}/egress-address:stabilize:
+    post:
+      tags:
+      - Clusters
+      summary: Stabilize the Cluster egress IPv4 address
+      description: Attaches a Cluster-owned Elastic IP to a live Cluster. The public address and DNS record change when the operation completes; the EC2 runtime is not replaced.
+      operationId: stabilizeClusterEgressAddress
+      parameters:
+      - name: orgId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: clusterId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          description: Egress address stabilization started or is already in progress
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseClusterResponse"
+        "401":
+          description: Not authenticated
+        "403":
+          description: Not a member of this Organization or not cluster owner
+        "404":
+          description: Cluster not found
+        "409":
+          description: Cluster is not live
   /v1/api/clusters/{clusterId}/status-report:
     post:
       tags:
@@ -1244,7 +1277,16 @@ components:
           description: Public DNS name for Cluster Console
         ec2PublicIp:
           type: string
-          description: EC2 node public IPv4 address
+          description: Cluster public and source-firewall egress IPv4 address
+        egressAddressStatus:
+          type: string
+          enum:
+          - DYNAMIC
+          - STABILIZING
+          - ATTACHING
+          - STABLE
+          - FAILED
+          description: Stability state of the Cluster egress address
         lastHeartbeatAt:
           type: string
           description: Last C2 heartbeat timestamp (ISO-8601 UTC)
@@ -1495,6 +1537,19 @@ components:
         region:
           type: string
           description: AWS region from the Cluster bound to the redeemed exchange code
+        ec2PublicIp:
+          type: string
+          nullable: true
+          description: Cluster public and source-firewall egress IPv4 address
+        egressAddressStatus:
+          type: string
+          enum:
+            - DYNAMIC
+            - STABILIZING
+            - ATTACHING
+            - STABLE
+            - FAILED
+          description: Stability state of the Cluster egress address
     ApiResponseListRegionResponse:
       type: object
       description: Global API response envelope

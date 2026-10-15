@@ -88,6 +88,15 @@ public class Cluster {
     @Schema(description = "EC2 node public IPv4 address")
     private String ec2PublicIp;
 
+    @Schema(description = "Cluster-owned Elastic IP allocation ID")
+    private String egressAddressAllocationId;
+
+    @Schema(description = "Lifecycle state of the Cluster's source-firewall egress address")
+    private ClusterEgressAddressStatus egressAddressStatus;
+
+    @Schema(description = "Time the current egress address operation started")
+    private Instant egressAddressOperationStartedAt;
+
     @Schema(description = "Per-Cluster SSH public key (OpenSSH format)")
     private String sshPublicKey;
 

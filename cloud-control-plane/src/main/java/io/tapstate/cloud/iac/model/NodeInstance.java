@@ -13,12 +13,17 @@ import io.tapstate.cloud.iac.CloudProvider;
  * @param instanceId provider instance identifier
  * @param publicIp   node public IPv4 address
  * @param privateIp  node private IPv4 address
+ * @param egressAddressAllocationId Cluster-owned Elastic IP allocation ID, if applicable
  */
 public record NodeInstance(
     CloudProvider provider,
     String clusterId,
     String instanceId,
     String publicIp,
-    String privateIp
+    String privateIp,
+    String egressAddressAllocationId
 ) {
+    public NodeInstance(CloudProvider provider, String clusterId, String instanceId, String publicIp, String privateIp) {
+        this(provider, clusterId, instanceId, publicIp, privateIp, null);
+    }
 }

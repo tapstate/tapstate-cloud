@@ -53,4 +53,10 @@ public interface ClusterRepository extends MongoRepository<Cluster, ObjectId> {
      */
     List<Cluster> findByStateInAndEc2PublicIpIsNotNullAndSshPrivateKeyEncIsNotNull(
         java.util.Collection<ClusterState> states);
+
+    List<Cluster> findByEgressAddressStatusAndEgressAddressOperationStartedAtBefore(
+        ClusterEgressAddressStatus status, Instant threshold);
+
+    List<Cluster> findByEgressAddressStatusAndStateIn(
+        ClusterEgressAddressStatus status, java.util.Collection<ClusterState> states);
 }
