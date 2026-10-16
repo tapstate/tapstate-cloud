@@ -311,6 +311,14 @@ public abstract class BaseIT {
         //   cluster_status_report_history — time-series collection, must NOT be dropped
         //       (MongoInitListener only creates it on app startup — a drop would
         //       silently recreate it as a plain collection on next insert)
+        //   clusters — its documents are cleared below, not dropped. A forked
+        //       application instance starts its own cluster set empty, and
+        //       MongoInitListener verifies on startup that the active-name and
+        //       active-DNS-label indexes are in place. Dropping the collection
+        //       destroys indexes a live instance has already verified, so the
+        //       check fails and that instance aborts; keeping the collection also
+        //       means the indexes still enforce uniqueness for the tests that
+        //       exercise a conflicting name.
         //   system.buckets.* — physical buckets backing time-series collections
         //       (getCollectionNames lists them; their logical name is not enough
         //       to protect them). They must be kept for the same startup-only reason.
@@ -326,7 +334,7 @@ public abstract class BaseIT {
             String output = mongoshEval(
                 "print(' [wipe] database=' + db.getName());" +
                 "const keep = new Set(['sessions','regions','mdb_clusters','atlas_configs','jwks_keys'," +
-                "'cluster_versions','counters','cluster_status_report_history','system.indexes']);" +
+                "'cluster_versions','counters','cluster_status_report_history','clusters','system.indexes']);" +
                 // Time-series logical names are discovered at runtime (their physical
                 // system.buckets.* collections are filtered by prefix) so the
                 // wipe never depends on listCollections ordering.
@@ -338,6 +346,7 @@ public abstract class BaseIT {
                 "print(' [wipe] droppedCollections=' + dropped);" +
                 "db.mdb_clusters.updateMany({}, {$set: {currentAllocations: 0, updatedAt: new Date()}});" +
                 "print(' [wipe] historyRemoved=' + db.cluster_status_report_history.deleteMany({}).deletedCount);" +
+                "print(' [wipe] clustersRemoved=' + db.clusters.deleteMany({}).deletedCount);" +
                 "db.mdb_clusters.find().forEach(c => print(' [wipe] MdbCluster ' + c._id + ' capacity reset ' + c.currentAllocations + '/' + c.maxAllocations));");
             if (output.toLowerCase().contains("error")) {
                 throw new IllegalStateException("mongosh wipe reported an error:\n" + output.strip());
