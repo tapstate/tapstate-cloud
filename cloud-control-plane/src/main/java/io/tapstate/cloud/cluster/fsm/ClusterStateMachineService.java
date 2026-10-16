@@ -1,6 +1,7 @@
 package io.tapstate.cloud.cluster.fsm;
 
 import io.tapstate.cloud.cluster.Cluster;
+import io.tapstate.cloud.cluster.ClusterPartialWriter;
 import io.tapstate.cloud.cluster.ClusterRepository;
 import io.tapstate.cloud.cluster.ClusterState;
 import io.tapstate.cloud.cluster.ProvisionErrorCode;
@@ -61,6 +62,7 @@ public class ClusterStateMachineService {
 
     private final StateMachineFactory<ClusterState, ClusterEventType> clusterStateMachineFactory;
     private final ClusterRepository clusterRepository;
+    private final ClusterPartialWriter clusterPartialWriter;
     private final ClusterProvisioningService clusterProvisioningService;
     private final IacProperties iacProperties;
     private final ClusterDomainName clusterDomainName;
@@ -100,6 +102,7 @@ public class ClusterStateMachineService {
         @Qualifier("clusterStateMachineFactory")
         StateMachineFactory<ClusterState, ClusterEventType> clusterStateMachineFactory,
         ClusterRepository clusterRepository,
+        ClusterPartialWriter clusterPartialWriter,
         ClusterProvisioningService clusterProvisioningService,
         IacProperties iacProperties,
         ClusterDomainName clusterDomainName,
@@ -109,6 +112,7 @@ public class ClusterStateMachineService {
         ObjectProvider<MockProvisionFailureService> mockFailureProvider) {
         this.clusterStateMachineFactory = clusterStateMachineFactory;
         this.clusterRepository = clusterRepository;
+        this.clusterPartialWriter = clusterPartialWriter;
         this.clusterProvisioningService = clusterProvisioningService;
         this.iacProperties = iacProperties;
         this.clusterDomainName = clusterDomainName;
@@ -144,12 +148,11 @@ public class ClusterStateMachineService {
             ClusterState prevState = cluster.getState();
 
             cluster.setState(newState);
-            cluster.setUpdatedAt(Instant.now());
             // Synchronous field mutations are applied before persisting so the
             // new state and its side-effect fields become visible atomically;
-            // async cloud operations are scheduled only after the save.
+            // async cloud operations are scheduled only after the write.
             applySynchronousMutations(cluster, prevState, newState, event);
-            clusterRepository.save(cluster);
+            clusterPartialWriter.apply(cluster);
 
             scheduleAsyncEffects(cluster, prevState, newState, event);
 

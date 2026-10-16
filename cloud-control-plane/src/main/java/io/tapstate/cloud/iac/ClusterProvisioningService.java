@@ -1,6 +1,7 @@
 package io.tapstate.cloud.iac;
 
 import io.tapstate.cloud.cluster.Cluster;
+import io.tapstate.cloud.cluster.ClusterPartialWriter;
 import io.tapstate.cloud.cluster.ClusterRepository;
 import io.tapstate.cloud.cluster.ProvisionErrorCode;
 import io.tapstate.cloud.common.api.AppErrorCode;
@@ -53,6 +54,7 @@ import java.util.function.Supplier;
 public class ClusterProvisioningService {
 
     private final ClusterRepository clusterRepository;
+    private final ClusterPartialWriter clusterPartialWriter;
     private final IacProperties properties;
     private final ClusterDomainName clusterDomainName;
     private final ComputeInfrastructure compute;
@@ -82,6 +84,7 @@ public class ClusterProvisioningService {
 
     public ClusterProvisioningService(
         ClusterRepository clusterRepository,
+        ClusterPartialWriter clusterPartialWriter,
         IacProperties properties,
         ClusterDomainName clusterDomainName,
         Map<String, ComputeInfrastructure> computeBeans,
@@ -97,6 +100,7 @@ public class ClusterProvisioningService {
         ClusterVersionService clusterVersionService,
         ClusterImageResolver imageResolver) {
         this.clusterRepository = clusterRepository;
+        this.clusterPartialWriter = clusterPartialWriter;
         this.properties = properties;
         this.clusterDomainName = clusterDomainName;
         this.dns = dns;
@@ -364,7 +368,7 @@ public class ClusterProvisioningService {
                 "EC2 node terminated", () -> {
                     compute.terminate(cluster.getRegion(), clusterId);
                     cluster.setCloudFormationStackStatus("DELETE_COMPLETE");
-                    clusterRepository.save(cluster);
+                    clusterPartialWriter.apply(cluster);
                 });
 
             String domain = cluster.getDnsRecord() != null ? cluster.getDnsRecord() : cluster.getPublicDns();
@@ -633,7 +637,7 @@ public class ClusterProvisioningService {
             }
         }
         try {
-            clusterRepository.save(cluster);
+            clusterPartialWriter.apply(cluster);
         } catch (Exception e) {
             log.error("[IaC] compensation state persist failed cluster={}: {}",
                 clusterId, safeMessage(e));
@@ -654,12 +658,12 @@ public class ClusterProvisioningService {
         String detail = e.errorCode().getCode() + ": " + e.getMessage();
         cluster.setProvisionErrorCode(code);
         cluster.setProvisionErrorDetail(detail);
-        clusterRepository.save(cluster);
+        clusterPartialWriter.apply(cluster);
         return ProvisionResult.failed(code, detail);
     }
 
     private void persist(Cluster cluster) {
-        clusterRepository.save(cluster);
+        clusterPartialWriter.apply(cluster);
     }
 
     private static void sleep(long ms) {

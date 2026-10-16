@@ -54,6 +54,7 @@ public class ClusterService {
     private final MemberRepository memberRepository;
     private final RegionService regionService;
     private final ClusterStateMachineService clusterStateMachineService;
+    private final ClusterPartialWriter clusterPartialWriter;
 
     private final SecureRandom secureRandom = new SecureRandom();
 
@@ -163,10 +164,12 @@ public class ClusterService {
      */
     @Transactional
     public void updateMdbAllocationId(ObjectId clusterId, ObjectId allocationId) {
-        clusterRepository.findById(clusterId).ifPresent(cluster -> {
-            cluster.setMdbAllocationId(allocationId);
-            clusterRepository.save(cluster);
-        });
+        Cluster cluster = clusterRepository.findById(clusterId).orElse(null);
+        if (cluster == null) {
+            return;
+        }
+        cluster.setMdbAllocationId(allocationId);
+        clusterPartialWriter.apply(cluster);
     }
 
     // ========== List / Get ==========
@@ -217,8 +220,7 @@ public class ClusterService {
 
         cluster.setProvisionErrorCode(null);
         cluster.setProvisionErrorDetail(null);
-        cluster.setUpdatedAt(Instant.now());
-        cluster = clusterRepository.save(cluster);
+        clusterPartialWriter.apply(cluster);
 
         clusterStateMachineService.transition(new ObjectId(clusterId), ClusterEventType.RETRY, "gc:" + userEmail);
 
@@ -301,7 +303,7 @@ public class ClusterService {
         cluster.setLastHeartbeatAt(now);
         cluster.setLastC2Nonce(nonce);
         cluster.setLastStatusReport(request);
-        clusterRepository.save(cluster);
+        clusterPartialWriter.apply(cluster);
 
         // --- 2. Append to time-series history — every report preserved forever ---
         ClusterStatusReportHistory history = ClusterStatusReportHistory.builder()

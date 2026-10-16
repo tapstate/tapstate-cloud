@@ -1,6 +1,7 @@
 package io.tapstate.cloud.iac;
 
 import io.tapstate.cloud.cluster.Cluster;
+import io.tapstate.cloud.cluster.ClusterPartialWriter;
 import io.tapstate.cloud.cluster.ClusterRepository;
 import io.tapstate.cloud.cluster.ProvisionErrorCode;
 import io.tapstate.cloud.iac.config.ClusterImageResolver;
@@ -39,6 +40,7 @@ import static org.mockito.Mockito.when;
 class ClusterProvisioningVersionFailFastTest {
 
     private @Mock ClusterRepository clusterRepository;
+    private @Mock ClusterPartialWriter clusterPartialWriter;
     private @Mock DnsInfrastructure dns;
     private @Mock SshClient sshClient;
     private @Mock SshKeyPairGenerator keyPairGenerator;
@@ -59,6 +61,7 @@ class ClusterProvisioningVersionFailFastTest {
         when(compute.provider()).thenReturn(CloudProvider.AWS);
         service = new ClusterProvisioningService(
             clusterRepository,
+            clusterPartialWriter,
             new IacProperties(),
             new ClusterDomainName(new IacProperties()),
             Map.of("aws", compute),
@@ -89,7 +92,7 @@ class ClusterProvisioningVersionFailFastTest {
         assertThat(result.errorCode()).isEqualTo(ProvisionErrorCode.CLUSTER_VERSION_UNAVAILABLE);
 
         ArgumentCaptor<Cluster> saved = ArgumentCaptor.forClass(Cluster.class);
-        verify(clusterRepository).save(saved.capture());
+        verify(clusterPartialWriter).apply(saved.capture());
         assertThat(saved.getValue().getProvisionErrorCode())
             .isEqualTo(ProvisionErrorCode.CLUSTER_VERSION_UNAVAILABLE);
 
@@ -120,7 +123,7 @@ class ClusterProvisioningVersionFailFastTest {
         assertThat(cluster.getClusterVersion()).isEqualTo("9.9.9");
 
         ArgumentCaptor<Cluster> saved = ArgumentCaptor.forClass(Cluster.class);
-        verify(clusterRepository, org.mockito.Mockito.atLeastOnce()).save(saved.capture());
+        verify(clusterPartialWriter, org.mockito.Mockito.atLeastOnce()).apply(saved.capture());
         assertThat(saved.getAllValues())
             .allMatch(document -> "9.9.9".equals(document.getClusterVersion()));
         verify(imageResolver).runtimeImage("9.9.9");
