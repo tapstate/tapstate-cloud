@@ -13,8 +13,6 @@ import org.bson.types.ObjectId;
 @Repository
 public interface ClusterRepository extends MongoRepository<Cluster, ObjectId> {
 
-    List<Cluster> findByState(ClusterState state);
-
     @Query("{ '_id': ?0 }")
     @Update("{ '$set': { 'cloudFormationStackStatus': ?1 } }")
     void updateStackStatus(ObjectId id, String status);
