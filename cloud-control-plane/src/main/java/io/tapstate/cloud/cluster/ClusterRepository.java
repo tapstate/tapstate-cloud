@@ -18,6 +18,9 @@ public interface ClusterRepository extends MongoRepository<Cluster, ObjectId> {
 
     List<Cluster> findByOrgIdAndState(ObjectId orgId, ClusterState state);
 
+    /** Every Cluster in one lifecycle state — used by the provisioning reconciler. */
+    List<Cluster> findByState(ClusterState state);
+
     Optional<Cluster> findByIdAndOrgId(ObjectId id, ObjectId orgId);
 
     List<Cluster> findBySubscriptionId(ObjectId subscriptionId);
