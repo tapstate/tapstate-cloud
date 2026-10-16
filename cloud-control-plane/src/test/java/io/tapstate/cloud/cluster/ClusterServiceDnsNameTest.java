@@ -39,7 +39,7 @@ class ClusterServiceDnsNameTest {
         ClusterStateMachineService stateMachineService = mock(ClusterStateMachineService.class);
         clusterService = new ClusterService(
             clusterRepository, historyRepository, memberRepository,
-            regionService, stateMachineService);
+            regionService, stateMachineService, mock(ClusterPartialWriter.class));
 
         when(memberRepository.existsByOrgIdAndUserEmail(any(), anyString())).thenReturn(true);
         when(regionService.getByCode(anyString())).thenReturn(mock(Region.class));

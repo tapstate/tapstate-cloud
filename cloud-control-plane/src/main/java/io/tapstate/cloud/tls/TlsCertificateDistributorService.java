@@ -1,6 +1,7 @@
 package io.tapstate.cloud.tls;
 
 import io.tapstate.cloud.cluster.Cluster;
+import io.tapstate.cloud.cluster.ClusterPartialWriter;
 import io.tapstate.cloud.cluster.ClusterRepository;
 import io.tapstate.cloud.cluster.ClusterState;
 import io.tapstate.cloud.iac.IacProperties;
@@ -37,17 +38,20 @@ public class TlsCertificateDistributorService {
         ClusterState.READY, ClusterState.DEGRADED);
 
     private final ClusterRepository clusterRepository;
+    private final ClusterPartialWriter clusterPartialWriter;
     private final TlsCertificateService certificateService;
     private final TlsNodeInstaller installer;
     private final SshKeyCrypto keyCrypto;
     private final IacProperties properties;
 
     public TlsCertificateDistributorService(ClusterRepository clusterRepository,
+                                            ClusterPartialWriter clusterPartialWriter,
                                             TlsCertificateService certificateService,
                                             TlsNodeInstaller installer,
                                             SshKeyCrypto keyCrypto,
                                             IacProperties properties) {
         this.clusterRepository = clusterRepository;
+        this.clusterPartialWriter = clusterPartialWriter;
         this.certificateService = certificateService;
         this.installer = installer;
         this.keyCrypto = keyCrypto;
@@ -140,7 +144,7 @@ public class TlsCertificateDistributorService {
 
         try {
             cluster.setTlsCertificateId(certificate.getId());
-            clusterRepository.save(cluster);
+            clusterPartialWriter.apply(cluster);
             log.info("[TLS-distribution] cluster {} now serves certificate {} ({})",
                 clusterId, certificate.getId().toHexString(), certificate.getDomain());
             return true;
