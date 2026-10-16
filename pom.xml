@@ -138,6 +138,53 @@
   </dependencyManagement>
 
   <build>
+    <plugins>
+      <!-- maven-enforcer-plugin — fail the build at `validate` if a banned
+           compile-time dependency is declared. See the <message> below. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-enforcer-plugin</artifactId>
+        <version>3.6.3</version>
+        <executions>
+          <execution>
+            <id>enforce-banned-dependencies</id>
+            <phase>validate</phase>
+            <goals>
+              <goal>enforce</goal>
+            </goals>
+            <configuration>
+              <rules>
+                <bannedDependencies>
+                  <excludes>
+                    <!-- PDK -->
+                    <exclude>io.tapdata:*</exclude>
+                    <!-- Tapstate runtime artifacts -->
+                    <exclude>io.tapstate:*</exclude>
+                  </excludes>
+                  <includes>
+                    <!-- This repository's own modules are the only allowed
+                         io.tapstate coordinates. -->
+                    <include>io.tapstate:tapstate-cloud-parent</include>
+                    <include>io.tapstate:tapstate-cloud-common</include>
+                    <include>io.tapstate:tapstate-cloud-control-plane</include>
+                    <include>io.tapstate:cloud-control-plane-sdk</include>
+                  </includes>
+                  <message>
+                    Banned dependency: this module must not compile against the PDK
+                    (io.tapdata:*) or the Tapstate runtime artifacts (io.tapstate:*).
+                    Those are per-Cluster runtime concerns, not dependencies of this
+                    standalone control plane. Only this repository's own io.tapstate
+                    modules are allowed. See CONTRIBUTING.md.
+                  </message>
+                </bannedDependencies>
+              </rules>
+              <fail>true</fail>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+
     <pluginManagement>
       <plugins>
         <plugin>
