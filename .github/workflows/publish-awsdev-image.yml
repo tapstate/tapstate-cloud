@@ -1,0 +1,92 @@
+name: Publish Cloud Control image for awsdev
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_publish:
+        description: Publish this commit to the awsdev ECR repository.
+        type: boolean
+        required: true
+        default: false
+  push:
+    branches:
+      - ws/cloud-week4-cluster-address-visibility
+    paths:
+      - .github/workflows/publish-awsdev-image.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: awsdev-image-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.event_name == 'push' || inputs.confirm_publish
+    runs-on: ubuntu-latest
+    environment:
+      name: awsdev
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push this Cloud Control commit
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ${{ secrets.ECR_REPO_URI }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Export the pushed image for local EC2 import
+        env:
+          ECR_REPO_URI: ${{ secrets.ECR_REPO_URI }}
+        run: |
+          set -euo pipefail
+          image="$ECR_REPO_URI:$GITHUB_SHA"
+          docker pull "$image"
+          docker save "$image" | gzip > "$RUNNER_TEMP/cloud-control-image.tar.gz"
+
+      - name: Upload the image archive for local deployment
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloud-control-image
+          path: ${{ runner.temp }}/cloud-control-image.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Report the image tag and digest
+        env:
+          ECR_REPO_URI: ${{ secrets.ECR_REPO_URI }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+        run: |
+          set -euo pipefail
+          repository="${ECR_REPO_URI#*/}"
+          digest="$(aws ecr describe-images \
+            --repository-name "$repository" \
+            --image-ids "imageTag=$GITHUB_SHA" \
+            --region "$AWS_REGION" \
+            --query "imageDetails[0].imageDigest" --output text)"
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          {
+            printf "Cloud Control image: \`%s:%s\`\n\n" "$ECR_REPO_URI" "$GITHUB_SHA"
+            printf "Digest: \`%s\`\n\n" "$digest"
+            printf "Archive: \`cloud-control-image\` (retained for one day)\n"
+          } >> "$GITHUB_STEP_SUMMARY"
