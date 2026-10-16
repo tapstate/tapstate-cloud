@@ -9,14 +9,17 @@
 #                           variable FULL_INTEGRATION_ENABLED is "true"
 #                           and the push touches Full Integration trigger
 #                           paths (see the await-main-gate job below)
-#   release-v*.x.x       → production environment (values-aws.yaml, namespace: tapstate-cloud-control)
+#   release-v<version>    → production environment (values-awsprod.yaml, namespace: tapstate-cloud-control)
+#                           e.g. release-v0.2.0; '*' matches any version suffix
 # ============================================================
 # Prerequisites (GitHub Repository Secrets):
 #   AWS_ACCESS_KEY_ID       — AWS credentials for ECR push
 #   AWS_SECRET_ACCESS_KEY   — AWS credentials for ECR push
-#   AWS_REGION              — ap-east-1 (both envs)
+#   AWS_REGION              — ap-east-1 (both envs share one ECR)
 #   ECR_REPO_URI            — e.g. 263186327888.dkr.ecr.ap-east-1.amazonaws.com/tapstate-cloud/tapstate-cloud-control
-#   KUBECONFIG_BASE64       — k3s kubeconfig (same cluster for both namespaces)
+#   KUBECONFIG_BASE64       — awsdev k3s kubeconfig (repo level); the
+#                             production environment overrides this name
+#                             with the production k3s kubeconfig
 # ============================================================
 
 name: CD — Deploy to k3s
@@ -25,7 +28,10 @@ on:
   push:
     branches:
       - main
-      - 'release-v*.x.x'
+      # Matches release-v followed by any version suffix, e.g.
+      # release-v0.2.0. The deploy-prod / deploy-sdk job conditions use
+      # the same startsWith('refs/heads/release-v') prefix.
+      - 'release-v*'
 
 permissions:
   contents: read
@@ -205,10 +211,32 @@ jobs:
         id: login-ecr-dev
         uses: aws-actions/amazon-ecr-login@v2
 
+      - name: Check whether the SHA image already exists in ECR
+        id: image-exists
+        env:
+          ECR_REPO_URI: ${{ secrets.ECR_REPO_URI }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+        run: |
+          REPO_NAME="${ECR_REPO_URI#*/}"
+          if aws ecr describe-images --repository-name "$REPO_NAME" \
+               --image-ids "imageTag=${GITHUB_SHA}" --region "$AWS_REGION" \
+               >/dev/null 2>&1; then
+            # ECR tags are immutable: an existing SHA tag is the fixed
+            # artifact built from this exact commit, so pushing is both
+            # impossible and unnecessary. Both environments share one
+            # repository and tag by commit SHA, so the other environment
+            # (or an earlier run of this one) may have published it.
+            echo "Image ${REPO_NAME}:${GITHUB_SHA} already exists; skipping build and push."
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Build and push (awsdev)
+        if: steps.image-exists.outputs.exists != 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -262,7 +290,7 @@ jobs:
     if: startsWith(github.ref, 'refs/heads/release-v')
     environment:
       name: production
-      url: https://cloud.tapstate.io/health
+      url: https://cloud.tapstate.com/health
 
     steps:
       - uses: actions/checkout@v4
@@ -288,10 +316,32 @@ jobs:
         id: login-ecr-prod
         uses: aws-actions/amazon-ecr-login@v2
 
+      - name: Check whether the SHA image already exists in ECR
+        id: image-exists
+        env:
+          ECR_REPO_URI: ${{ secrets.ECR_REPO_URI }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+        run: |
+          REPO_NAME="${ECR_REPO_URI#*/}"
+          if aws ecr describe-images --repository-name "$REPO_NAME" \
+               --image-ids "imageTag=${GITHUB_SHA}" --region "$AWS_REGION" \
+               >/dev/null 2>&1; then
+            # ECR tags are immutable: an existing SHA tag is the fixed
+            # artifact built from this exact commit, so pushing is both
+            # impossible and unnecessary. Both environments share one
+            # repository and tag by commit SHA, so the other environment
+            # (or an earlier run of this one) may have published it.
+            echo "Image ${REPO_NAME}:${GITHUB_SHA} already exists; skipping build and push."
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Build and push (prod)
+        if: steps.image-exists.outputs.exists != 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -333,7 +383,7 @@ jobs:
             --set image.repository=${{ secrets.ECR_REPO_URI }} \
             --set image.tag=${{ github.sha }} \
             --set image.pullPolicy=Always \
-            --values helm/tapstate-cloud-control/values-aws.yaml \
+            --values helm/tapstate-cloud-control/values-awsprod.yaml \
             --timeout 5m \
             --wait
 

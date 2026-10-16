@@ -23,10 +23,13 @@ public enum AppErrorCode implements ErrorCode {
     ORG_NOT_FOUND("org.not-found", "Organization {0} not found"),
     ORG_NOT_MEMBER("org.not-member", "User is not a member of organization {0}"),
     ORG_ALREADY_EXISTS("org.already-exists", "Organization with slug {0} already exists"),
+    ORG_LIMIT_REACHED("org.limit-reached", "This account already belongs to an organization"),
 
     // ---------- Cluster ----------
     CLUSTER_NOT_FOUND("cluster.not-found", "Cluster {0} not found"),
     CLUSTER_ALREADY_EXISTS("cluster.already-exists", "Cluster '{0}' already exists in org {1}, region {2}"),
+    CLUSTER_NAME_DNS_INVALID("cluster.name-dns-invalid", "Cluster name '{0}' yields invalid DNS label '{1}': use letters or digits (at most {2} characters after normalization)"),
+    CLUSTER_DNS_LABEL_CONFLICT("cluster.dns-label-conflict", "DNS name '{0}' derived from the cluster name is already used by another active cluster"),
     CLUSTER_INVALID_STATE("cluster.invalid-state", "Operation not allowed in cluster state {0}"),
     CLUSTER_ORG_MISMATCH("cluster.org-mismatch", "Cluster {0} does not belong to organization {1}"),
     CLUSTER_CANCEL_NOT_ALLOWED("cluster.cancel-not-allowed", "Cluster cannot be cancelled while in state {0}"),

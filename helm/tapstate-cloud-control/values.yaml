@@ -1,6 +1,7 @@
 # ============================================================
 # Default values — works for local k3s development
-# Override with: -f values-aws.yaml (for AWS EC2 self-hosted k3s)
+# Override with: -f values-awsdev.yaml (awsdev) or values-awsprod.yaml
+# (production) for AWS EC2 self-hosted k3s
 # ============================================================
 
 replicaCount: 2
@@ -93,10 +94,11 @@ config:
 
   # ----- IaC layer (multi-cloud Cluster provisioning) -----
   # Safe chart default is mock: environments that run real cloud APIs override
-  # these in values-awsdev.yaml / values-aws.yaml.
+  # these in values-awsdev.yaml / values-awsprod.yaml.
   iacProvider: aws
   iacMode: mock
-  # DNS environment suffix — provisions <id>.<iacEnvironment>.<godaddyDomain>
+  # DNS environment selector — dev provisions <clusterName>.dev.cloud.<godaddyDomain>,
+  # prod provisions <clusterName>.cloud.<godaddyDomain> (apex).
   iacEnvironment: dev
   # Public URL of THIS control plane, handed to Cluster runtimes
   publicBaseUrl: https://dev.cloud.tapstate.com

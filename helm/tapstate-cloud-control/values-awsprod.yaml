@@ -1,0 +1,84 @@
+# ============================================================
+# AWS production — ECR image + self-hosted k3s cluster (ap-east-1)
+#
+# Edge topology:
+#   cloud.tapstate.com --TLS--> nginx on k3sm01 --> NodePort 30180
+# k3s is installed with traefik and servicelb disabled, so no Ingress
+# object is rendered and there is no cloud LoadBalancer.
+#
+# Usage:
+#   helm install tapstate-cloud-control ./helm/tapstate-cloud-control \
+#     -f helm/tapstate-cloud-control/values-awsprod.yaml \
+#     -n tapstate-cloud-control --create-namespace
+# ============================================================
+# Prerequisites (ops pre-create before Helm install):
+#   1. k3s namespace: tapstate-cloud-control
+#   2. Pre-created k3s Secrets: mongo-uri, jwks-signing-key,
+#      aws-credentials, dns, iac (optional: sample-sources,
+#      cluster-version)
+#   3. ECR image pushed and the tapstate-ecr-pull pull secret present
+#      (refreshed by the CD workflow on every deploy; prod nodes have
+#      no IAM instance profile)
+#   4. DNS A record cloud.tapstate.com -> k3sm01 EIP, and the nginx edge
+#      vhost on k3sm01 terminating TLS with the wildcard certificate and
+#      proxying 127.0.0.1:30180
+#   5. Activated atlas_configs + ACTIVE mdb_clusters documents in the
+#      control-plane store before real provisioning is exercised
+# ============================================================
+
+replicaCount: 2
+
+image:
+  # ECR is shared with awsdev (same account/region). CD overrides
+  # repository and tag on every deploy via --set from the ECR_REPO_URI
+  # secret and the pushed commit SHA; the values below are only the
+  # static fallback for a manual helm install.
+  repository: 263186327888.dkr.ecr.ap-east-1.amazonaws.com/tapstate-cloud/tapstate-cloud-control
+  pullPolicy: Always
+  tag: "latest"
+
+# Nodes carry no IAM instance profile; the pull secret is required.
+imagePullSecrets:
+  - name: tapstate-ecr-pull
+
+config:
+  springProfilesActive: prod
+  jwtIssuer: https://cloud.tapstate.com
+  corsAllowedOrigins: "https://cloud.tapstate.com,https://*.cloud.tapstate.com"
+
+  # Production drives real AWS (ap-southeast-1) + real Atlas provisioning.
+  # Requires the dns / iac k3s Secrets and Activated AtlasConfig + ACTIVE
+  # MdbCluster documents in the control-plane store.
+  iacMode: real
+  iacEnvironment: prod
+  publicBaseUrl: https://cloud.tapstate.com
+  atlasMdbMock: "false"
+  # API explorers are not exposed in production.
+  swaggerUiEnabled: "false"
+  knife4jEnabled: "false"
+
+# nginx edge on k3sm01 proxies 127.0.0.1:30180.
+service:
+  type: NodePort
+  port: 8080
+  nodePort: 30180
+
+# k3s runs with traefik and servicelb disabled; the edge is nginx.
+ingress:
+  enabled: false
+
+resources:
+  requests:
+    cpu: "200m"
+    memory: "512Mi"
+  limits:
+    cpu: "1000m"
+    memory: "1Gi"
+
+# Autoscaling stays off on the current fixed node set; revisit when the
+# worker pool exists.
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70

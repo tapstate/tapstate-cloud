@@ -10,6 +10,8 @@ import io.tapstate.cloud.config.JwksKey;
 import io.tapstate.cloud.config.JwksRotationService;
 import io.tapstate.cloud.identity.User;
 import io.tapstate.cloud.identity.UserRepository;
+import io.tapstate.cloud.iac.ClusterDomainName;
+import io.tapstate.cloud.iac.IacProperties;
 import io.tapstate.cloud.org.MemberRepository;
 import io.tapstate.cloud.org.Organization;
 import io.tapstate.cloud.org.OrganizationRepository;
@@ -33,7 +35,7 @@ class ExchangeServiceLocalEndpointsTest {
     @Test
     void usesMappedOriginAndSignedAudienceWhileKeepingAtomicCodeAndOrgBinding() throws Exception {
         assertExchangeContract(local(properties("http://cluster-1:28443")),
-            "http://localhost:28443", "localhost", true);
+            "http://localhost:28443", "localhost", true, new ClusterDomainName(new IacProperties()));
     }
 
     @Test
@@ -42,7 +44,21 @@ class ExchangeServiceLocalEndpointsTest {
         properties.setEnabled(false);
         var resolver = new LocalClusterEndpoints(properties, new org.springframework.mock.env.MockEnvironment(),
             "https://cloud.tapstate.io");
-        assertExchangeContract(resolver, "https://ignored.example", CLUSTER_ID + ".dev.cloud.tapstate.com", false);
+        assertExchangeContract(resolver, "https://ignored.example", "local-cluster.dev.cloud.tapstate.com",
+            false, new ClusterDomainName(new IacProperties()));
+    }
+
+    @Test
+    void ordinaryProductionExchangeUsesThePersistedDnsLabelAndConfiguredRoot() throws Exception {
+        var properties = properties("http://cluster-1:28443");
+        properties.setEnabled(false);
+        var resolver = new LocalClusterEndpoints(properties, new org.springframework.mock.env.MockEnvironment(),
+            "https://cloud.tapstate.io");
+        var deployment = new IacProperties();
+        deployment.setEnvironment("prod");
+        deployment.getGodaddy().setDomain("example.com");
+        assertExchangeContract(resolver, "https://ignored.example", "local-cluster.cloud.example.com",
+            false, new ClusterDomainName(deployment));
     }
 
     @Test
@@ -53,7 +69,8 @@ class ExchangeServiceLocalEndpointsTest {
         var keys = mock(JwksRotationService.class);
         var resolver = local(properties("http://cluster-1:28443"));
         var service = new ExchangeService(codes, mongo, mock(ClusterRepository.class), mock(MemberRepository.class),
-            mock(OrganizationRepository.class), mock(UserRepository.class), records, keys, resolver);
+            mock(OrganizationRepository.class), mock(UserRepository.class), records, keys, resolver,
+            mock(ClusterDomainName.class));
         var stored = ExchangeCode.builder().clusterId(new ObjectId(CLUSTER_ID))
             .targetOrigin("http://localhost:28444").expiresAt(java.time.Instant.now().plusSeconds(60)).build();
         when(codes.findByCodeHashAndConsumedAtIsNull(anyString())).thenReturn(Optional.of(stored));
@@ -67,7 +84,7 @@ class ExchangeServiceLocalEndpointsTest {
     }
 
     private void assertExchangeContract(LocalClusterEndpoints resolver, String expectedOrigin,
-                                        String expectedAudience, boolean local) throws Exception {
+                                        String expectedAudience, boolean local, ClusterDomainName domains) throws Exception {
         var codes = mock(ExchangeCodeRepository.class);
         var mongo = mock(MongoTemplate.class);
         var clusters = mock(ClusterRepository.class);
@@ -76,7 +93,8 @@ class ExchangeServiceLocalEndpointsTest {
         var users = mock(UserRepository.class);
         var records = mock(JtiRecordRepository.class);
         var keys = mock(JwksRotationService.class);
-        var service = new ExchangeService(codes, mongo, clusters, members, organizations, users, records, keys, resolver);
+        var service = new ExchangeService(codes, mongo, clusters, members, organizations, users, records, keys,
+            resolver, domains);
         String expectedIssuer = local ? ISSUER : "https://cloud.tapstate.io";
         ReflectionTestUtils.setField(service, "issuer", expectedIssuer);
         ReflectionTestUtils.setField(service, "jwtExpiryMinutes", 15);
@@ -84,7 +102,7 @@ class ExchangeServiceLocalEndpointsTest {
         ObjectId orgId = new ObjectId("111111111111111111111111");
         ObjectId userId = new ObjectId("222222222222222222222222");
         var cluster = Cluster.builder().id(clusterId).orgId(orgId).name("local").region("local")
-            .state(ClusterState.READY).publicDns("ignored.example").build();
+            .dnsLabel("local-cluster").state(ClusterState.READY).publicDns("ignored.example").build();
         when(users.findByEmail("user@example.com")).thenReturn(Optional.of(User.builder().id(userId).build()));
         when(members.existsByOrgIdAndUserEmail(orgId, "user@example.com")).thenReturn(true);
         when(clusters.findById(clusterId)).thenReturn(Optional.of(cluster));

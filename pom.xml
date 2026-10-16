@@ -43,6 +43,9 @@
     <!-- JJWT — RS256 signing for resolve JWT (ADR-0122 D4) -->
     <jjwt.version>0.12.6</jjwt.version>
 
+    <!-- Spring Session MongoDB (MongoDB-maintained artifact for Spring Session 4 / Boot 4) -->
+    <mongodb-spring-session.version>4.0.0</mongodb-spring-session.version>
+
     <!-- Spring Statemachine — Cluster + Subscription lifecycle state machines -->
     <spring-statemachine.version>4.0.2</spring-statemachine.version>
 
@@ -95,14 +98,14 @@
         <version>${jjwt.version}</version>
       </dependency>
 
-      <!-- Spring Session MongoDB — Spring Boot 4.x uses mongodb-spring-session artifact -->
-      <!-- org.mongodb:mongodb-spring-session will be added when ready; for now we use Tomcat default session -->
-      <!-- See ADR-0122 for Spring Session upgrade strategy -->
-      <!-- <dependency>
+      <!-- Spring Session MongoDB — MongoDB-maintained artifact for Spring Session 4.
+           Shares HttpSessions across control-plane replicas via the control-plane
+           MongoDB; replaces Tomcat's per-JVM in-memory session store. -->
+      <dependency>
         <groupId>org.mongodb</groupId>
         <artifactId>mongodb-spring-session</artifactId>
-        <version>4.0.0-rc0</version>
-      </dependency> -->
+        <version>${mongodb-spring-session.version}</version>
+      </dependency>
 
       <!-- Spring Statemachine — 4.0.x compatible with Spring Boot 3.5 / 4.1 -->
       <dependency>

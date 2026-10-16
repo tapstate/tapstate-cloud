@@ -65,6 +65,15 @@
       <artifactId>spring-boot-starter-data-mongodb</artifactId>
     </dependency>
 
+    <!-- Spring Session MongoDB — HttpSessions persist in the control-plane MongoDB
+         so every replica authenticates the same session cookie. Required for
+         multi-replica deployments: Tomcat's default in-memory sessions are
+         per-JVM and silently 401 on every other replica. -->
+    <dependency>
+      <groupId>org.mongodb</groupId>
+      <artifactId>mongodb-spring-session</artifactId>
+    </dependency>
+
     <!-- OpenAPI / Swagger annotations → springdoc generates /v3/api-docs at runtime -->
     <dependency>
       <groupId>org.springdoc</groupId>

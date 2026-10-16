@@ -256,9 +256,11 @@ class SubscriptionClusterLifecycleIT extends BaseIT {
             "ec2InstanceId must use the i- prefix");
         assertNotNull(cluster.path("ec2PublicIp").asText(null),
             "runtime public IP must be recorded");
-        assertEquals(clusterId + ".dev.cloud.tapstate.com",
+        assertEquals(
+            io.tapstate.cloud.cluster.DnsLabels.normalize("Lifecycle-Cluster")
+                + ".dev.cloud.tapstate.com",
             cluster.path("publicDns").asText(),
-            "publicDns must follow the dev naming rule");
+            "publicDns must use the name-derived DNS label with the dev suffix");
         assertNotNull(dateField(cluster, "lastHeartbeatAt"),
             "runtime heartbeat timestamp must be recorded");
 
