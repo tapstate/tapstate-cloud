@@ -104,11 +104,14 @@ class ExchangeOAuthIT extends BaseIT {
         System.out.println("[ExchangeOAuthIT] JWT claims: " + claimsJson);
 
         assertTrue(claimsJson.contains("\"iss\":\"https://cloud.tapstate.io\""), "Missing iss");
-        // it profile suffix (.dev.cloud.tapstate.com) must build the audience;
-        // production uses the apex-domain suffix from application.yml.
+        // The audience is the Cluster public domain built from the name-derived
+        // DNS label; the it profile uses the dev suffix (.dev.cloud.tapstate.com).
+        String expectedAudience =
+            io.tapstate.cloud.cluster.DnsLabels.normalize("ExchangeCluster")
+                + ".dev.cloud.tapstate.com";
         assertTrue(
-            claimsJson.contains("\"aud\":[\"" + clusterId + ".dev.cloud.tapstate.com\"]"),
-            "Missing aud built from the configured suffix, claims=" + claimsJson);
+            claimsJson.contains("\"aud\":[\"" + expectedAudience + "\"]"),
+            "Missing name-based audience " + expectedAudience + ", claims=" + claimsJson);
         assertTrue(claimsJson.contains("\"cluster_id\":\"" + clusterId + "\""), "Missing cluster_id");
         assertTrue(claimsJson.contains("\"org_id\":\"" + orgId + "\""), "Missing org_id");
         assertTrue(claimsJson.contains("\"sub\":\"exchange@tapstate.io\""), "Missing sub");

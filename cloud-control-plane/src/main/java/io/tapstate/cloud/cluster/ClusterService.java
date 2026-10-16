@@ -8,6 +8,7 @@ import io.tapstate.cloud.org.MemberRepository;
 import io.tapstate.cloud.region.RegionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -83,12 +84,27 @@ public class ClusterService {
             throw new BusinessException(AppErrorCode.CLUSTER_ALREADY_EXISTS, 409, name, orgId, region);
         }
 
+        // The public domain prefix is the display name normalized into one DNS
+        // label. Reject names with no usable letter/digit (e.g. CJK-only) or an
+        // over-long normalized form instead of provisioning an invalid domain.
+        String dnsLabel = DnsLabels.normalize(name);
+        if (!DnsLabels.isValidLabel(dnsLabel)) {
+            throw new BusinessException(AppErrorCode.CLUSTER_NAME_DNS_INVALID, 400,
+                name, dnsLabel, DnsLabels.MAX_LABEL_LENGTH);
+        }
+        // The hosted zone is shared per environment across every org/region, so
+        // the derived subdomain must be globally unique among active Clusters.
+        if (clusterRepository.existsByDnsLabelAndStateNot(dnsLabel, ClusterState.TERMINATED)) {
+            throw new BusinessException(AppErrorCode.CLUSTER_DNS_LABEL_CONFLICT, 409, dnsLabel);
+        }
+
         // ---- Cluster record ----
         Cluster cluster = Cluster.builder()
             .orgId(new ObjectId(orgId))
             .subscriptionId(subscriptionId)
             .region(region)
             .name(name)
+            .dnsLabel(dnsLabel)
             .specKey(specKey != null ? specKey : "basic")
             .state(ClusterState.PROVISIONING_PENDING)
             .clusterVersion(clusterVersion)
@@ -100,7 +116,20 @@ public class ClusterService {
             .tags(new HashMap<>(Map.of("organization_id", orgId, "cluster_id", "", "runtime_id", "")))
             .build();
 
-        Cluster saved = clusterRepository.save(cluster);
+        Cluster saved;
+        try {
+            saved = clusterRepository.save(cluster);
+        } catch (DuplicateKeyException e) {
+            // The existence pre-checks and the insert are not atomic: a
+            // concurrent create can win either active-Cluster unique index.
+            // Name the conflict from the index instead of issuing another
+            // query, since the failed write has aborted this transaction.
+            String detail = e.getMessage() == null ? "" : e.getMessage();
+            if (detail.contains("dns_label_active_unique")) {
+                throw new BusinessException(AppErrorCode.CLUSTER_DNS_LABEL_CONFLICT, 409, dnsLabel);
+            }
+            throw new BusinessException(AppErrorCode.CLUSTER_ALREADY_EXISTS, 409, name, orgId, region);
+        }
         saved.getTags().put("cluster_id", saved.getId().toHexString());
         saved.getTags().put("runtime_id", saved.getRuntimeId());
         saved = clusterRepository.save(saved);
