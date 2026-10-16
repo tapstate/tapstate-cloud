@@ -49,6 +49,12 @@ tapstate:
       provision:
         # Mock provisioning must always succeed in the fast IT suite.
         success-rate: 100
+        # The stranded-provisioning reconciler sweeps on this interval. Shortened
+        # here so an IT can observe a convergence within its poll budget; the
+        # production default (5 min) would put every such assertion past it. The
+        # sweep is a no-op for a Cluster whose step activity is recent, so a fast
+        # interval cannot disturb a run that is genuinely in flight.
+        reconcile-interval-ms: 2000
     # Fixed operator release token for the it profile; never use in production.
     cluster-version:
       release-token: it-release-token
