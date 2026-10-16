@@ -90,10 +90,6 @@ tapstate:
     issuer: ${CLOUD_JWT_ISSUER:http://localhost:8080}
     # Resolve JWT expiry in minutes
     resolve-jwt-expiry-minutes: ${CLOUD_RESOLVE_JWT_EXPIRY_MINUTES:15}
-    # DNS suffix appended to the Cluster id to build the resolve JWT audience
-    # ({clusterId}{suffix}). Production Clusters live directly under the apex
-    # domain; the dev/it profiles override with .dev.cloud.tapstate.com.
-    resolve-jwt-audience-suffix: ${CLOUD_RESOLVE_JWT_AUDIENCE_SUFFIX:.cloud.tapstate.com}
     # JWKS signing key — MUST come from k3s Secret (ADR-0121 D4)
     jwks-signing-key: ${CLOUD_JWKS_SIGNING_KEY:}
     # JWKS key rotation configuration

@@ -17,8 +17,6 @@ tapstate:
   cloud:
     # Dev: issuer points to the dev control plane
     issuer: https://dev.cloud.tapstate.com
-    # Dev Clusters are provisioned under the dev subdomain.
-    resolve-jwt-audience-suffix: .dev.cloud.tapstate.com
     # JWKS signing key — leave empty for dev (auto-generated in-memory)
     jwks-signing-key: ""
     # Local dev defaults to mock; deployed environments override via the

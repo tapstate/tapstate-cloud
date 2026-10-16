@@ -10,6 +10,7 @@ import io.tapstate.cloud.common.api.AppErrorCode;
 import io.tapstate.cloud.common.api.BusinessException;
 import io.tapstate.cloud.config.JwksKey;
 import io.tapstate.cloud.config.JwksRotationService;
+import io.tapstate.cloud.iac.ClusterDomainName;
 import io.tapstate.cloud.identity.User;
 import io.tapstate.cloud.identity.UserRepository;
 import io.tapstate.cloud.org.MemberRepository;
@@ -68,20 +69,13 @@ public class ExchangeService {
     private final UserRepository userRepo;
     private final JtiRecordRepository jtiRecordRepo;
     private final JwksRotationService jwksRotationService;
+    private final ClusterDomainName clusterDomainName;
 
     @Value("${tapstate.cloud.issuer:https://cloud.tapstate.io}")
     private String issuer;
 
     @Value("${tapstate.cloud.resolve-jwt-expiry-minutes:15}")
     private int jwtExpiryMinutes;
-
-    /**
-     * DNS suffix appended to the Cluster id when building the resolve JWT
-     * audience, e.g. {@code <clusterId>.cloud.tapstate.com} in production and
-     * {@code <clusterId>.dev.cloud.tapstate.com} in dev/it.
-     */
-    @Value("${tapstate.cloud.resolve-jwt-audience-suffix:.cloud.tapstate.com}")
-    private String jwtAudienceSuffix;
 
     /** Exchange code TTL — 60 seconds (ADR-0125 D2). */
     private static final int EXCHANGE_CODE_TTL_SECONDS = 60;
@@ -98,7 +92,8 @@ public class ExchangeService {
                            OrganizationRepository organizationRepo,
                            UserRepository userRepo,
                            JtiRecordRepository jtiRecordRepo,
-                           JwksRotationService jwksRotationService) {
+                           JwksRotationService jwksRotationService,
+                           ClusterDomainName clusterDomainName) {
         this.codeRepo = codeRepo;
         this.mongoTemplate = mongoTemplate;
         this.clusterRepo = clusterRepo;
@@ -107,6 +102,7 @@ public class ExchangeService {
         this.userRepo = userRepo;
         this.jtiRecordRepo = jtiRecordRepo;
         this.jwksRotationService = jwksRotationService;
+        this.clusterDomainName = clusterDomainName;
     }
 
     // ========== Step 1: Issue exchange code ==========
@@ -228,10 +224,13 @@ public class ExchangeService {
             throw new BusinessException(AppErrorCode.SYSTEM_ERROR, 500);
         }
 
-        // Issue resolve JWT — claims per ADR-0122 D4 + Issue #5 item 1 (user_id)
+        // Issue resolve JWT — claims per ADR-0122 D4 + Issue #5 item 1 (user_id).
+        // The audience is the Cluster Console public domain derived from the
+        // Cluster DNS label (name-based), the same value the runtime sees as
+        // its Host and as publicDns.
         String jwtId = UUID.randomUUID().toString();
         Instant jwtExp = now.plus(jwtExpiryMinutes, ChronoUnit.MINUTES);
-        String aud = consumed.getClusterId() + jwtAudienceSuffix;
+        String aud = clusterDomainName.fqdn(cluster);
 
         // Live-read the CURRENT active signing key from MongoDB — rotation-aware:
         // if JwksRotationService rotated since this service bean was built, the new

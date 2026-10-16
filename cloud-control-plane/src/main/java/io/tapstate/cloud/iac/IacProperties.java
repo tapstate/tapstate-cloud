@@ -24,7 +24,11 @@ public class IacProperties {
     /** Public base URL of this control plane, handed to Cluster runtimes. */
     private String publicBaseUrl = "https://cloud.tapstate.com";
 
-    /** DNS environment suffix: {@code dev} produces {@code <id>.dev.cloud.<domain>}. */
+    /**
+     * DNS environment selector for Cluster domains. {@code prod} produces
+     * {@code <clusterName>.cloud.<domain>} (apex); any other value produces
+     * {@code <clusterName>.dev.cloud.<domain>}.
+     */
     private String environment = "dev";
 
     /**

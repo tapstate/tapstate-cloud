@@ -25,6 +25,9 @@ public interface ClusterRepository extends MongoRepository<Cluster, ObjectId> {
 
     List<Cluster> findByOrgIdAndState(ObjectId orgId, ClusterState state);
 
+    /** Every Cluster in one lifecycle state — used by the provisioning reconciler. */
+    List<Cluster> findByState(ClusterState state);
+
     Optional<Cluster> findByIdAndOrgId(ObjectId id, ObjectId orgId);
 
     List<Cluster> findBySubscriptionId(ObjectId subscriptionId);
@@ -33,6 +36,13 @@ public interface ClusterRepository extends MongoRepository<Cluster, ObjectId> {
 
     boolean existsByOrgIdAndRegionAndNameAndStateNot(ObjectId orgId, String region, String name,
                                                       ClusterState state);
+
+    /**
+     * Global active-Cluster check for the DNS label derived from the display
+     * name: one environment shares a hosted zone, so the subdomain must be
+     * unique across every org and region.
+     */
+    boolean existsByDnsLabelAndStateNot(String dnsLabel, ClusterState state);
 
     /**
      * Find READY clusters whose last heartbeat was more than 5 minutes ago.

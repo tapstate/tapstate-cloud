@@ -37,8 +37,6 @@ tapstate:
   cloud:
     issuer: https://cloud.tapstate.io
     resolve-jwt-expiry-minutes: 15
-    # IT provisions mock/dev Clusters under the dev subdomain.
-    resolve-jwt-audience-suffix: .dev.cloud.tapstate.com
     session-expiry-days: 7
     default-region: ap-southeast-1
     mdb:
@@ -51,6 +49,12 @@ tapstate:
       provision:
         # Mock provisioning must always succeed in the fast IT suite.
         success-rate: 100
+        # The stranded-provisioning reconciler sweeps on this interval. Shortened
+        # here so an IT can observe a convergence within its poll budget; the
+        # production default (5 min) would put every such assertion past it. The
+        # sweep is a no-op for a Cluster whose step activity is recent, so a fast
+        # interval cannot disturb a run that is genuinely in flight.
+        reconcile-interval-ms: 2000
     # Fixed operator release token for the it profile; never use in production.
     cluster-version:
       release-token: it-release-token
@@ -60,8 +64,8 @@ tapstate:
       # deployment IT launches its own application process with -D mode=real.
       mode: ${TAPSTATE_CLOUD_IAC_MODE:mock}
       environment: dev
-      # Real IT provisions <id>.dev.cloud.tapstate.com nodes, so the control
-      # plane URL handed to runtimes is the dev endpoint.
+      # Real IT provisions <clusterName>.dev.cloud.tapstate.com nodes, so the
+      # control plane URL handed to runtimes is the dev endpoint.
       public-base-url: https://dev.cloud.tapstate.com
       aws:
         instance-type: t3.medium

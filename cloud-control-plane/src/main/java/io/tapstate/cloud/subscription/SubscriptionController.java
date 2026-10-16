@@ -230,7 +230,7 @@ public class SubscriptionController extends BaseController {
         @NotBlank @Parameter(description = "AWS Region code", example = "ap-southeast-1")
         String region,
         @NotBlank @Size(min = 1, max = 100)
-        @Parameter(description = "Cluster display name (unique within org + region)", example = "Production Pipeline")
+        @Parameter(description = "Cluster display name (unique within org + region); normalized into the public subdomain label, which must be globally unique among active clusters and contain at least one letter or digit", example = "Production Pipeline")
         String clusterName,
         @Size(max = 50) @Parameter(description = "Provisioning spec_key (Week 2: 'basic' only)", example = "basic")
         String specKey,

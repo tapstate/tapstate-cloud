@@ -70,6 +70,7 @@ class ClusterProvisioningVersionFailFastTest {
         service = new ClusterProvisioningService(
             clusterRepository,
             new IacProperties(),
+            new ClusterDomainName(new IacProperties()),
             Map.of("aws", compute),
             dns,
             sshClient,
@@ -89,6 +90,7 @@ class ClusterProvisioningVersionFailFastTest {
     void emptyCatalogFailsProvisioningBeforeAnyCloudResource() {
         Cluster cluster = new Cluster();
         cluster.setId(new org.bson.types.ObjectId());
+        cluster.setDnsLabel("version-fail-fast");
         cluster.setClusterVersion("  ");
         when(clusterVersionService.findLastActive()).thenReturn(Optional.empty());
 
@@ -114,6 +116,7 @@ class ClusterProvisioningVersionFailFastTest {
     void blankPinnedVersionFallsBackToLatestActiveAndIsPersistedBeforeProvisioningContinues() {
         Cluster cluster = new Cluster();
         cluster.setId(new org.bson.types.ObjectId());
+        cluster.setDnsLabel("version-fail-fast");
         ClusterVersion latest = ClusterVersion.builder().version("9.9.9").build();
         when(clusterVersionService.findLastActive()).thenReturn(Optional.of(latest));
         when(imageResolver.runtimeImage("9.9.9")).thenReturn("registry/repo:9.9.9");

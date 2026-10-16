@@ -42,6 +42,7 @@ class ClusterProvisioningCancellationTest {
         stale.setId(new ObjectId());
         stale.setState(ClusterState.PROVISIONING);
         stale.setRegion("us-east-1");
+        stale.setDnsLabel("cancelled-cluster");
         stale.setClusterVersion("1.0.0");
         stale.setSdkStaticToken("old-sdk-token");
         stale.setBootstrapToken("old-bootstrap-token");
@@ -63,7 +64,9 @@ class ClusterProvisioningCancellationTest {
             });
         ComputeInfrastructure compute = mock(ComputeInfrastructure.class);
         when(compute.provider()).thenReturn(CloudProvider.AWS);
-        service = new ClusterProvisioningService(clusters, new IacProperties(), Map.of("aws", compute),
+        IacProperties properties = new IacProperties();
+        service = new ClusterProvisioningService(clusters, properties,
+            new ClusterDomainName(properties), Map.of("aws", compute),
             mock(DnsInfrastructure.class), mock(SshClient.class), mock(SshKeyPairGenerator.class),
             mock(SshKeyCrypto.class), mock(ClusterRuntimeConfigs.class), mock(RuntimeAtlasUriResolver.class),
             mock(DeploymentStepRecorder.class), mock(TlsCertificateService.class), mock(TlsNodeInstaller.class),

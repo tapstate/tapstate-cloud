@@ -4,6 +4,7 @@ import io.tapstate.cloud.cluster.Cluster;
 import io.tapstate.cloud.cluster.ClusterRepository;
 import io.tapstate.cloud.cluster.ClusterState;
 import io.tapstate.cloud.cluster.ProvisionErrorCode;
+import io.tapstate.cloud.iac.ClusterDomainName;
 import io.tapstate.cloud.iac.ClusterProvisioningService;
 import io.tapstate.cloud.iac.ClusterProvisioningService.ProvisionResult;
 import io.tapstate.cloud.iac.IacProperties;
@@ -67,6 +68,7 @@ public class ClusterStateMachineService {
     private final MongoTemplate mongoTemplate;
     private final ClusterProvisioningService clusterProvisioningService;
     private final IacProperties iacProperties;
+    private final ClusterDomainName clusterDomainName;
     private final ApplicationEventPublisher eventPublisher;
     private final SubscriptionRepository subscriptionRepository;
     private final DeploymentStepRecorder recorder;
@@ -106,6 +108,7 @@ public class ClusterStateMachineService {
         MongoTemplate mongoTemplate,
         ClusterProvisioningService clusterProvisioningService,
         IacProperties iacProperties,
+        ClusterDomainName clusterDomainName,
         ApplicationEventPublisher eventPublisher,
         SubscriptionRepository subscriptionRepository,
         DeploymentStepRecorder recorder,
@@ -115,6 +118,7 @@ public class ClusterStateMachineService {
         this.mongoTemplate = mongoTemplate;
         this.clusterProvisioningService = clusterProvisioningService;
         this.iacProperties = iacProperties;
+        this.clusterDomainName = clusterDomainName;
         this.eventPublisher = eventPublisher;
         this.subscriptionRepository = subscriptionRepository;
         this.recorder = recorder;
@@ -147,10 +151,9 @@ public class ClusterStateMachineService {
             ClusterState prevState = cluster.getState();
 
             cluster.setState(newState);
-            cluster.setUpdatedAt(Instant.now());
             // Synchronous field mutations are applied before persisting so the
             // new state and its side-effect fields become visible atomically;
-            // async cloud operations are scheduled only after the save.
+            // async cloud operations are scheduled only after the write.
             applySynchronousMutations(cluster, prevState, newState, event);
             if (!persistTransition(cluster, prevState)) {
                 sm.stop();
@@ -520,7 +523,7 @@ public class ClusterStateMachineService {
         cluster.setEc2InstanceId("i-" + cluster.getId().toHexString().substring(0, 12));
         cluster.setEc2PublicIp("54." + secureRandom.nextInt(256) + "."
             + secureRandom.nextInt(256) + "." + secureRandom.nextInt(256));
-        cluster.setPublicDns(cluster.getId().toHexString() + ".dev.cloud.tapstate.com");
+        cluster.setPublicDns(clusterDomainName.fqdn(cluster));
         cluster.setLastHeartbeatAt(Instant.now());
     }
 

@@ -9,6 +9,7 @@ import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.mongodb.core.index.CompoundIndex;
+import org.springframework.data.mongodb.core.index.CompoundIndexes;
 import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 
@@ -28,9 +29,18 @@ import org.bson.types.ObjectId;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@CompoundIndex(name = "org_region_name_active_unique", def = "{'orgId': 1, 'region': 1, 'name': 1}",
-    unique = true,
-    partialFilter = "{'state': {'$in': ['PROVISIONING_PENDING', 'PROVISIONING', 'READY', 'PROVISIONING_FAILED', 'DEGRADED', 'DRAINED']}}")
+// Both indexes are scoped to non-TERMINATED Clusters so recycled names become
+// available again after termination. The DNS-label index is global (not
+// per-org/region): the hosted zone of an environment is shared, so the derived
+// subdomain must be unique across every active Cluster in that environment.
+@CompoundIndexes({
+    @CompoundIndex(name = "org_region_name_active_unique", def = "{'orgId': 1, 'region': 1, 'name': 1}",
+        unique = true,
+        partialFilter = "{'state': {'$in': ['PROVISIONING_PENDING', 'PROVISIONING', 'READY', 'PROVISIONING_FAILED', 'DEGRADED', 'DRAINED']}}"),
+    @CompoundIndex(name = "dns_label_active_unique", def = "{'dnsLabel': 1}",
+        unique = true,
+        partialFilter = "{'state': {'$in': ['PROVISIONING_PENDING', 'PROVISIONING', 'READY', 'PROVISIONING_FAILED', 'DEGRADED', 'DRAINED']}}")
+})
 @Schema(description = "Tapstate Cloud Cluster — per-user-isolated runtime EC2 instance")
 public class Cluster {
 
@@ -50,6 +60,10 @@ public class Cluster {
 
     @Schema(description = "Cluster display name", example = "Production Pipeline")
     private String name;
+
+    @Schema(description = "RFC 1123 DNS label derived from name at creation — left-most label of the public domain, globally unique among active Clusters",
+        example = "production-pipeline")
+    private String dnsLabel;
 
     @Schema(description = "Provisioning spec_key", example = "basic")
     @Builder.Default
@@ -103,7 +117,7 @@ public class Cluster {
     @Schema(description = "Per-Cluster SSH private key, encrypted at rest")
     private String sshPrivateKeyEnc;
 
-    @Schema(description = "Public DNS: {clusterId}.dev.cloud.tapstate.com")
+    @Schema(description = "Public DNS: {dnsLabel}.dev.cloud.tapstate.com (non-prod) or {dnsLabel}.cloud.tapstate.com (prod)")
     private String publicDns;
 
     @Schema(description = "DNS A record created for the Cluster node")

@@ -199,7 +199,8 @@ class AwsClusterDeployIT extends BaseIT {
 
         clusterId = created.getClusterId();
         assertNotNull(clusterId, "Cluster record must exist after subscription");
-        domain = clusterId + ".dev.cloud.tapstate.com";
+        domain = io.tapstate.cloud.cluster.DnsLabels.normalize(clusterName)
+            + ".dev.cloud.tapstate.com";
     }
 
     @Test
