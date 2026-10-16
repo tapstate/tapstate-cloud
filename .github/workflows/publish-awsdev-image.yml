@@ -55,22 +55,31 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Export the pushed image for local EC2 import
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: v1.36.4
+
+      - name: Refresh the awsdev ECR pull secret
         env:
+          AWS_REGION: ${{ secrets.AWS_REGION }}
           ECR_REPO_URI: ${{ secrets.ECR_REPO_URI }}
+          KUBECONFIG_BASE64: ${{ secrets.KUBECONFIG_BASE64 }}
         run: |
           set -euo pipefail
-          image="$ECR_REPO_URI:$GITHUB_SHA"
-          docker pull "$image"
-          docker save "$image" | gzip > "$RUNNER_TEMP/cloud-control-image.tar.gz"
-
-      - name: Upload the image archive for local deployment
-        uses: actions/upload-artifact@v4
-        with:
-          name: cloud-control-image
-          path: ${{ runner.temp }}/cloud-control-image.tar.gz
-          if-no-files-found: error
-          retention-days: 1
+          printf '%s' "$KUBECONFIG_BASE64" | base64 --decode > "$RUNNER_TEMP/kubeconfig"
+          chmod 600 "$RUNNER_TEMP/kubeconfig"
+          export KUBECONFIG="$RUNNER_TEMP/kubeconfig"
+          kubectl -n tapstate get secret tapstate-ecr-pull >/dev/null
+          token="$(aws ecr get-login-password --region "$AWS_REGION")"
+          registry="${ECR_REPO_URI%%/*}"
+          kubectl create secret docker-registry tapstate-ecr-pull \
+            --namespace tapstate \
+            --docker-server="$registry" \
+            --docker-username=AWS \
+            --docker-password="$token" \
+            --dry-run=client -o yaml | kubectl apply -f -
+          unset token
 
       - name: Report the image tag and digest
         env:
@@ -88,5 +97,4 @@ jobs:
           {
             printf "Cloud Control image: \`%s:%s\`\n\n" "$ECR_REPO_URI" "$GITHUB_SHA"
             printf "Digest: \`%s\`\n\n" "$digest"
-            printf "Archive: \`cloud-control-image\` (retained for one day)\n"
           } >> "$GITHUB_STEP_SUMMARY"
