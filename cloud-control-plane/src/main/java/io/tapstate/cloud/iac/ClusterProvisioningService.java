@@ -54,6 +54,7 @@ public class ClusterProvisioningService {
 
     private final ClusterRepository clusterRepository;
     private final IacProperties properties;
+    private final ClusterDomainName clusterDomainName;
     private final ComputeInfrastructure compute;
     private final DnsInfrastructure dns;
     private final SshClient sshClient;
@@ -82,6 +83,7 @@ public class ClusterProvisioningService {
     public ClusterProvisioningService(
         ClusterRepository clusterRepository,
         IacProperties properties,
+        ClusterDomainName clusterDomainName,
         Map<String, ComputeInfrastructure> computeBeans,
         DnsInfrastructure dns,
         SshClient sshClient,
@@ -96,6 +98,7 @@ public class ClusterProvisioningService {
         ClusterImageResolver imageResolver) {
         this.clusterRepository = clusterRepository;
         this.properties = properties;
+        this.clusterDomainName = clusterDomainName;
         this.dns = dns;
         this.sshClient = sshClient;
         this.keyPairGenerator = keyPairGenerator;
@@ -126,7 +129,13 @@ public class ClusterProvisioningService {
      */
     public ProvisionResult provision(Cluster cluster) {
         String clusterId = cluster.getId().toHexString();
-        String domain = clusterDomain(clusterId);
+        String dnsLabel = cluster.getDnsLabel();
+        if (dnsLabel == null || dnsLabel.isBlank()) {
+            // Every Cluster created by the current code carries a label; a
+            // missing one means a document the startup backfill never reached.
+            throw new IllegalStateException("Cluster " + clusterId + " has no persisted dnsLabel");
+        }
+        String domain = clusterDomainName.fqdn(dnsLabel);
         ProxyConfig proxy = resolveProxy();
 
         // Resolve the deployable Cluster version before touching any cloud
@@ -411,15 +420,6 @@ public class ClusterProvisioningService {
     }
 
     // ========== Step helpers ==========
-
-    /** Build the Cluster domain from its id and the configured environment. */
-    private String clusterDomain(String clusterId) {
-        String rootDomain = properties.getGodaddy().getDomain();
-        if ("prod".equalsIgnoreCase(properties.getEnvironment())) {
-            return clusterId + ".cloud." + rootDomain;
-        }
-        return clusterId + ".dev.cloud." + rootDomain;
-    }
 
     /**
      * Resolve the HTTP proxy the JVM is configured to use, if any. SSH tunnels and

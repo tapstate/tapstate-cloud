@@ -4,6 +4,7 @@ import io.tapstate.cloud.cluster.Cluster;
 import io.tapstate.cloud.cluster.ClusterRepository;
 import io.tapstate.cloud.cluster.ClusterState;
 import io.tapstate.cloud.cluster.ProvisionErrorCode;
+import io.tapstate.cloud.iac.ClusterDomainName;
 import io.tapstate.cloud.iac.ClusterProvisioningService;
 import io.tapstate.cloud.iac.ClusterProvisioningService.ProvisionResult;
 import io.tapstate.cloud.iac.IacProperties;
@@ -62,6 +63,7 @@ public class ClusterStateMachineService {
     private final ClusterRepository clusterRepository;
     private final ClusterProvisioningService clusterProvisioningService;
     private final IacProperties iacProperties;
+    private final ClusterDomainName clusterDomainName;
     private final ApplicationEventPublisher eventPublisher;
     private final SubscriptionRepository subscriptionRepository;
     private final DeploymentStepRecorder recorder;
@@ -100,6 +102,7 @@ public class ClusterStateMachineService {
         ClusterRepository clusterRepository,
         ClusterProvisioningService clusterProvisioningService,
         IacProperties iacProperties,
+        ClusterDomainName clusterDomainName,
         ApplicationEventPublisher eventPublisher,
         SubscriptionRepository subscriptionRepository,
         DeploymentStepRecorder recorder,
@@ -108,6 +111,7 @@ public class ClusterStateMachineService {
         this.clusterRepository = clusterRepository;
         this.clusterProvisioningService = clusterProvisioningService;
         this.iacProperties = iacProperties;
+        this.clusterDomainName = clusterDomainName;
         this.eventPublisher = eventPublisher;
         this.subscriptionRepository = subscriptionRepository;
         this.recorder = recorder;
@@ -488,7 +492,7 @@ public class ClusterStateMachineService {
         cluster.setEc2InstanceId("i-" + cluster.getId().toHexString().substring(0, 12));
         cluster.setEc2PublicIp("54." + secureRandom.nextInt(256) + "."
             + secureRandom.nextInt(256) + "." + secureRandom.nextInt(256));
-        cluster.setPublicDns(cluster.getId().toHexString() + ".dev.cloud.tapstate.com");
+        cluster.setPublicDns(clusterDomainName.fqdn(cluster));
         cluster.setLastHeartbeatAt(Instant.now());
     }
 

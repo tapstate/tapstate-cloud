@@ -28,6 +28,13 @@ public interface ClusterRepository extends MongoRepository<Cluster, ObjectId> {
                                                       ClusterState state);
 
     /**
+     * Global active-Cluster check for the DNS label derived from the display
+     * name: one environment shares a hosted zone, so the subdomain must be
+     * unique across every org and region.
+     */
+    boolean existsByDnsLabelAndStateNot(String dnsLabel, ClusterState state);
+
+    /**
      * Find READY clusters whose last heartbeat was more than 5 minutes ago.
      * Used by scheduled task to auto-transition to DEGRADED.
      */

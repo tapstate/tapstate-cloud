@@ -97,7 +97,8 @@ config:
   # these in values-awsdev.yaml / values-awsprod.yaml.
   iacProvider: aws
   iacMode: mock
-  # DNS environment suffix — provisions <id>.<iacEnvironment>.<godaddyDomain>
+  # DNS environment selector — dev provisions <clusterName>.dev.cloud.<godaddyDomain>,
+  # prod provisions <clusterName>.cloud.<godaddyDomain> (apex).
   iacEnvironment: dev
   # Public URL of THIS control plane, handed to Cluster runtimes
   publicBaseUrl: https://dev.cloud.tapstate.com

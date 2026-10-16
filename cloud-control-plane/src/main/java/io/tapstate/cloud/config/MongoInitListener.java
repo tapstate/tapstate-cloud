@@ -4,6 +4,7 @@ import com.mongodb.client.model.CreateCollectionOptions;
 import com.mongodb.client.model.TimeSeriesGranularity;
 import com.mongodb.client.model.TimeSeriesOptions;
 import io.tapstate.cloud.cluster.Cluster;
+import io.tapstate.cloud.cluster.DnsLabels;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.ApplicationListener;
@@ -14,7 +15,12 @@ import org.springframework.data.mongodb.core.index.IndexOperations;
 import org.springframework.data.mongodb.core.index.MongoPersistentEntityIndexResolver;
 import org.springframework.data.mongodb.core.mapping.Document;
 import org.springframework.data.mongodb.core.mapping.MongoMappingContext;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.stereotype.Component;
+
+import java.util.List;
 
 /**
  * MongoDB initialization listener — fires after ApplicationReadyEvent.
@@ -106,6 +112,13 @@ public class MongoInitListener implements ApplicationListener<ApplicationReadyEv
                     log.debug("[Mongo Init] Created collection for {}", entity.getSimpleName());
                 }
 
+                // Backfill fields introduced after the entity existed before
+                // their unique indexes are ensured, otherwise existing
+                // documents would make index creation fail.
+                if (entity == Cluster.class) {
+                    backfillClusterDnsLabels(mongoTemplate);
+                }
+
                 // Resolve and apply indexes from annotation metadata
                 IndexOperations indexOps = mongoTemplate.indexOps(entity);
                 MongoPersistentEntityIndexResolver resolver = new MongoPersistentEntityIndexResolver(mappingContext);
@@ -121,6 +134,11 @@ public class MongoInitListener implements ApplicationListener<ApplicationReadyEv
                         .anyMatch(index -> "org_region_name_active_unique".equals(index.getName()));
                     if (!activeIndexExists) {
                         throw new IllegalStateException("Active Cluster name index is missing");
+                    }
+                    boolean dnsLabelIndexExists = indexOps.getIndexInfo().stream()
+                        .anyMatch(index -> "dns_label_active_unique".equals(index.getName()));
+                    if (!dnsLabelIndexExists) {
+                        throw new IllegalStateException("Active Cluster DNS-label index is missing");
                     }
                     boolean legacyIndexExists = indexOps.getIndexInfo().stream()
                         .anyMatch(index -> "org_region_name_unique".equals(index.getName()));
@@ -147,5 +165,35 @@ public class MongoInitListener implements ApplicationListener<ApplicationReadyEv
         }
 
         log.info("[Mongo Init] Done — applied indexes to {} entities, {} had no explicit indexes", applied, skipped);
+    }
+
+    /**
+     * Backfill {@code dnsLabel} on Cluster documents created before the field
+     * existed, so the global unique partial index can be created against
+     * complete data. Prefer the name-derived label used by the current rule;
+     * fall back to the id hex (the former domain label) when the name
+     * normalizes to nothing or clashes with another document's label.
+     */
+    private void backfillClusterDnsLabels(MongoTemplate mongoTemplate) {
+        // {field: null} matches both null and missing values.
+        List<Cluster> unlabeled = mongoTemplate.find(
+            Query.query(Criteria.where("dnsLabel").is(null)), Cluster.class);
+        for (Cluster cluster : unlabeled) {
+            String nameLabel = DnsLabels.normalize(cluster.getName());
+            String label = nameLabel;
+            if (!DnsLabels.isValidLabel(label) || mongoTemplate.exists(
+                    Query.query(Criteria.where("dnsLabel").is(label)
+                        .and("_id").ne(cluster.getId())), Cluster.class)) {
+                label = cluster.getId().toHexString();
+                log.warn("[Mongo Init] Cluster {} keeps id-based DNS label '{}' — name '{}' normalizes to '{}' or collides",
+                    cluster.getId().toHexString(), label, cluster.getName(), nameLabel);
+            }
+            mongoTemplate.updateFirst(
+                Query.query(Criteria.where("_id").is(cluster.getId())),
+                Update.update("dnsLabel", label), Cluster.class);
+        }
+        if (!unlabeled.isEmpty()) {
+            log.info("[Mongo Init] Backfilled dnsLabel on {} Cluster document(s)", unlabeled.size());
+        }
     }
 }
