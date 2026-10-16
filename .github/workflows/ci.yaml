@@ -147,3 +147,20 @@ jobs:
 
       - name: Template render check (AWS prod values)
         run: helm template tapstate-cloud-control helm/tapstate-cloud-control -f helm/tapstate-cloud-control/values-awsprod.yaml > /dev/null
+
+  # ---------- Job 6: Repository hygiene ----------
+  # Governance baseline: CODEOWNERS ownership/module structure and a scan for
+  # accidentally committed secrets. Needs only a checkout — no JDK, no Maven.
+  repo-hygiene:
+    name: Repository Hygiene
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check repository structure (modules + CODEOWNERS)
+        run: bash scripts/check-repo-structure.sh
+
+      - name: Check for committed secrets
+        run: bash scripts/check-no-secrets.sh
