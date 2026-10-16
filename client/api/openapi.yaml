@@ -1,3 +1,5 @@
+# Probe: verifies that a change to the shared contract surface requests review
+# from both the provider and the consumer owner. This PR is closed unmerged.
 openapi: 3.1.0
 info:
   title: Tapstate Cloud — Global Control Plane API
