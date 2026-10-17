@@ -24,6 +24,8 @@ import java.time.Instant;
  * @param organizationName Organization display name for the established ClusterContext
  * @param clusterName Cluster display name for the established ClusterContext
  * @param region AWS region for the established ClusterContext
+ * @param ec2PublicIp Current Cluster public and source-firewall egress IPv4 address
+ * @param egressAddressStatus Stability state for the Cluster egress address
  */
 public record JwtExchangeResult(
     String jwt,
@@ -34,5 +36,12 @@ public record JwtExchangeResult(
     String clusterId,
     String organizationName,
     String clusterName,
-    String region
-) {}
+    String region,
+    String ec2PublicIp,
+    String egressAddressStatus
+) {
+    public JwtExchangeResult(String jwt, Instant expiresAt, String jti, String userEmail, String orgId,
+            String clusterId, String organizationName, String clusterName, String region) {
+        this(jwt, expiresAt, jti, userEmail, orgId, clusterId, organizationName, clusterName, region, null, null);
+    }
+}
