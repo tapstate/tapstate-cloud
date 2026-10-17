@@ -62,7 +62,7 @@ public class ClusterProvisioningService {
     private final IacProperties properties;
     private final ClusterDomainName clusterDomainName;
     private final ComputeInfrastructure compute;
-    private final DnsInfrastructure dns;
+    private final ClusterDnsRecordCoordinator dnsRecords;
     private final SshClient sshClient;
     private final SshKeyPairGenerator keyPairGenerator;
     private final SshKeyCrypto keyCrypto;
@@ -92,7 +92,7 @@ public class ClusterProvisioningService {
         IacProperties properties,
         ClusterDomainName clusterDomainName,
         Map<String, ComputeInfrastructure> computeBeans,
-        DnsInfrastructure dns,
+        ClusterDnsRecordCoordinator dnsRecords,
         SshClient sshClient,
         SshKeyPairGenerator keyPairGenerator,
         SshKeyCrypto keyCrypto,
@@ -107,7 +107,7 @@ public class ClusterProvisioningService {
         this.clusterRepository = clusterRepository;
         this.properties = properties;
         this.clusterDomainName = clusterDomainName;
-        this.dns = dns;
+        this.dnsRecords = dnsRecords;
         this.sshClient = sshClient;
         this.keyPairGenerator = keyPairGenerator;
         this.keyCrypto = keyCrypto;
@@ -252,10 +252,11 @@ public class ClusterProvisioningService {
             // 5. Publish the DNS name before pushing service configuration.
             runStep(cluster, DeploymentOperation.CREATE_DNS_RECORD,
                 "DNS record created", () -> {
-                    dns.upsertARecord(domain, node.publicIp());
-                    cluster.setDnsRecord(domain);
-                    cluster.setPublicDns(domain);
-                    persist(cluster, new Update().set("dnsRecord", domain).set("publicDns", domain));
+                    dnsRecords.publish(domain, node.publicIp(), cluster.getId(), () -> {
+                        cluster.setDnsRecord(domain);
+                        cluster.setPublicDns(domain);
+                        persist(cluster, new Update().set("dnsRecord", domain).set("publicDns", domain));
+                    });
                 });
 
             // 6. The Atlas allocation runs in parallel with the EC2 provisioning;
@@ -416,8 +417,10 @@ public class ClusterProvisioningService {
             runStep(cluster, DeploymentOperation.DELETE_DNS_RECORD,
                 domain != null && !domain.isBlank() ? "DNS record deleted" : "No DNS record to delete",
                 () -> {
-                    if (domain != null && !domain.isBlank()) {
-                        dns.deleteRecord(domain);
+                    if (domain != null && !domain.isBlank()
+                            && !dnsRecords.deleteIfUnowned(domain, cluster.getId())) {
+                        throw new IacException(AppErrorCode.IAC_DNS_PROVIDER_FAILED,
+                            "DNS record is being updated by another Cluster operation");
                     }
                 });
             log.info("[IaC] terminate complete cluster={}", clusterId);
@@ -661,8 +664,12 @@ public class ClusterProvisioningService {
         if (dnsCreated) {
             try {
                 String domain = cluster.getDnsRecord();
-                dns.deleteRecord(domain);
-                cluster.setDnsRecord(null);
+                if (dnsRecords.deleteIfUnowned(domain, cluster.getId())) {
+                    cluster.setDnsRecord(null);
+                } else {
+                    log.info("[IaC] DNS cleanup deferred while another operation owns hostname cluster={}",
+                        clusterId);
+                }
             } catch (Exception e) {
                 log.error("[IaC] compensation failed to delete DNS cluster={}: {}",
                     clusterId, safeMessage(e));

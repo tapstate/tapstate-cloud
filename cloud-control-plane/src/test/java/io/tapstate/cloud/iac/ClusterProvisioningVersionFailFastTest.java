@@ -46,7 +46,7 @@ import static org.mockito.Mockito.when;
 class ClusterProvisioningVersionFailFastTest {
 
     private @Mock ClusterRepository clusterRepository;
-    private @Mock DnsInfrastructure dns;
+    private @Mock ClusterDnsRecordCoordinator dnsRecords;
     private @Mock SshClient sshClient;
     private @Mock SshKeyPairGenerator keyPairGenerator;
     private @Mock SshKeyCrypto keyCrypto;
@@ -72,7 +72,7 @@ class ClusterProvisioningVersionFailFastTest {
             new IacProperties(),
             new ClusterDomainName(new IacProperties()),
             Map.of("aws", compute),
-            dns,
+            dnsRecords,
             sshClient,
             keyPairGenerator,
             keyCrypto,
@@ -109,7 +109,7 @@ class ClusterProvisioningVersionFailFastTest {
         // (compute.provider() is the constructor-time bean selection call.)
         verify(compute).provider();
         verifyNoMoreInteractions(compute);
-        verifyNoInteractions(imageResolver, tlsCertificateService, dns, sshClient);
+        verifyNoInteractions(imageResolver, tlsCertificateService, dnsRecords, sshClient);
     }
 
     @Test

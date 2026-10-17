@@ -7,8 +7,10 @@ import io.tapstate.cloud.cluster.ClusterState;
 import io.tapstate.cloud.common.api.AppErrorCode;
 import io.tapstate.cloud.common.api.BusinessException;
 import io.tapstate.cloud.iac.model.NodeInstance;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import net.javacrumbs.shedlock.core.LockConfiguration;
+import net.javacrumbs.shedlock.core.LockProvider;
+import net.javacrumbs.shedlock.core.SimpleLock;
 import org.bson.types.ObjectId;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
@@ -21,6 +23,7 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Qualifier;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -28,17 +31,41 @@ import java.util.Objects;
 import java.util.Map;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
+import java.util.concurrent.RejectedExecutionException;
+import java.time.Duration;
 
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class ClusterEgressAddressService {
 
     private final ClusterRepository clusterRepository;
     private final MongoTemplate mongoTemplate;
     private final ApplicationEventPublisher events;
-    private final DnsInfrastructure dns;
+    private final ClusterDnsRecordCoordinator dnsRecords;
     private final Map<String, ComputeInfrastructure> computeBeans;
+    private final LockProvider lockProvider;
+    private final Executor cleanupExecutor;
+    private final Set<ObjectId> scheduledCleanup = ConcurrentHashMap.newKeySet();
+
+    public ClusterEgressAddressService(
+            ClusterRepository clusterRepository,
+            MongoTemplate mongoTemplate,
+            ApplicationEventPublisher events,
+            ClusterDnsRecordCoordinator dnsRecords,
+            Map<String, ComputeInfrastructure> computeBeans,
+            LockProvider lockProvider,
+            @Qualifier("clusterCleanupExecutor") Executor cleanupExecutor) {
+        this.clusterRepository = clusterRepository;
+        this.mongoTemplate = mongoTemplate;
+        this.events = events;
+        this.dnsRecords = dnsRecords;
+        this.computeBeans = computeBeans;
+        this.lockProvider = lockProvider;
+        this.cleanupExecutor = cleanupExecutor;
+    }
 
     @Value("${tapstate.cloud.iac.mode:real}")
     private String mode = "real";
@@ -112,7 +139,7 @@ public class ClusterEgressAddressService {
                 throw new IacException(AppErrorCode.IAC_COMPUTE_PROVISION_FAILED,
                     "Cluster DNS name is missing while stabilizing its public address");
             }
-            dns.upsertARecord(domain, node.publicIp());
+            dnsRecords.publish(domain, node.publicIp(), cluster.getId(), () -> {});
 
             if (!complete(cluster.getId(), operationToken, node)) {
                 log.info("[EgressAddress] Cluster changed while address was stabilizing cluster={}",
@@ -128,7 +155,7 @@ public class ClusterEgressAddressService {
         } finally {
             clusterRepository.findById(request.clusterId())
                 .filter(current -> current.getState() == ClusterState.TERMINATED)
-                .ifPresent(this::reclaimTerminatedResources);
+                .ifPresent(this::scheduleTerminatedCleanup);
         }
     }
 
@@ -140,7 +167,7 @@ public class ClusterEgressAddressService {
     public void reconcileTerminatedClusters() {
         if (!"real".equalsIgnoreCase(mode)) return;
         for (Cluster cluster : clusterRepository.findByState(ClusterState.TERMINATED)) {
-            reclaimTerminatedResources(cluster);
+            scheduleTerminatedCleanup(cluster);
         }
     }
 
@@ -148,10 +175,42 @@ public class ClusterEgressAddressService {
         try {
             awsCompute().terminate(cluster.getRegion(), cluster.getId().toHexString());
             String domain = cluster.getDnsRecord() != null ? cluster.getDnsRecord() : cluster.getPublicDns();
-            if (domain != null && !domain.isBlank()) dns.deleteRecord(domain);
+            if (domain != null && !domain.isBlank()
+                    && !dnsRecords.deleteIfUnowned(domain, cluster.getId())) {
+                throw new IllegalStateException("DNS record lock is busy; cleanup will retry");
+            }
         } catch (Exception failure) {
             log.warn("[EgressAddress] terminated Cluster cleanup will retry cluster={} type={}",
                 cluster.getId().toHexString(), failure.getClass().getSimpleName());
+        }
+    }
+
+    private void scheduleTerminatedCleanup(Cluster cluster) {
+        ObjectId clusterId = cluster.getId();
+        if (!scheduledCleanup.add(clusterId)) return;
+        try {
+            cleanupExecutor.execute(() -> {
+                try {
+                    Optional<SimpleLock> lease = lockProvider.lock(new LockConfiguration(
+                        Instant.now(), "tapstate-terminated-cluster-" + clusterId.toHexString(),
+                        Duration.ofMinutes(15), Duration.ZERO));
+                    if (lease.isEmpty()) return;
+                    try {
+                        reclaimTerminatedResources(cluster);
+                    } finally {
+                        lease.get().unlock();
+                    }
+                } catch (Exception failure) {
+                    log.warn("[EgressAddress] terminated Cluster cleanup could not start cluster={} type={}",
+                        clusterId.toHexString(), failure.getClass().getSimpleName());
+                } finally {
+                    scheduledCleanup.remove(clusterId);
+                }
+            });
+        } catch (RejectedExecutionException rejected) {
+            scheduledCleanup.remove(clusterId);
+            log.warn("[EgressAddress] terminated Cluster cleanup queue is full cluster={}",
+                clusterId.toHexString());
         }
     }
 

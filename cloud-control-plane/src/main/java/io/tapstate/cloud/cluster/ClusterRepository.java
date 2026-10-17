@@ -42,6 +42,9 @@ public interface ClusterRepository extends MongoRepository<Cluster, ObjectId> {
      */
     boolean existsByDnsLabelAndStateNot(String dnsLabel, ClusterState state);
 
+    /** A hostname cannot be removed while another live Cluster owns its DNS record. */
+    boolean existsByPublicDnsAndStateNotAndIdNot(String publicDns, ClusterState state, ObjectId id);
+
     /**
      * Find READY clusters whose last heartbeat was more than 5 minutes ago.
      * Used by scheduled task to auto-transition to DEGRADED.

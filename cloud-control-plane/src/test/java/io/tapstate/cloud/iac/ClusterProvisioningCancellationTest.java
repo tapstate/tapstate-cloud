@@ -67,7 +67,7 @@ class ClusterProvisioningCancellationTest {
         IacProperties properties = new IacProperties();
         service = new ClusterProvisioningService(clusters, properties,
             new ClusterDomainName(properties), Map.of("aws", compute),
-            mock(DnsInfrastructure.class), mock(SshClient.class), mock(SshKeyPairGenerator.class),
+            mock(ClusterDnsRecordCoordinator.class), mock(SshClient.class), mock(SshKeyPairGenerator.class),
             mock(SshKeyCrypto.class), mock(ClusterRuntimeConfigs.class), mock(RuntimeAtlasUriResolver.class),
             mock(DeploymentStepRecorder.class), mock(TlsCertificateService.class), mock(TlsNodeInstaller.class),
             versions, mock(ClusterImageResolver.class), mongo);

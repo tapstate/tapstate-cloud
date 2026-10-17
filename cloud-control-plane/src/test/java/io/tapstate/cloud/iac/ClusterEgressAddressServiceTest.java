@@ -3,6 +3,8 @@ package io.tapstate.cloud.iac;
 import com.mongodb.client.result.UpdateResult;
 import io.tapstate.cloud.cluster.*;
 import io.tapstate.cloud.iac.model.NodeInstance;
+import net.javacrumbs.shedlock.core.LockProvider;
+import net.javacrumbs.shedlock.core.SimpleLock;
 import org.bson.types.ObjectId;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -26,6 +28,7 @@ class ClusterEgressAddressServiceTest {
     private final MongoTemplate mongo = mock(MongoTemplate.class);
     private final ApplicationEventPublisher events = mock(ApplicationEventPublisher.class);
     private final DnsInfrastructure dns = mock(DnsInfrastructure.class);
+    private final LockProvider lockProvider = mock(LockProvider.class);
     private final ComputeInfrastructure compute = mock(ComputeInfrastructure.class);
     private final Cluster cluster = new Cluster();
     private ClusterEgressAddressService service;
@@ -43,7 +46,11 @@ class ClusterEgressAddressServiceTest {
         when(compute.provider()).thenReturn(CloudProvider.AWS);
         when(mongo.updateFirst(any(Query.class), any(Update.class), eq(Cluster.class)))
             .thenReturn(UpdateResult.acknowledged(1, 1L, null));
-        service = new ClusterEgressAddressService(clusters, mongo, events, dns, Map.of("aws", compute));
+        when(lockProvider.lock(any())).thenReturn(Optional.of(mock(SimpleLock.class)));
+        ClusterDnsRecordCoordinator dnsRecords =
+            new ClusterDnsRecordCoordinator(lockProvider, clusters, dns);
+        service = new ClusterEgressAddressService(
+            clusters, mongo, events, dnsRecords, Map.of("aws", compute), lockProvider, Runnable::run);
     }
 
     @Test
@@ -156,6 +163,41 @@ class ClusterEgressAddressServiceTest {
         service.reconcileTerminatedClusters();
         verify(compute, times(2)).terminate("us-east-1", cluster.getId().toHexString());
         verify(dns).deleteRecord("cluster.example.test");
+    }
+
+    @Test
+    void terminatedClusterDoesNotDeleteHostnameReusedByAnotherOrganization() {
+        cluster.setState(ClusterState.TERMINATED);
+        cluster.setDnsLabel("shared-name");
+        when(clusters.findByState(ClusterState.TERMINATED)).thenReturn(java.util.List.of(cluster));
+        when(clusters.existsByPublicDnsAndStateNotAndIdNot(
+            "cluster.example.test", ClusterState.TERMINATED, cluster.getId())).thenReturn(true);
+
+        service.reconcileTerminatedClusters();
+
+        verify(compute).terminate("us-east-1", cluster.getId().toHexString());
+        verify(clusters).existsByPublicDnsAndStateNotAndIdNot(
+            "cluster.example.test", ClusterState.TERMINATED, cluster.getId());
+        verify(dns, never()).deleteRecord(anyString());
+    }
+
+    @Test
+    void terminatedCleanupRunsOffTheScheduledCallbackAndUsesABoundedSubmissionPoint() {
+        cluster.setState(ClusterState.TERMINATED);
+        when(clusters.findByState(ClusterState.TERMINATED)).thenReturn(java.util.List.of(cluster));
+        java.util.List<Runnable> queued = new java.util.ArrayList<>();
+        ClusterDnsRecordCoordinator dnsRecords =
+            new ClusterDnsRecordCoordinator(lockProvider, clusters, dns);
+        ClusterEgressAddressService asyncService = new ClusterEgressAddressService(
+            clusters, mongo, events, dnsRecords, Map.of("aws", compute), lockProvider, queued::add);
+        when(lockProvider.lock(any())).thenReturn(Optional.of(mock(SimpleLock.class)));
+
+        asyncService.reconcileTerminatedClusters();
+
+        verifyNoInteractions(compute);
+        assertThat(queued).hasSize(1);
+        queued.getFirst().run();
+        verify(compute).terminate("us-east-1", cluster.getId().toHexString());
     }
 
     private void claim() {
