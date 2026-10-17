@@ -1,12 +1,37 @@
-# tapstate-cloud CODEOWNERS (ADR-0120)
-# All files owned by the Cloud Platform team
+# CODEOWNERS — review ownership for the tapstate-cloud repository.
+#
+# Rules encoded here (checked by scripts/check-repo-structure.sh):
+#   1. Every production path MUST have a named owner. The `*` fallback alone is
+#      NOT ownership: a path is owned only when a rule other than `*` matches it.
+#   2. The shared contract surface MUST be owned by BOTH sides of the contract:
+#      the provider (Control Plane) and the consumer (published SDK / runtime
+#      clients). A contract edit is therefore reviewed from both directions.
+#   3. Every owner listed here MUST be a team or user that actually exists in the
+#      organization. A handle that does not exist makes the rule inert (nothing
+#      is requested and nothing blocks a merge) and is rejected by the structure
+#      check.
+#
+# Precedence: GitHub uses the LAST matching pattern, so the more specific
+# contract-surface rules are listed after the broader directory rules below.
 
-* @cloud-platform-team
+# ---------- Fallback ----------
+# Repository default owner. This is a safety net, not production ownership.
+* @tapstate/dev
 
-# Specific module owners (if team grows)
-/src/main/java/io/tapstate/cloud/identity/ @cloud-platform-team
-/src/main/java/io/tapstate/cloud/org/ @cloud-platform-team
-/src/main/java/io/tapstate/cloud/region/ @cloud-platform-team
-/src/main/java/io/tapstate/cloud/cluster/ @cloud-platform-team
-/src/main/java/io/tapstate/cloud/resolve/ @cloud-platform-team
-/src/main/java/io/tapstate/cloud/sdk/ @cloud-platform-team
+# ---------- Production paths ----------
+/cloud-control-plane/   @tapstate/dev
+/common/                @tapstate/dev
+/helm/                  @tapstate/dev
+/.github/workflows/     @tapstate/dev
+/Dockerfile             @tapstate/dev
+/pom.xml                @tapstate/dev
+
+# ---------- Shared contract surface (provider + consumer review) ----------
+# Contract fixtures: the wire-level truth the Control Plane (provider) emits and
+# the Cluster runtime / Console clients (consumer) depend on.
+/cloud-control-plane/src/main/resources/contract-fixtures/ @tapstate/dev @ply0011
+# Published Java SDK: generated from the OpenAPI contract and consumed outside
+# this repository, so the consumer side reviews it alongside the provider.
+/client/java/ @tapstate/dev @ply0011
+# OpenAPI contract: the external API promise this repository publishes.
+/client/api/openapi.yaml @tapstate/dev @ply0011
