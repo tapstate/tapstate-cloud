@@ -54,6 +54,15 @@ public class IdentityAuthenticationService {
             if (!"active".equals(user.getStatus())) {
                 throw new BusinessException(AppErrorCode.UNAUTHORIZED, HttpStatus.UNAUTHORIZED.value());
             }
+            if (invitationTokenHash != null && !invitationTokenHash.isBlank()) {
+                String accountEmail = InvitationService.normalizeEmail(user.getEmail());
+                OrganizationInvitation invitation = invitations.requireUsableHash(invitationTokenHash, accountEmail);
+                invitations.consume(invitation, accountEmail);
+                if (!members.existsByOrgIdAndUserEmail(invitation.getOrgId(), accountEmail)) {
+                    members.save(Member.builder().orgId(invitation.getOrgId()).userEmail(accountEmail)
+                        .role("member").joinedAt(Instant.now()).build());
+                }
+            }
             user.setLastLoginAt(Instant.now());
             return users.save(user);
         }
