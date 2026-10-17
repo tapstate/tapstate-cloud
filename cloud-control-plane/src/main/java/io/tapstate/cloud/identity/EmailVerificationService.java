@@ -70,7 +70,7 @@ public class EmailVerificationService {
         try {
             mailer.send(email, code);
         } catch (RuntimeException exception) {
-            challenge.setConsumedAt(now);
+            challenge.setExpiresAt(now);
             challenges.save(challenge);
             throw new BusinessException(AppErrorCode.EMAIL_DELIVERY_UNAVAILABLE,
                 HttpStatus.SERVICE_UNAVAILABLE.value());
