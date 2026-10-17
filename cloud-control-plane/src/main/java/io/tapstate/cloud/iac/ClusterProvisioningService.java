@@ -380,8 +380,7 @@ public class ClusterProvisioningService {
         }
         boolean stackCreated = "CREATE_COMPLETE".equals(latest.getCloudFormationStackStatus())
             || latest.getEc2InstanceId() != null;
-        boolean dnsCreated = latest.getDnsRecord() != null;
-        compensate(latest, stackCreated, dnsCreated);
+        compensate(latest, stackCreated);
     }
 
     /**
@@ -413,12 +412,11 @@ public class ClusterProvisioningService {
                     clusterRepository.updateStackStatus(cluster.getId(), "DELETE_COMPLETE");
                 });
 
-            String domain = cluster.getDnsRecord() != null ? cluster.getDnsRecord() : cluster.getPublicDns();
+            String domain = dnsRecords.recordName(cluster);
             runStep(cluster, DeploymentOperation.DELETE_DNS_RECORD,
                 domain != null && !domain.isBlank() ? "DNS record deleted" : "No DNS record to delete",
                 () -> {
-                    if (domain != null && !domain.isBlank()
-                            && !dnsRecords.deleteIfUnowned(domain, cluster.getId())) {
+                    if (domain != null && !domain.isBlank() && !dnsRecords.deleteIfUnowned(cluster)) {
                         throw new IacException(AppErrorCode.IAC_DNS_PROVIDER_FAILED,
                             "DNS record is being updated by another Cluster operation");
                     }
@@ -659,21 +657,18 @@ public class ClusterProvisioningService {
     }
 
     /** Reverse-order compensation of resources already created. */
-    private void compensate(Cluster cluster, boolean stackCreated, boolean dnsCreated) {
+    private void compensate(Cluster cluster, boolean stackCreated) {
         String clusterId = cluster.getId().toHexString();
-        if (dnsCreated) {
-            try {
-                String domain = cluster.getDnsRecord();
-                if (dnsRecords.deleteIfUnowned(domain, cluster.getId())) {
-                    cluster.setDnsRecord(null);
-                } else {
-                    log.info("[IaC] DNS cleanup deferred while another operation owns hostname cluster={}",
-                        clusterId);
-                }
-            } catch (Exception e) {
-                log.error("[IaC] compensation failed to delete DNS cluster={}: {}",
-                    clusterId, safeMessage(e));
+        try {
+            if (dnsRecords.deleteIfUnowned(cluster)) {
+                cluster.setDnsRecord(null);
+            } else {
+                log.info("[IaC] DNS cleanup deferred while another operation owns hostname cluster={}",
+                    clusterId);
             }
+        } catch (Exception e) {
+            log.error("[IaC] compensation failed to delete DNS cluster={}: {}",
+                clusterId, safeMessage(e));
         }
         if (stackCreated) {
             try {

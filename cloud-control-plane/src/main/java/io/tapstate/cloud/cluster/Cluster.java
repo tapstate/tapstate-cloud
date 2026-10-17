@@ -34,6 +34,9 @@ import org.bson.types.ObjectId;
 // per-org/region): the hosted zone of an environment is shared, so the derived
 // subdomain must be unique across every active Cluster in that environment.
 @CompoundIndexes({
+    @CompoundIndex(name = "terminated_cleanup_ordered",
+        def = "{'terminatedResourceCleanupLastAttemptAt': 1, 'createdAt': 1, '_id': 1}",
+        partialFilter = "{'state': 'TERMINATED'}"),
     @CompoundIndex(name = "org_region_name_active_unique", def = "{'orgId': 1, 'region': 1, 'name': 1}",
         unique = true,
         partialFilter = "{'state': {'$in': ['PROVISIONING_PENDING', 'PROVISIONING', 'READY', 'PROVISIONING_FAILED', 'DEGRADED', 'DRAINED']}}"),
@@ -141,6 +144,9 @@ public class Cluster {
 
     @Schema(description = "When Cluster transitioned to TERMINATED (resources cleaned up)")
     private Instant terminatedAt;
+
+    @Schema(description = "Last attempt to reclaim terminated Cluster resources")
+    private Instant terminatedResourceCleanupLastAttemptAt;
 
     // ========== Atlas MDB allocation — populated at Cluster create time ==========
 

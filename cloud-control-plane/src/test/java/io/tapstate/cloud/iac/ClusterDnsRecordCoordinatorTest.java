@@ -1,7 +1,7 @@
 package io.tapstate.cloud.iac;
 
-import io.tapstate.cloud.cluster.ClusterRepository;
 import io.tapstate.cloud.cluster.Cluster;
+import io.tapstate.cloud.cluster.ClusterRepository;
 import io.tapstate.cloud.cluster.ClusterState;
 import net.javacrumbs.shedlock.core.LockProvider;
 import net.javacrumbs.shedlock.core.SimpleLock;
@@ -9,12 +9,15 @@ import org.bson.types.ObjectId;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -31,7 +34,8 @@ class ClusterDnsRecordCoordinatorTest {
     @BeforeEach
     void setUp() {
         when(lockProvider.lock(any())).thenReturn(Optional.of(lock));
-        coordinator = new ClusterDnsRecordCoordinator(lockProvider, clusters, dns);
+        coordinator = new ClusterDnsRecordCoordinator(lockProvider, clusters, dns,
+            new ClusterDomainName(new IacProperties()));
     }
 
     @Test
@@ -42,13 +46,34 @@ class ClusterDnsRecordCoordinatorTest {
         owner.setState(ClusterState.READY);
         when(clusters.findById(ownerId)).thenReturn(Optional.of(owner));
         AtomicBoolean ownerPersisted = new AtomicBoolean();
+        var operations = new ArrayList<String>();
+        doAnswer(invocation -> {
+            operations.add("publish");
+            return null;
+        }).when(dns).upsertARecord(anyString(), anyString());
 
         coordinator.publish("feynman.dev.cloud.tapstate.com", "203.0.113.42",
-            ownerId, () -> ownerPersisted.set(true));
+            ownerId, () -> {
+                ownerPersisted.set(true);
+                operations.add("persist");
+            });
 
         verify(dns).upsertARecord("feynman.dev.cloud.tapstate.com", "203.0.113.42");
         assertThat(ownerPersisted).isTrue();
+        assertThat(operations).containsExactly("persist", "publish");
         verify(lock).unlock();
+    }
+
+    @Test
+    void deleteFindsTheHostnameFromThePersistedDnsLabelWhenDnsFieldsWereNotSaved() {
+        Cluster terminated = new Cluster();
+        terminated.setId(new ObjectId());
+        terminated.setDnsLabel("feynman");
+
+        assertThat(coordinator.recordName(terminated)).isEqualTo("feynman.dev.cloud.tapstate.com");
+        assertThat(coordinator.deleteIfUnowned(terminated)).isTrue();
+
+        verify(dns).deleteRecord("feynman.dev.cloud.tapstate.com");
     }
 
     @Test

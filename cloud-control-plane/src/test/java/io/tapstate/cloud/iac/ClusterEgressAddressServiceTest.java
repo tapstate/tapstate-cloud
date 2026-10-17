@@ -10,6 +10,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.mongodb.core.FindAndModifyOptions;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Query;
@@ -48,7 +50,8 @@ class ClusterEgressAddressServiceTest {
             .thenReturn(UpdateResult.acknowledged(1, 1L, null));
         when(lockProvider.lock(any())).thenReturn(Optional.of(mock(SimpleLock.class)));
         ClusterDnsRecordCoordinator dnsRecords =
-            new ClusterDnsRecordCoordinator(lockProvider, clusters, dns);
+            new ClusterDnsRecordCoordinator(lockProvider, clusters, dns,
+                new ClusterDomainName(new IacProperties()));
         service = new ClusterEgressAddressService(
             clusters, mongo, events, dnsRecords, Map.of("aws", compute), lockProvider, Runnable::run);
     }
@@ -129,11 +132,16 @@ class ClusterEgressAddressServiceTest {
                 "203.0.113.42", "10.0.0.1", "eipalloc-owned");
         });
         when(mongo.updateFirst(any(Query.class), any(Update.class), eq(Cluster.class)))
-            .thenReturn(UpdateResult.acknowledged(0, 0L, null));
+            .thenReturn(UpdateResult.acknowledged(0, 0L, null), UpdateResult.acknowledged(1, 1L, null));
         service.onStabilizationRequested(request());
         verify(compute).terminate("us-east-1", cluster.getId().toHexString());
         verify(dns, never()).upsertARecord(anyString(), anyString());
         verify(dns).deleteRecord("cluster.example.test");
+        assertThat(cluster.getTerminatedResourceCleanupLastAttemptAt()).isNotNull();
+        var updates = ArgumentCaptor.forClass(Update.class);
+        verify(mongo, times(2)).updateFirst(any(Query.class), updates.capture(), eq(Cluster.class));
+        assertThat(updates.getAllValues().get(1).getUpdateObject().get("$set", org.bson.Document.class))
+            .containsKey("terminatedResourceCleanupLastAttemptAt");
     }
 
     @Test
@@ -156,20 +164,23 @@ class ClusterEgressAddressServiceTest {
     @Test
     void terminatedRecordRetriesFailedReleaseEvenAfterTheStackWasDeleted() {
         cluster.setState(ClusterState.TERMINATED);
-        when(clusters.findByState(ClusterState.TERMINATED)).thenReturn(java.util.List.of(cluster));
+        when(clusters.findByState(
+            eq(ClusterState.TERMINATED), any(Pageable.class))).thenReturn(java.util.List.of(cluster));
         doThrow(new IllegalStateException("controlled release failure")).doNothing()
             .when(compute).terminate("us-east-1", cluster.getId().toHexString());
         service.reconcileTerminatedClusters();
         service.reconcileTerminatedClusters();
         verify(compute, times(2)).terminate("us-east-1", cluster.getId().toHexString());
         verify(dns).deleteRecord("cluster.example.test");
+        assertThat(cluster.getTerminatedResourceCleanupLastAttemptAt()).isNotNull();
     }
 
     @Test
     void terminatedClusterDoesNotDeleteHostnameReusedByAnotherOrganization() {
         cluster.setState(ClusterState.TERMINATED);
         cluster.setDnsLabel("shared-name");
-        when(clusters.findByState(ClusterState.TERMINATED)).thenReturn(java.util.List.of(cluster));
+        when(clusters.findByState(
+            eq(ClusterState.TERMINATED), any(Pageable.class))).thenReturn(java.util.List.of(cluster));
         when(clusters.existsByPublicDnsAndStateNotAndIdNot(
             "cluster.example.test", ClusterState.TERMINATED, cluster.getId())).thenReturn(true);
 
@@ -184,10 +195,12 @@ class ClusterEgressAddressServiceTest {
     @Test
     void terminatedCleanupRunsOffTheScheduledCallbackAndUsesABoundedSubmissionPoint() {
         cluster.setState(ClusterState.TERMINATED);
-        when(clusters.findByState(ClusterState.TERMINATED)).thenReturn(java.util.List.of(cluster));
+        when(clusters.findByState(
+            eq(ClusterState.TERMINATED), any(Pageable.class))).thenReturn(java.util.List.of(cluster));
         java.util.List<Runnable> queued = new java.util.ArrayList<>();
         ClusterDnsRecordCoordinator dnsRecords =
-            new ClusterDnsRecordCoordinator(lockProvider, clusters, dns);
+            new ClusterDnsRecordCoordinator(lockProvider, clusters, dns,
+                new ClusterDomainName(new IacProperties()));
         ClusterEgressAddressService asyncService = new ClusterEgressAddressService(
             clusters, mongo, events, dnsRecords, Map.of("aws", compute), lockProvider, queued::add);
         when(lockProvider.lock(any())).thenReturn(Optional.of(mock(SimpleLock.class)));
@@ -198,6 +211,66 @@ class ClusterEgressAddressServiceTest {
         assertThat(queued).hasSize(1);
         queued.getFirst().run();
         verify(compute).terminate("us-east-1", cluster.getId().toHexString());
+    }
+
+    @Test
+    void boundedCleanupQueueRotatesPastEarlierTerminatedClusters() {
+        cluster.setState(ClusterState.TERMINATED);
+        Cluster later = new Cluster();
+        later.setId(new ObjectId());
+        later.setRegion("us-east-1");
+        later.setState(ClusterState.TERMINATED);
+        later.setPublicDns("later.example.test");
+        when(clusters.findByState(
+            eq(ClusterState.TERMINATED), any(Pageable.class)))
+            .thenReturn(java.util.List.of(cluster, later), java.util.List.of(later));
+
+        java.util.List<Runnable> queued = new java.util.ArrayList<>();
+        ClusterDnsRecordCoordinator dnsRecords =
+            new ClusterDnsRecordCoordinator(lockProvider, clusters, dns,
+                new ClusterDomainName(new IacProperties()));
+        java.util.concurrent.Executor boundedExecutor = task -> {
+            if (!queued.isEmpty()) throw new java.util.concurrent.RejectedExecutionException();
+            queued.add(task);
+        };
+        ClusterEgressAddressService boundedService = new ClusterEgressAddressService(
+            clusters, mongo, events, dnsRecords, Map.of("aws", compute), lockProvider, boundedExecutor);
+
+        boundedService.reconcileTerminatedClusters();
+        assertThat(queued).hasSize(1);
+        queued.removeFirst().run();
+
+        boundedService.reconcileTerminatedClusters();
+        assertThat(queued).hasSize(1);
+        queued.removeFirst().run();
+
+        verify(compute).terminate("us-east-1", cluster.getId().toHexString());
+        verify(compute).terminate("us-east-1", later.getId().toHexString());
+        var pages = ArgumentCaptor.forClass(Pageable.class);
+        verify(clusters, times(2)).findByState(eq(ClusterState.TERMINATED), pages.capture());
+        assertThat(pages.getAllValues()).allSatisfy(page -> {
+            assertThat(page.getPageSize()).isEqualTo(100);
+            assertThat(page.getSort().getOrderFor("terminatedResourceCleanupLastAttemptAt").getDirection())
+                .isEqualTo(Sort.Direction.ASC);
+            assertThat(page.getSort().getOrderFor("createdAt").getDirection())
+                .isEqualTo(Sort.Direction.ASC);
+            assertThat(page.getSort().getOrderFor("_id").getDirection())
+                .isEqualTo(Sort.Direction.ASC);
+        });
+    }
+
+    @Test
+    void successfulCleanupRemainsInPeriodicSweepForLateAwsSideEffects() {
+        cluster.setState(ClusterState.TERMINATED);
+        when(clusters.findByState(
+            eq(ClusterState.TERMINATED), any(Pageable.class))).thenReturn(
+                java.util.List.of(cluster), java.util.List.of(cluster));
+
+        service.reconcileTerminatedClusters();
+        service.reconcileTerminatedClusters();
+
+        verify(compute, times(2)).terminate("us-east-1", cluster.getId().toHexString());
+        verify(dns, times(2)).deleteRecord("cluster.example.test");
     }
 
     private void claim() {

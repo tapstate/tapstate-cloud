@@ -1,5 +1,6 @@
 package io.tapstate.cloud.cluster;
 
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.mongodb.repository.MongoRepository;
 import org.springframework.data.mongodb.repository.Query;
 import org.springframework.data.mongodb.repository.Update;
@@ -25,6 +26,9 @@ public interface ClusterRepository extends MongoRepository<Cluster, ObjectId> {
 
     /** Every Cluster in one lifecycle state — used by the provisioning reconciler. */
     List<Cluster> findByState(ClusterState state);
+
+    /** A bounded lifecycle-state page ordered by the caller's recovery policy. */
+    List<Cluster> findByState(ClusterState state, Pageable pageable);
 
     Optional<Cluster> findByIdAndOrgId(ObjectId id, ObjectId orgId);
 

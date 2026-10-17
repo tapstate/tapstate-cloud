@@ -14,9 +14,11 @@ import net.javacrumbs.shedlock.core.SimpleLock;
 import org.bson.types.ObjectId;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.mongodb.core.FindAndModifyOptions;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
-import org.springframework.data.mongodb.core.FindAndModifyOptions;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.scheduling.annotation.Async;
@@ -40,6 +42,8 @@ import java.time.Duration;
 @Service
 @Slf4j
 public class ClusterEgressAddressService {
+
+    private static final int TERMINATED_CLEANUP_BATCH_SIZE = 100;
 
     private final ClusterRepository clusterRepository;
     private final MongoTemplate mongoTemplate;
@@ -159,14 +163,16 @@ public class ClusterEgressAddressService {
         }
     }
 
-    /**
-     * TERMINATED records are durable cleanup intents. Keep reconciling their tagged resources:
-     * an in-flight worker may finish an AWS or DNS request after an earlier cleanup succeeds.
-     */
+    /** Reconcile every TERMINATED Cluster so late AWS side effects remain recoverable after a crash. */
     @Scheduled(fixedDelay = 60_000)
     public void reconcileTerminatedClusters() {
         if (!"real".equalsIgnoreCase(mode)) return;
-        for (Cluster cluster : clusterRepository.findByState(ClusterState.TERMINATED)) {
+        Sort cleanupOrder = Sort.by(
+            Sort.Order.asc("terminatedResourceCleanupLastAttemptAt"),
+            Sort.Order.asc("createdAt"),
+            Sort.Order.asc("_id"));
+        PageRequest page = PageRequest.of(0, TERMINATED_CLEANUP_BATCH_SIZE, cleanupOrder);
+        for (Cluster cluster : clusterRepository.findByState(ClusterState.TERMINATED, page)) {
             scheduleTerminatedCleanup(cluster);
         }
     }
@@ -174,9 +180,7 @@ public class ClusterEgressAddressService {
     private void reclaimTerminatedResources(Cluster cluster) {
         try {
             awsCompute().terminate(cluster.getRegion(), cluster.getId().toHexString());
-            String domain = cluster.getDnsRecord() != null ? cluster.getDnsRecord() : cluster.getPublicDns();
-            if (domain != null && !domain.isBlank()
-                    && !dnsRecords.deleteIfUnowned(domain, cluster.getId())) {
+            if (!dnsRecords.deleteIfUnowned(cluster)) {
                 throw new IllegalStateException("DNS record lock is busy; cleanup will retry");
             }
         } catch (Exception failure) {
@@ -196,7 +200,18 @@ public class ClusterEgressAddressService {
                         Duration.ofMinutes(15), Duration.ZERO));
                     if (lease.isEmpty()) return;
                     try {
-                        reclaimTerminatedResources(cluster);
+                        Instant attemptAt = Instant.now();
+                        // Move this Cluster behind untouched work before retrying any external cleanup.
+                        var claimed = mongoTemplate.updateFirst(
+                            Query.query(new Criteria().andOperator(
+                                Criteria.where("_id").is(clusterId),
+                                Criteria.where("state").is(ClusterState.TERMINATED))),
+                            new Update().set("terminatedResourceCleanupLastAttemptAt", attemptAt),
+                            Cluster.class);
+                        if (claimed.getMatchedCount() == 1) {
+                            cluster.setTerminatedResourceCleanupLastAttemptAt(attemptAt);
+                            reclaimTerminatedResources(cluster);
+                        }
                     } finally {
                         lease.get().unlock();
                     }

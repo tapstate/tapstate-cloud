@@ -1,5 +1,6 @@
 package io.tapstate.cloud.iac;
 
+import io.tapstate.cloud.cluster.Cluster;
 import io.tapstate.cloud.cluster.ClusterRepository;
 import io.tapstate.cloud.cluster.ClusterState;
 import io.tapstate.cloud.common.api.AppErrorCode;
@@ -29,6 +30,7 @@ public class ClusterDnsRecordCoordinator {
     private final LockProvider lockProvider;
     private final ClusterRepository clusterRepository;
     private final DnsInfrastructure dns;
+    private final ClusterDomainName clusterDomainName;
 
     public void publish(String fqdn, String ipv4, ObjectId ownerClusterId, Runnable persistOwner) {
         if (!withRecordLock(fqdn, () -> {
@@ -39,8 +41,9 @@ public class ClusterDnsRecordCoordinator {
                 throw new IacException(AppErrorCode.IAC_DNS_PROVIDER_FAILED,
                     "A terminated Cluster cannot publish its DNS record");
             }
-            dns.upsertARecord(fqdn, ipv4);
+            // Persist the recoverable hostname before publication so a crash cannot strand an untracked record.
             persistOwner.run();
+            dns.upsertARecord(fqdn, ipv4);
         })) {
             throw new IacException(AppErrorCode.IAC_DNS_PROVIDER_FAILED,
                 "DNS record is being updated by another Cluster operation");
@@ -58,6 +61,22 @@ public class ClusterDnsRecordCoordinator {
             }
             dns.deleteRecord(fqdn);
         });
+    }
+
+    public String recordName(Cluster cluster) {
+        if (cluster.getDnsRecord() != null && !cluster.getDnsRecord().isBlank()) {
+            return cluster.getDnsRecord();
+        }
+        if (cluster.getPublicDns() != null && !cluster.getPublicDns().isBlank()) {
+            return cluster.getPublicDns();
+        }
+        if (cluster.getDnsLabel() == null || cluster.getDnsLabel().isBlank()) return null;
+        return clusterDomainName.fqdn(cluster.getDnsLabel());
+    }
+
+    public boolean deleteIfUnowned(Cluster cluster) {
+        String fqdn = recordName(cluster);
+        return fqdn == null || deleteIfUnowned(fqdn, cluster.getId());
     }
 
     private boolean withRecordLock(String fqdn, Runnable operation) {
