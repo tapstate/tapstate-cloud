@@ -357,10 +357,11 @@ public class AuthController extends BaseController {
     })
     public ResponseEntity<ApiResponse<LoginResult>> me(HttpServletRequest request) {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth == null || !auth.isAuthenticated() || auth instanceof AnonymousAuthenticationToken) {
+        if (auth == null || !auth.isAuthenticated() || auth instanceof AnonymousAuthenticationToken
+                || CurrentUser.getEmail() == null) {
             return fail(AppErrorCode.UNAUTHORIZED, HttpStatus.UNAUTHORIZED);
         }
-        String email = (String) auth.getPrincipal();
+        String email = CurrentUser.getEmail();
         User user = userRepository.findByEmail(email.toLowerCase())
             .orElseThrow(() -> new BusinessException(AppErrorCode.USER_NOT_FOUND, 404, email));
         return ok(new LoginResult(user.getEmail(), user.getDisplayName()));

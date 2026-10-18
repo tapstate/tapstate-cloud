@@ -38,7 +38,7 @@ final class OAuthSessionSupport {
 
         Object previousEmail = session.getAttribute(PREVIOUS_USER_EMAIL);
         clearFlow(session);
-        if (previousEmail instanceof String email && !email.isBlank()) {
+        if (previousEmail instanceof String email && email.contains("@")) {
             UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
                 email, null, List.of(new SimpleGrantedAuthority("ROLE_USER")));
             SecurityContext context = SecurityContextHolder.createEmptyContext();
