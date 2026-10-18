@@ -44,6 +44,28 @@ class OAuthAuthenticationSuccessHandlerTest {
     }
 
     @Test
+    void googleSignupUsesTheInvitationSavedBeforeTheProviderRedirect() throws Exception {
+        IdentityAuthenticationService identities = mock(IdentityAuthenticationService.class);
+        User user = User.builder().email("guest@example.com").displayName("Guest").status("active").build();
+        when(identities.authenticate(eq("google"), eq("google-subject"), eq("guest@example.com"),
+            eq(true), eq("Guest"), eq("signup"), isNull(), isNull(), eq("invitation-digest")))
+            .thenReturn(user);
+
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        MockHttpSession session = new MockHttpSession();
+        session.setAttribute("TAPSTATE_OAUTH_FLOW", "signup");
+        session.setAttribute("TAPSTATE_OAUTH_INVITATION_TOKEN", "invitation-digest");
+        request.setSession(session);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        handler(identities).onAuthenticationSuccess(request, response, googleAuthentication());
+
+        assertEquals("https://console.example/auth?oauth=success", response.getRedirectedUrl());
+        assertEquals("guest@example.com", session.getAttribute(AuthController.SESSION_USER_EMAIL));
+        assertNull(session.getAttribute("TAPSTATE_OAUTH_INVITATION_TOKEN"));
+    }
+
+    @Test
     void usesOnlyGitHubsVerifiedPrimaryEmailAndRotatesTheCloudSession() throws Exception {
         IdentityAuthenticationService identities = mock(IdentityAuthenticationService.class);
         OAuth2AuthorizedClientService authorizedClients = mock(OAuth2AuthorizedClientService.class);
