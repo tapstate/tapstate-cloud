@@ -8,6 +8,7 @@ import org.springframework.security.oauth2.client.OAuth2AuthorizedClientService;
 import org.springframework.security.oauth2.client.registration.ClientRegistration;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
+import org.springframework.web.client.RestClient;
 import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
 import org.springframework.security.oauth2.core.oidc.OidcScopes;
 import org.springframework.security.oauth2.client.registration.ClientRegistration.ClientSettings;
@@ -18,6 +19,11 @@ import java.util.Map;
 
 @Configuration(proxyBeanMethods = false)
 public class OAuthClientRegistrationConfig {
+
+    @Bean
+    RestClient.Builder oauthRestClientBuilder() {
+        return RestClient.builder();
+    }
 
     @Bean
     ClientRegistrationRepository clientRegistrationRepository(
