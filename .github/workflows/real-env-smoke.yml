@@ -85,18 +85,27 @@ jobs:
           sudo apt-get install -y mongodb-mongosh
           mongosh --version
 
-      - name: Run RealEnv integration tests
+      - name: Build + run RealEnv tests (skip boot fork — connect to pre-deployed Control Plane)
         env:
           CP_BASE_URL: ${{ inputs.cp_url }}
           CP_EMAIL: ${{ secrets[inputs.cp_email_secret] }}
           CP_PASSWORD: ${{ secrets[inputs.cp_password_secret] }}
           MONGO_URI: ${{ secrets[inputs.mongo_uri_secret] }}
         run: |
-          # reactor install + failsafe in one go. -am builds dependency modules
-          # (tapstate-cloud-common, cloud-control-plane-sdk) that are not in
-          # any public Maven repo — they resolve only from the local reactor.
+          # Two-phase: reactor build first (so cloud-control-plane-sdk and
+          # tapstate-cloud-common resolve from local reactor), then directly
+          # invoke failsafe goals. We deliberately avoid `mvn verify` because
+          # the cloud-control-plane pom binds spring-boot-maven-plugin start
+          # to pre-integration-test — that forks a local jar which tries to
+          # connect to localhost:27017 Mongo, but we DO NOT fork any app.
+          # RealEnv*IT connects to whatever CP_BASE_URL the inputs specify.
+          mvn -B -ntp -DskipTests -DskipSdkGeneration=true \
+            -pl cloud-control-plane -am install \
+            2>&1 | tee cloud-control-plane/target/real-env-smoke-build.log
+
           mvn -B -ntp -DskipSdkGeneration=true \
-            -pl cloud-control-plane -am verify \
+            -pl cloud-control-plane \
+            failsafe:integration-test failsafe:verify \
             "-Dit.test=RealEnv*IT" \
             -DfailIfNoSpecifiedTests=false \
             -DtrimStackTrace=false \
