@@ -2,30 +2,23 @@
 # Real-env smoke test — runs integration tests against a PRE-DEPLOYED
 # Control Plane. Unlike Full Integration, this workflow does NOT fork
 # a Spring Boot application; it connects to whatever Control Plane the
-# caller specifies via workflow_dispatch inputs. Same tests, zero
-# assumptions about localhost or failsafe pre-integration-test apps.
+# caller specifies via workflow_dispatch inputs.
 #
-# Trigger — MANUAL ONLY:
-#   GitHub Actions UI — Actions → "Real-Env Smoke Test" → Run workflow
-#   gh CLI — gh workflow run real-env-smoke.yml \
-#              --raw-field cp_url=https://dev.cloud.tapstate.com \
-#              --raw-field cp_email_secret=AWSDEV_TEST_EMAIL \
-#              ...
-#   No automatic trigger — we never want a push to accidentally run
-#   billable Cluster provisioning against a shared env.
+# Trigger — MANUAL ONLY (no auto-trigger):
+#   gh workflow run real-env-smoke.yml \
+#     --repo tapstate/tapstate-cloud \
+#     --raw-field cp_url=https://dev.cloud.tapstate.com \
+#     --raw-field cp_email_secret=AWSDEV_TEST_EMAIL \
+#     --raw-field cp_password_secret=AWSDEV_TEST_PASSWORD \
+#     --raw-field mongo_uri_secret=AWSDEV_MONGO_URI
 #
-# Test selection:
-#   Run ONLY the io.tapstate.cloud.it.RealEnv*IT classes. These are
-#   parameterized via CP_BASE_URL / CP_EMAIL / CP_PASSWORD / MONGO_URI
-#   env vars and assume nothing about localhost. Missing CP creds →
-#   assumeTrue → SKIP all tests cleanly (not FAIL).
-#
-# Inputs map 1:1 to RealEnvIT static fields:
-#   CP_BASE_URL   ← inputs.cp_url
-#   CP_EMAIL      ← secrets[inputs.cp_email_secret]
-#   CP_PASSWORD   ← secrets[inputs.cp_password_secret]
-#   MONGO_URI     ← secrets[inputs.mongo_uri_secret]  (optional —
-#                  store-visibility assertions SKIP when absent)
+# Two-phase Maven:
+#   1. mvn install -pl cloud-control-plane -am — reactor build so
+#      cloud-control-plane-sdk / tapstate-cloud-common resolve locally.
+#   2. failsafe:integration-test failsafe:verify with -Dspring-boot.*.skip
+#      to bypass spring-boot-maven-plugin pre/post-integration-test
+#      (which forks a local jar → connects to localhost:27017 Mongo).
+#      We connect to CP_BASE_URL, never fork our own app.
 # ============================================================
 
 name: Real-Env Smoke Test
@@ -34,19 +27,19 @@ on:
   workflow_dispatch:
     inputs:
       cp_url:
-        description: 'Control Plane base URL (no trailing slash), e.g. https://dev.cloud.tapstate.com'
+        description: 'Control Plane base URL (no trailing slash)'
         required: true
         type: string
       cp_email_secret:
-        description: 'Name of the GitHub secret holding the Control Plane user email'
+        description: 'GitHub secret name holding Control Plane user email'
         required: false
         type: string
       cp_password_secret:
-        description: 'Name of the GitHub secret holding the Control Plane user password'
+        description: 'GitHub secret name holding Control Plane user password'
         required: false
         type: string
       mongo_uri_secret:
-        description: 'Name of the GitHub secret holding the MongoDB connection string (optional)'
+        description: 'GitHub secret name holding MongoDB connection string (optional)'
         required: false
         type: string
       jdk:
@@ -83,42 +76,33 @@ jobs:
             sudo tee /etc/apt/sources.list.d/mongodb-org-8.0.list
           sudo apt-get update
           sudo apt-get install -y mongodb-mongosh
-          mongosh --version
 
-      - name: Build + run RealEnv tests (skip boot fork — connect to pre-deployed Control Plane)
+      - name: Build + run RealEnv tests (skip boot fork)
         env:
           CP_BASE_URL: ${{ inputs.cp_url }}
           CP_EMAIL: ${{ secrets[inputs.cp_email_secret] }}
           CP_PASSWORD: ${{ secrets[inputs.cp_password_secret] }}
           MONGO_URI: ${{ secrets[inputs.mongo_uri_secret] }}
         run: |
-          # Two-phase: reactor build first (so cloud-control-plane-sdk and
-          # tapstate-cloud-common resolve from local reactor), then directly
-          # invoke failsafe goals. We deliberately avoid `mvn verify` because
-          # the cloud-control-plane pom binds spring-boot-maven-plugin start
-          # to pre-integration-test — that forks a local jar which tries to
-          # connect to localhost:27017 Mongo, but we DO NOT fork any app.
-          # RealEnv*IT connects to whatever CP_BASE_URL the inputs specify.
+          # Phase 1: reactor install — dependencies are tapstate-internal.
           mvn -B -ntp -DskipTests -DskipSdkGeneration=true \
-            -pl cloud-control-plane -am install \
-            2>&1 | tee cloud-control-plane/target/real-env-smoke-build.log
-
+            -pl cloud-control-plane -am install
+          # Phase 2: run RealEnv*IT directly.
+          # -Dspring-boot.start.skip/stop.skip bypass the pom's
+          # pre/post-integration-test fork (which tries localhost:27017).
           mvn -B -ntp -DskipSdkGeneration=true \
             -pl cloud-control-plane \
             -Dspring-boot.start.skip=true -Dspring-boot.stop.skip=true \
             failsafe:integration-test failsafe:verify \
             "-Dit.test=RealEnv*IT" \
             -DfailIfNoSpecifiedTests=false \
-            -DtrimStackTrace=false \
-            2>&1 | tee cloud-control-plane/target/real-env-smoke.log
+            -DtrimStackTrace=false
 
       - name: Upload failsafe reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: real-env-smoke-reports
-          path: |
-            cloud-control-plane/target/failsafe-reports/
-            cloud-control-plane/target/real-env-smoke.log
+          path: cloud-control-plane/target/failsafe-reports/
           if-no-files-found: warn
           retention-days: 7
