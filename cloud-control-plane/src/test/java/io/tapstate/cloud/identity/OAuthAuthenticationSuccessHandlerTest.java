@@ -48,7 +48,7 @@ class OAuthAuthenticationSuccessHandlerTest {
         IdentityAuthenticationService identities = mock(IdentityAuthenticationService.class);
         User user = User.builder().email("guest@example.com").displayName("Guest").status("active").build();
         when(identities.authenticate(eq("google"), eq("google-subject"), eq("guest@example.com"),
-            eq(true), eq("Guest"), eq("signup"), isNull(), isNull(), eq("invitation-digest")))
+            eq(true), eq("Guest"), eq("signup"), isNull(), isNull(), eq("invitation-digest"), isNull()))
             .thenReturn(user);
 
         MockHttpServletRequest request = new MockHttpServletRequest();
@@ -102,7 +102,7 @@ class OAuthAuthenticationSuccessHandlerTest {
 
         User user = User.builder().email("verified@example.com").displayName("Octo Cat").status("active").build();
         when(identities.authenticate(eq("github"), eq("42"), eq("verified@example.com"), eq(true),
-            eq("Octo Cat"), eq("signup"), isNull(), isNull(), eq("invitation-digest"))).thenReturn(user);
+            eq("Octo Cat"), eq("signup"), isNull(), isNull(), eq("invitation-digest"), isNull())).thenReturn(user);
 
         OAuthAuthenticationSuccessHandler handler = new OAuthAuthenticationSuccessHandler(
             identities, authorizedClients, restClientBuilder);
@@ -119,7 +119,7 @@ class OAuthAuthenticationSuccessHandlerTest {
 
         provider.verify();
         verify(identities).authenticate("github", "42", "verified@example.com", true,
-            "Octo Cat", "signup", null, null, "invitation-digest");
+            "Octo Cat", "signup", null, null, "invitation-digest", null);
         assertNotEquals(originalSessionId, request.getSession().getId());
         assertEquals("verified@example.com", session.getAttribute(AuthController.SESSION_USER_EMAIL));
         assertEquals("https://console.example/auth?oauth=success", response.getRedirectedUrl());
@@ -129,7 +129,7 @@ class OAuthAuthenticationSuccessHandlerTest {
     void rejectedOAuthSignupClearsTheProviderAuthentication() throws Exception {
         IdentityAuthenticationService identities = mock(IdentityAuthenticationService.class);
         when(identities.authenticate(eq("google"), eq("google-subject"), eq("guest@example.com"), eq(true),
-            eq("Guest"), eq("signup"), isNull(), isNull(), eq("invitation-digest")))
+            eq("Guest"), eq("signup"), isNull(), isNull(), eq("invitation-digest"), isNull()))
             .thenThrow(new BusinessException(AppErrorCode.INVITATION_INVALID, 404));
         OAuthAuthenticationSuccessHandler handler = handler(identities);
         MockHttpServletRequest request = new MockHttpServletRequest();
@@ -156,7 +156,7 @@ class OAuthAuthenticationSuccessHandlerTest {
     void rejectedOAuthLinkRestoresTheExistingCloudIdentity() throws Exception {
         IdentityAuthenticationService identities = mock(IdentityAuthenticationService.class);
         when(identities.authenticate(eq("google"), eq("google-subject"), eq("guest@example.com"), eq(true),
-            eq("Guest"), eq("link"), eq("owner@example.com"), any(Instant.class), isNull()))
+            eq("Guest"), eq("link"), eq("owner@example.com"), any(Instant.class), isNull(), isNull()))
             .thenThrow(new BusinessException(AppErrorCode.IDENTITY_LINK_CONFLICT, 409));
         OAuthAuthenticationSuccessHandler handler = handler(identities);
         MockHttpServletRequest request = new MockHttpServletRequest();
