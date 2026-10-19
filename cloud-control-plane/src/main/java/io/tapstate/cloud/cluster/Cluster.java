@@ -120,6 +120,20 @@ public class Cluster {
     @Schema(description = "Cluster version pinned at subscription time; selects the runtime container image tag")
     private String clusterVersion;
 
+    // ========== Cleanup failure diagnostics ==========
+
+    @Schema(description = "Cleanup failure code — populated when stack or DNS cleanup fails during compensate or terminate. Non-null means retry-cleanup is applicable.")
+    private String cleanupErrorCode;
+
+    @Schema(description = "Diagnostic detail for cleanup failure")
+    private String cleanupErrorDetail;
+
+    @Schema(description = "When cleanup failure was recorded (UTC)")
+    private Instant cleanupFailedAt;
+
+    @Schema(description = "Resource inventory of what cleanup knows about — keys like cloudFormationStackId, cloudFormationStackName, dnsRecord, mdbAllocationId. Populated before cleanup begins so retry can target known resources.")
+    private java.util.Map<String, String> cleanupInventory;
+
     // ========== SDK status ==========
     @Schema(description = "Last SDK C2 heartbeat timestamp (UTC)")
     private Instant lastHeartbeatAt;

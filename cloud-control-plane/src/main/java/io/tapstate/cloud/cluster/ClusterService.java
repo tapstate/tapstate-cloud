@@ -55,6 +55,7 @@ public class ClusterService {
     private final RegionService regionService;
     private final ClusterStateMachineService clusterStateMachineService;
     private final ClusterPartialWriter clusterPartialWriter;
+    private final io.tapstate.cloud.iac.ClusterProvisioningService clusterProvisioningService;
 
     private final SecureRandom secureRandom = new SecureRandom();
 
@@ -227,7 +228,52 @@ public class ClusterService {
         return clusterRepository.findById(new ObjectId(clusterId)).orElse(cluster);
     }
 
-    // ========== Cascade termination (called by SubscriptionCancelListener) ==========
+    /**
+     * Internal entry for retry-cleanup — called from ClusterController's retry-cleanup
+     * endpoint when a user discovers a cleanup failure (cleanupErrorCode != null) and
+     * wants to retry resource cleanup.
+     * <p>
+     * Idempotent: if the Cluster has no cleanup failure, returns as-is without calling
+     * the infrastructure layer. If terminate succeeds, cleanup error fields are cleared.
+     *
+     * @return Cluster after cleanup attempt (success clears cleanupErrorCode; failure leaves it)
+     */
+    @Transactional
+    public Cluster retryCleanup(String clusterId, String orgId, String userEmail) {
+        Cluster cluster = getCluster(clusterId, orgId, userEmail);
+
+        // Idempotent: no cleanup failure → nothing to do
+        if (cluster.getCleanupErrorCode() == null) {
+            return cluster;
+        }
+
+        // Terminated is terminal — cleanup already succeeded
+        if (cluster.getState() == ClusterState.TERMINATED) {
+            return cluster;
+        }
+
+        try {
+            clusterProvisioningService.terminate(cluster);
+            // terminate() cleared cleanupErrorCode on success — confirm and return
+            Cluster afterTerminate = clusterRepository.findById(new ObjectId(clusterId)).orElse(cluster);
+
+            // If state was never TERMINATED and cleanup succeeded, drive FSM to TERMINATED
+            if (afterTerminate.getState() != ClusterState.TERMINATED
+                && afterTerminate.getCleanupErrorCode() == null) {
+                clusterStateMachineService.transition(new ObjectId(clusterId),
+                    ClusterEventType.INITIATE_TERMINATION, "gc:retry-cleanup");
+            }
+            return clusterRepository.findById(new ObjectId(clusterId)).orElse(afterTerminate);
+        } catch (Exception e) {
+            // Cleanup failure was already persisted by terminate() itself.
+            // Surface as a coded error so the user sees the AWS error directly.
+            throw new BusinessException(AppErrorCode.IAC_COMPUTE_TERMINATE_FAILED, 500, safeMessage(e));
+        }
+    }
+
+    private static String safeMessage(Throwable t) {
+        return t != null && t.getMessage() != null ? t.getMessage() : t != null ? t.toString() : "unknown";
+    }
 
     /**
      * Terminate this Cluster (called by SubscriptionCancelListener cascade).
