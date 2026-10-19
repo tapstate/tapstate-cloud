@@ -90,6 +90,20 @@ kubectl create secret generic tapstate-cloud-control-smtp \
   --from-literal=username='<SMTP username>' \
   --from-literal=password='<SMTP password>'
 
+# ---- Limited trial access ----
+# Set config.trialIssuerEmail to an existing Cloud account's exact email in
+# each environment's Helm values, or pass --set-string config.trialIssuerEmail=<email>
+# to helm upgrade. The value is an account identifier, not an OAuth secret.
+# With an empty value, trial-code issuance is disabled. Production needs its
+# own issuer setting and its own Google/GitHub callbacks and SMTP configuration.
+# Sign in to that environment's Cloud Console as the issuer, then issue one code
+# per tester from the browser's developer console:
+#   fetch('/v1/api/trial-codes', { method: 'POST', credentials: 'include' })
+#     .then(response => response.json()).then(result => console.log(result.data))
+# The response contains a one-time code and a ready-to-share /auth#invite= link.
+# Store or send it immediately: only its hash is retained, and it expires in
+# seven days. The tester may paste the code on /auth or follow the link.
+
 # ---- Shared sample database password ----
 # Keep this file outside the repository with owner-only permissions.
 # The Secret must be in the same namespace as the Control Plane release.
