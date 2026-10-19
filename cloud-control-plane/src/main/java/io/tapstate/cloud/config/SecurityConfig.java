@@ -88,6 +88,7 @@ public class SecurityConfig {
                     "/v1/api/auth/register",
                     "/v1/api/auth/login",
                     "/v1/api/auth/email/**",
+                    "/v1/api/auth/access",
                     "/v1/api/auth/oauth/**",
                     "/v1/api/auth/verify-email",
                     "/oauth2/**",

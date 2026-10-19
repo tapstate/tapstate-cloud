@@ -9,6 +9,7 @@ import io.tapstate.cloud.common.api.AppErrorCode;
 import io.tapstate.cloud.common.api.BusinessException;
 import io.tapstate.cloud.org.Member;
 import io.tapstate.cloud.org.MemberRepository;
+import io.tapstate.cloud.org.OrganizationService;
 
 import java.time.Instant;
 
@@ -21,12 +22,21 @@ public class IdentityAuthenticationService {
     private final MemberRepository members;
     private final InvitationService invitations;
     private final PasswordEncoder passwordEncoder;
+    private final OrganizationService organizations;
     private final java.security.SecureRandom secureRandom = new java.security.SecureRandom();
 
     @Transactional
     public User authenticate(String provider, String subject, String email, boolean emailVerified,
                              String displayName, String flow, String currentSessionEmail,
                              Instant reauthenticatedAt, String invitationTokenHash) {
+        return authenticate(provider, subject, email, emailVerified, displayName, flow,
+            currentSessionEmail, reauthenticatedAt, invitationTokenHash, null);
+    }
+
+    @Transactional
+    public User authenticate(String provider, String subject, String email, boolean emailVerified,
+                             String displayName, String flow, String currentSessionEmail,
+                             Instant reauthenticatedAt, String invitationTokenHash, String organizationName) {
         String normalizedEmail = InvitationService.normalizeEmail(email);
         if (!emailVerified) {
             throw new BusinessException(AppErrorCode.SSO_EMAIL_UNVERIFIED, HttpStatus.FORBIDDEN.value());
@@ -57,8 +67,13 @@ public class IdentityAuthenticationService {
             if (invitationTokenHash != null && !invitationTokenHash.isBlank()) {
                 String accountEmail = InvitationService.normalizeEmail(user.getEmail());
                 OrganizationInvitation invitation = invitations.requireUsableHash(invitationTokenHash, accountEmail);
+                if (invitations.isTrial(invitation)) {
+                    invitations.requireOrganizationName(organizationName);
+                }
                 invitations.consume(invitation, accountEmail);
-                if (!members.existsByOrgIdAndUserEmail(invitation.getOrgId(), accountEmail)) {
+                if (invitations.isTrial(invitation)) {
+                    organizations.createTrialOrganization(organizationName, accountEmail);
+                } else if (!members.existsByOrgIdAndUserEmail(invitation.getOrgId(), accountEmail)) {
                     members.save(Member.builder().orgId(invitation.getOrgId()).userEmail(accountEmail)
                         .role("member").joinedAt(Instant.now()).build());
                 }
@@ -75,6 +90,9 @@ public class IdentityAuthenticationService {
         }
 
         OrganizationInvitation invitation = invitations.requireUsableHash(invitationTokenHash, normalizedEmail);
+        if (invitations.isTrial(invitation)) {
+            invitations.requireOrganizationName(organizationName);
+        }
         invitations.consume(invitation, normalizedEmail);
         User user = users.save(User.builder()
             .email(normalizedEmail)
@@ -85,8 +103,12 @@ public class IdentityAuthenticationService {
             .status("active")
             .lastLoginAt(Instant.now())
             .build());
-        members.save(Member.builder().orgId(invitation.getOrgId()).userEmail(normalizedEmail)
-            .role("member").joinedAt(Instant.now()).build());
+        if (invitations.isTrial(invitation)) {
+            organizations.createTrialOrganization(organizationName, normalizedEmail);
+        } else {
+            members.save(Member.builder().orgId(invitation.getOrgId()).userEmail(normalizedEmail)
+                .role("member").joinedAt(Instant.now()).build());
+        }
         identities.save(LinkedIdentity.builder().provider(provider).subject(subject).userEmail(normalizedEmail)
             .providerEmail(normalizedEmail).linkedAt(Instant.now()).build());
         return user;

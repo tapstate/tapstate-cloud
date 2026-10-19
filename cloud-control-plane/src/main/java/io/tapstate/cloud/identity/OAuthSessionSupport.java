@@ -28,6 +28,7 @@ final class OAuthSessionSupport {
         if (session == null) return;
         session.removeAttribute("TAPSTATE_OAUTH_FLOW");
         session.removeAttribute("TAPSTATE_OAUTH_INVITATION_TOKEN");
+        session.removeAttribute("TAPSTATE_OAUTH_ORGANIZATION_NAME");
         session.removeAttribute("TAPSTATE_IDENTITY_REAUTH_AT");
         session.removeAttribute(PREVIOUS_USER_EMAIL);
     }

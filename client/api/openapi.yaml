@@ -577,6 +577,40 @@ paths:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseLoginResult"
+  /v1/api/auth/access:
+    post:
+      tags: [Auth]
+      summary: Inspect a trial code or organization invitation
+      operationId: accessType
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AccessCode"
+      responses:
+        "200":
+          description: Access type
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseAccessType"
+  /v1/api/trial-codes:
+    post:
+      tags: [Auth]
+      summary: Issue a single-use trial code
+      description: Restricted to the configured trial issuer. The raw code is returned once.
+      operationId: createTrialCode
+      responses:
+        "201":
+          description: Trial code created
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseTrialCode"
+        "403":
+          description: Caller is not the configured trial issuer
   /v1/api/auth/invitations/accept:
     post:
       tags:
@@ -1629,12 +1663,18 @@ components:
         displayName:
           type: string
           maxLength: 100
+        organizationName:
+          type: string
+          maxLength: 100
     AcceptInvitationRequest:
       type: object
       required: [invitationToken]
       properties:
         invitationToken:
           type: string
+        organizationName:
+          type: string
+          maxLength: 100
     OAuthStartRequest:
       type: object
       required: [flow]
@@ -1645,6 +1685,50 @@ components:
         invitationToken:
           type: string
           nullable: true
+        organizationName:
+          type: string
+          maxLength: 100
+    AccessType:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [trial, organization]
+    AccessCode:
+      type: object
+      required: [code]
+      properties:
+        code:
+          type: string
+    TrialCode:
+      type: object
+      properties:
+        code:
+          type: string
+        url:
+          type: string
+          format: uri
+        expiresAt:
+          type: string
+          format: date-time
+    ApiResponseTrialCode:
+      type: object
+      properties:
+        code:
+          type: string
+        msg:
+          type: string
+        data:
+          $ref: "#/components/schemas/TrialCode"
+    ApiResponseAccessType:
+      type: object
+      properties:
+        code:
+          type: string
+        msg:
+          type: string
+        data:
+          $ref: "#/components/schemas/AccessType"
     OAuthStartResult:
       type: object
       properties:

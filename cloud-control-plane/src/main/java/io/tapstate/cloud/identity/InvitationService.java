@@ -10,6 +10,7 @@ import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.transaction.annotation.Transactional;
 import io.tapstate.cloud.common.api.AppErrorCode;
 import io.tapstate.cloud.common.api.BusinessException;
@@ -17,6 +18,7 @@ import io.tapstate.cloud.org.Member;
 import io.tapstate.cloud.org.MemberRepository;
 import io.tapstate.cloud.org.Organization;
 import io.tapstate.cloud.org.OrganizationRepository;
+import io.tapstate.cloud.org.OrganizationService;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -38,7 +40,34 @@ public class InvitationService {
     private final MemberRepository members;
     private final UserRepository users;
     private final MongoTemplate mongoTemplate;
+    private final OrganizationService organizationService;
     private final SecureRandom secureRandom = new SecureRandom();
+
+    @Value("${tapstate.cloud.auth.trial-issuer-email:}")
+    private String trialIssuerEmail;
+
+    public IssuedInvitation createTrialCode(String issuerEmail) {
+        if (trialIssuerEmail == null || trialIssuerEmail.isBlank()
+                || !normalizeEmail(trialIssuerEmail).equals(normalizeEmail(issuerEmail))) {
+            throw new BusinessException(AppErrorCode.UNAUTHORIZED, HttpStatus.FORBIDDEN.value());
+        }
+        byte[] tokenBytes = new byte[32];
+        secureRandom.nextBytes(tokenBytes);
+        String token = Base64.getUrlEncoder().withoutPadding().encodeToString(tokenBytes);
+        Instant now = Instant.now();
+        OrganizationInvitation invitation = invitations.save(OrganizationInvitation.builder()
+            .tokenHash(hash(token))
+            .purpose("trial")
+            .createdByEmail(normalizeEmail(issuerEmail))
+            .createdAt(now)
+            .expiresAt(now.plus(7, ChronoUnit.DAYS))
+            .build());
+        return new IssuedInvitation(view(invitation), token);
+    }
+
+    public boolean isTrial(OrganizationInvitation invitation) {
+        return "trial".equals(invitation.getPurpose());
+    }
 
     public IssuedInvitation create(String orgId, String ownerEmail, String invitedEmail) {
         ObjectId organizationId = parseOrganizationId(orgId);
@@ -118,23 +147,45 @@ public class InvitationService {
         if (!invitation.getExpiresAt().isAfter(Instant.now())) {
             throw new BusinessException(AppErrorCode.INVITATION_EXPIRED, 410);
         }
-        if (invitation.getInvitedEmail() != null && !invitation.getInvitedEmail().equals(normalizeEmail(email))) {
+        if (invitation.getInvitedEmail() != null && email != null
+                && !invitation.getInvitedEmail().equals(normalizeEmail(email))) {
             throw new BusinessException(AppErrorCode.INVITATION_EMAIL_MISMATCH, 403);
         }
         return invitation;
     }
 
+    public String accessType(String token) {
+        return isTrial(requireUsable(token, null)) ? "trial" : "organization";
+    }
+
     @Transactional
     public User acceptForExistingUser(String token, String authenticatedEmail) {
+        return acceptForExistingUser(token, authenticatedEmail, null);
+    }
+
+    @Transactional
+    public User acceptForExistingUser(String token, String authenticatedEmail, String organizationName) {
         String email = normalizeEmail(authenticatedEmail);
         User user = users.findByEmail(email)
             .orElseThrow(() -> new BusinessException(AppErrorCode.USER_NOT_FOUND, 404, email));
         OrganizationInvitation invitation = requireUsable(token, email);
+        if (isTrial(invitation)) {
+            requireOrganizationName(organizationName);
+            consume(invitation, email);
+            organizationService.createTrialOrganization(organizationName, email);
+            return user;
+        }
         consume(invitation, email);
         if (!members.existsByOrgIdAndUserEmail(invitation.getOrgId(), email)) {
             members.save(Member.builder().orgId(invitation.getOrgId()).userEmail(email).role("member").joinedAt(Instant.now()).build());
         }
         return user;
+    }
+
+    public void requireOrganizationName(String organizationName) {
+        if (organizationName == null || organizationName.isBlank() || organizationName.length() > 100) {
+            throw new BusinessException(AppErrorCode.BAD_REQUEST, HttpStatus.BAD_REQUEST.value());
+        }
     }
 
     OrganizationInvitation consume(OrganizationInvitation invitation, String email) {
@@ -184,7 +235,8 @@ public class InvitationService {
         String state = invitation.getRevokedAt() != null ? "revoked"
             : invitation.getConsumedAt() != null ? "consumed"
             : !invitation.getExpiresAt().isAfter(Instant.now()) ? "expired" : "active";
-        return new InvitationView(invitation.getId().toHexString(), invitation.getOrgId().toHexString(),
+        return new InvitationView(invitation.getId().toHexString(),
+            invitation.getOrgId() == null ? null : invitation.getOrgId().toHexString(),
             invitation.getInvitedEmail(), invitation.getCreatedAt(), invitation.getExpiresAt(), state);
     }
 

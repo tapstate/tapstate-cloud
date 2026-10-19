@@ -91,12 +91,13 @@ public class OAuthAuthenticationSuccessHandler implements AuthenticationSuccessH
         String flow = (String) session.getAttribute(FLOW);
         if (flow == null) flow = "login";
         String invitation = (String) session.getAttribute(INVITATION_TOKEN);
+        String organizationName = (String) session.getAttribute("TAPSTATE_OAUTH_ORGANIZATION_NAME");
         String currentEmail = (String) session.getAttribute(AuthController.SESSION_USER_EMAIL);
         Instant reauthenticatedAt = session.getAttribute(REAUTH_AT) instanceof Instant at ? at : null;
         User user;
         try {
             user = identityAuthenticationService.authenticate(provider, subject, email, verified, displayName,
-                flow, currentEmail, reauthenticatedAt, invitation);
+                flow, currentEmail, reauthenticatedAt, invitation, organizationName);
         } catch (RuntimeException exception) {
             OAuthSessionSupport.reject(session);
             response.sendRedirect(authRedirect(errorKey(exception)));

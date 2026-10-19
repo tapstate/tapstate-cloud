@@ -31,7 +31,8 @@ import java.util.StringJoiner;
  */
 @JsonPropertyOrder({
   OAuthStartRequest.JSON_PROPERTY_FLOW,
-  OAuthStartRequest.JSON_PROPERTY_INVITATION_TOKEN
+  OAuthStartRequest.JSON_PROPERTY_INVITATION_TOKEN,
+  OAuthStartRequest.JSON_PROPERTY_ORGANIZATION_NAME
 })
 @jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", comments = "Generator version: 7.25.0")
 public class OAuthStartRequest {
@@ -79,6 +80,10 @@ public class OAuthStartRequest {
   public static final String JSON_PROPERTY_INVITATION_TOKEN = "invitationToken";
   @jakarta.annotation.Nullable
   private String invitationToken;
+
+  public static final String JSON_PROPERTY_ORGANIZATION_NAME = "organizationName";
+  @jakarta.annotation.Nullable
+  private String organizationName;
 
   public OAuthStartRequest() {
   }
@@ -133,6 +138,31 @@ public class OAuthStartRequest {
     this.invitationToken = invitationToken;
   }
 
+  public OAuthStartRequest organizationName(@jakarta.annotation.Nullable String organizationName) {
+
+    this.organizationName = organizationName;
+    return this;
+  }
+
+  /**
+   * Get organizationName
+   * @return organizationName
+   */
+  @jakarta.annotation.Nullable
+  @JsonProperty(value = JSON_PROPERTY_ORGANIZATION_NAME, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+
+  public String getOrganizationName() {
+    return organizationName;
+  }
+
+
+  @JsonProperty(value = JSON_PROPERTY_ORGANIZATION_NAME, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+  public void setOrganizationName(@jakarta.annotation.Nullable String organizationName) {
+    this.organizationName = organizationName;
+  }
+
 
   @Override
   public boolean equals(Object o) {
@@ -144,12 +174,13 @@ public class OAuthStartRequest {
     }
     OAuthStartRequest oauthStartRequest = (OAuthStartRequest) o;
     return Objects.equals(this.flow, oauthStartRequest.flow) &&
-        Objects.equals(this.invitationToken, oauthStartRequest.invitationToken);
+        Objects.equals(this.invitationToken, oauthStartRequest.invitationToken) &&
+        Objects.equals(this.organizationName, oauthStartRequest.organizationName);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(flow, invitationToken);
+    return Objects.hash(flow, invitationToken, organizationName);
   }
 
   @Override
@@ -158,6 +189,7 @@ public class OAuthStartRequest {
     sb.append("class OAuthStartRequest {\n");
     sb.append("    flow: ").append(toIndentedString(flow)).append("\n");
     sb.append("    invitationToken: ").append(toIndentedString(invitationToken)).append("\n");
+    sb.append("    organizationName: ").append(toIndentedString(organizationName)).append("\n");
     sb.append("}");
     return sb.toString();
   }
@@ -216,6 +248,16 @@ public class OAuthStartRequest {
     if (getInvitationToken() != null) {
       try {
         joiner.add(String.format(java.util.Locale.ROOT, "%sinvitationToken%s=%s", prefix, suffix, URLEncoder.encode(String.valueOf(getInvitationToken()), "UTF-8").replaceAll("\\+", "%20")));
+      } catch (UnsupportedEncodingException e) {
+        // Should never happen, UTF-8 is always supported
+        throw new RuntimeException(e);
+      }
+    }
+
+    // add `organizationName` to the URL query string
+    if (getOrganizationName() != null) {
+      try {
+        joiner.add(String.format(java.util.Locale.ROOT, "%sorganizationName%s=%s", prefix, suffix, URLEncoder.encode(String.valueOf(getOrganizationName()), "UTF-8").replaceAll("\\+", "%20")));
       } catch (UnsupportedEncodingException e) {
         // Should never happen, UTF-8 is always supported
         throw new RuntimeException(e);

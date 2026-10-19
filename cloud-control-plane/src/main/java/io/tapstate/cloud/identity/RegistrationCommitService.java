@@ -14,6 +14,7 @@ import io.tapstate.cloud.common.api.AppErrorCode;
 import io.tapstate.cloud.common.api.BusinessException;
 import io.tapstate.cloud.org.Member;
 import io.tapstate.cloud.org.MemberRepository;
+import io.tapstate.cloud.org.OrganizationService;
 
 import java.time.Instant;
 
@@ -26,10 +27,11 @@ public class RegistrationCommitService {
     private final MemberRepository members;
     private final MongoTemplate mongoTemplate;
     private final PasswordEncoder passwordEncoder;
+    private final OrganizationService organizations;
 
     @Transactional
     public User complete(OrganizationInvitation invitation, EmailVerificationChallenge challenge,
-                         String email, String password, String displayName, Instant now) {
+                         String email, String password, String displayName, String organizationName, Instant now) {
         Query challengeQuery = Query.query(Criteria.where("_id").is(challenge.getId())
             .and("consumedAt").is(null).and("expiresAt").gt(now).and("codeHmac").is(challenge.getCodeHmac()));
         EmailVerificationChallenge consumed = mongoTemplate.findAndModify(challengeQuery,
@@ -52,7 +54,14 @@ public class RegistrationCommitService {
             .emailVerified(true)
             .status("active")
             .build());
-        members.save(Member.builder().orgId(invitation.getOrgId()).userEmail(email).role("member").joinedAt(now).build());
+        if (invitationService.isTrial(invitation)) {
+            if (organizationName == null || organizationName.isBlank() || organizationName.length() > 100) {
+                throw new BusinessException(AppErrorCode.BAD_REQUEST, HttpStatus.BAD_REQUEST.value());
+            }
+            organizations.createTrialOrganization(organizationName, email);
+        } else {
+            members.save(Member.builder().orgId(invitation.getOrgId()).userEmail(email).role("member").joinedAt(now).build());
+        }
         return user;
     }
 }

@@ -230,6 +230,8 @@ spec:
                   optional: true
 
             # ========== Secrets for invited authentication (optional) ==========
+            - name: CLOUD_AUTH_TRIAL_ISSUER_EMAIL
+              value: {{ .Values.config.trialIssuerEmail | quote }}
             - name: CLOUD_AUTH_OTP_HMAC_KEY
               valueFrom:
                 secretKeyRef:

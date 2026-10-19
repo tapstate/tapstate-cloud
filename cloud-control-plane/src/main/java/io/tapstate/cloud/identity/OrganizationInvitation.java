@@ -25,6 +25,7 @@ public class OrganizationInvitation {
     private String tokenHash;
 
     private ObjectId orgId;
+    private String purpose;
     private String createdByEmail;
     private String invitedEmail;
     private Instant createdAt;

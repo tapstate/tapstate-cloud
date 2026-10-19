@@ -99,6 +99,7 @@ knife4j:
 tapstate:
   cloud:
     auth:
+      trial-issuer-email: ${CLOUD_AUTH_TRIAL_ISSUER_EMAIL:}
       otp-hmac-key: ${CLOUD_AUTH_OTP_HMAC_KEY:}
       otp:
         max-attempts: ${CLOUD_AUTH_OTP_MAX_ATTEMPTS:5}

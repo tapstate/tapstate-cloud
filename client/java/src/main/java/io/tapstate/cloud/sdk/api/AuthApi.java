@@ -21,9 +21,12 @@ import io.tapstate.cloud.sdk.Configuration;
 import io.tapstate.cloud.sdk.Pair;
 
 import io.tapstate.cloud.sdk.model.AcceptInvitationRequest;
+import io.tapstate.cloud.sdk.model.AccessCode;
+import io.tapstate.cloud.sdk.model.ApiResponseAccessType;
 import io.tapstate.cloud.sdk.model.ApiResponseListIdentityView;
 import io.tapstate.cloud.sdk.model.ApiResponseLoginResult;
 import io.tapstate.cloud.sdk.model.ApiResponseOAuthStartResult;
+import io.tapstate.cloud.sdk.model.ApiResponseTrialCode;
 import io.tapstate.cloud.sdk.model.ApiResponseVoid;
 import io.tapstate.cloud.sdk.model.EmailCodeRequest;
 import io.tapstate.cloud.sdk.model.EmailRegistrationRequest;
@@ -108,6 +111,147 @@ public class AuthApi extends BaseApi {
     String[] localVarAuthNames = new String[] { "session-cookie" };
 
     TypeReference<ApiResponseLoginResult> localVarReturnType = new TypeReference<ApiResponseLoginResult>() {};
+    return apiClient.invokeAPI(
+        localVarPath,
+        "POST",
+        localVarQueryParams,
+        localVarCollectionQueryParams,
+        localVarQueryStringJoiner.toString(),
+        localVarPostBody,
+        localVarHeaderParams,
+        localVarCookieParams,
+        localVarFormParams,
+        localVarAccept,
+        localVarContentType,
+        localVarAuthNames,
+        localVarReturnType
+    );
+  }
+
+  /**
+   * Inspect a trial code or organization invitation
+   *
+   * @param accessCode  (required)
+   * @return ApiResponseAccessType
+   * @throws ApiException if fails to make API call
+   */
+  public ApiResponseAccessType accessType(@jakarta.annotation.Nonnull AccessCode accessCode) throws ApiException {
+    return this.accessType(accessCode, Collections.emptyMap());
+  }
+
+
+  /**
+   * Inspect a trial code or organization invitation
+   *
+   * @param accessCode  (required)
+   * @param additionalHeaders additionalHeaders for this call
+   * @return ApiResponseAccessType
+   * @throws ApiException if fails to make API call
+   */
+  public ApiResponseAccessType accessType(@jakarta.annotation.Nonnull AccessCode accessCode, Map<String, String> additionalHeaders) throws ApiException {
+    Object localVarPostBody = accessCode;
+
+    // verify the required parameter 'accessCode' is set
+    if (accessCode == null) {
+      throw new ApiException(400, "Missing the required parameter 'accessCode' when calling accessType");
+    }
+
+    // create path and map variables
+    String localVarPath = "/v1/api/auth/access";
+
+    StringJoiner localVarQueryStringJoiner = new StringJoiner("&");
+    String localVarQueryParameterBaseName;
+    List<Pair> localVarQueryParams = new ArrayList<Pair>();
+    List<Pair> localVarCollectionQueryParams = new ArrayList<Pair>();
+    Map<String, String> localVarHeaderParams = new HashMap<String, String>();
+    Map<String, String> localVarCookieParams = new HashMap<String, String>();
+    Map<String, Object> localVarFormParams = new HashMap<String, Object>();
+
+
+    localVarHeaderParams.putAll(additionalHeaders);
+
+
+
+    final String[] localVarAccepts = {
+      "*/*"
+    };
+    final String localVarAccept = apiClient.selectHeaderAccept(localVarAccepts);
+
+    final String[] localVarContentTypes = {
+      "application/json"
+    };
+    final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
+
+    String[] localVarAuthNames = new String[] {  };
+
+    TypeReference<ApiResponseAccessType> localVarReturnType = new TypeReference<ApiResponseAccessType>() {};
+    return apiClient.invokeAPI(
+        localVarPath,
+        "POST",
+        localVarQueryParams,
+        localVarCollectionQueryParams,
+        localVarQueryStringJoiner.toString(),
+        localVarPostBody,
+        localVarHeaderParams,
+        localVarCookieParams,
+        localVarFormParams,
+        localVarAccept,
+        localVarContentType,
+        localVarAuthNames,
+        localVarReturnType
+    );
+  }
+
+  /**
+   * Issue a single-use trial code
+   * Restricted to the configured trial issuer. The raw code is returned once.
+   * @return ApiResponseTrialCode
+   * @throws ApiException if fails to make API call
+   */
+  public ApiResponseTrialCode createTrialCode() throws ApiException {
+    return this.createTrialCode(Collections.emptyMap());
+  }
+
+
+  /**
+   * Issue a single-use trial code
+   * Restricted to the configured trial issuer. The raw code is returned once.
+   * @param additionalHeaders additionalHeaders for this call
+   * @return ApiResponseTrialCode
+   * @throws ApiException if fails to make API call
+   */
+  public ApiResponseTrialCode createTrialCode(Map<String, String> additionalHeaders) throws ApiException {
+    Object localVarPostBody = null;
+
+    // create path and map variables
+    String localVarPath = "/v1/api/trial-codes";
+
+    StringJoiner localVarQueryStringJoiner = new StringJoiner("&");
+    String localVarQueryParameterBaseName;
+    List<Pair> localVarQueryParams = new ArrayList<Pair>();
+    List<Pair> localVarCollectionQueryParams = new ArrayList<Pair>();
+    Map<String, String> localVarHeaderParams = new HashMap<String, String>();
+    Map<String, String> localVarCookieParams = new HashMap<String, String>();
+    Map<String, Object> localVarFormParams = new HashMap<String, Object>();
+
+
+    localVarHeaderParams.putAll(additionalHeaders);
+
+
+
+    final String[] localVarAccepts = {
+      "*/*"
+    };
+    final String localVarAccept = apiClient.selectHeaderAccept(localVarAccepts);
+
+    final String[] localVarContentTypes = {
+
+    };
+    final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
+
+    String[] localVarAuthNames = new String[] { "session-cookie" };
+
+    TypeReference<ApiResponseTrialCode> localVarReturnType = new TypeReference<ApiResponseTrialCode>() {};
     return apiClient.invokeAPI(
         localVarPath,
         "POST",

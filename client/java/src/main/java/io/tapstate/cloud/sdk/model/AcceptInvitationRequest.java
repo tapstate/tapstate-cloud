@@ -30,13 +30,18 @@ import java.util.StringJoiner;
  * AcceptInvitationRequest
  */
 @JsonPropertyOrder({
-  AcceptInvitationRequest.JSON_PROPERTY_INVITATION_TOKEN
+  AcceptInvitationRequest.JSON_PROPERTY_INVITATION_TOKEN,
+  AcceptInvitationRequest.JSON_PROPERTY_ORGANIZATION_NAME
 })
 @jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", comments = "Generator version: 7.25.0")
 public class AcceptInvitationRequest {
   public static final String JSON_PROPERTY_INVITATION_TOKEN = "invitationToken";
   @jakarta.annotation.Nonnull
   private String invitationToken;
+
+  public static final String JSON_PROPERTY_ORGANIZATION_NAME = "organizationName";
+  @jakarta.annotation.Nullable
+  private String organizationName;
 
   public AcceptInvitationRequest() {
   }
@@ -66,6 +71,31 @@ public class AcceptInvitationRequest {
     this.invitationToken = invitationToken;
   }
 
+  public AcceptInvitationRequest organizationName(@jakarta.annotation.Nullable String organizationName) {
+
+    this.organizationName = organizationName;
+    return this;
+  }
+
+  /**
+   * Get organizationName
+   * @return organizationName
+   */
+  @jakarta.annotation.Nullable
+  @JsonProperty(value = JSON_PROPERTY_ORGANIZATION_NAME, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+
+  public String getOrganizationName() {
+    return organizationName;
+  }
+
+
+  @JsonProperty(value = JSON_PROPERTY_ORGANIZATION_NAME, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+  public void setOrganizationName(@jakarta.annotation.Nullable String organizationName) {
+    this.organizationName = organizationName;
+  }
+
 
   @Override
   public boolean equals(Object o) {
@@ -76,12 +106,13 @@ public class AcceptInvitationRequest {
       return false;
     }
     AcceptInvitationRequest acceptInvitationRequest = (AcceptInvitationRequest) o;
-    return Objects.equals(this.invitationToken, acceptInvitationRequest.invitationToken);
+    return Objects.equals(this.invitationToken, acceptInvitationRequest.invitationToken) &&
+        Objects.equals(this.organizationName, acceptInvitationRequest.organizationName);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(invitationToken);
+    return Objects.hash(invitationToken, organizationName);
   }
 
   @Override
@@ -89,6 +120,7 @@ public class AcceptInvitationRequest {
     StringBuilder sb = new StringBuilder();
     sb.append("class AcceptInvitationRequest {\n");
     sb.append("    invitationToken: ").append(toIndentedString(invitationToken)).append("\n");
+    sb.append("    organizationName: ").append(toIndentedString(organizationName)).append("\n");
     sb.append("}");
     return sb.toString();
   }
@@ -137,6 +169,16 @@ public class AcceptInvitationRequest {
     if (getInvitationToken() != null) {
       try {
         joiner.add(String.format(java.util.Locale.ROOT, "%sinvitationToken%s=%s", prefix, suffix, URLEncoder.encode(String.valueOf(getInvitationToken()), "UTF-8").replaceAll("\\+", "%20")));
+      } catch (UnsupportedEncodingException e) {
+        // Should never happen, UTF-8 is always supported
+        throw new RuntimeException(e);
+      }
+    }
+
+    // add `organizationName` to the URL query string
+    if (getOrganizationName() != null) {
+      try {
+        joiner.add(String.format(java.util.Locale.ROOT, "%sorganizationName%s=%s", prefix, suffix, URLEncoder.encode(String.valueOf(getOrganizationName()), "UTF-8").replaceAll("\\+", "%20")));
       } catch (UnsupportedEncodingException e) {
         // Should never happen, UTF-8 is always supported
         throw new RuntimeException(e);

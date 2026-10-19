@@ -77,7 +77,8 @@ public class EmailVerificationService {
         }
     }
 
-    public User verifyAndRegister(String token, String suppliedEmail, String code, String password, String displayName) {
+    public User verifyAndRegister(String token, String suppliedEmail, String code, String password,
+                                  String displayName, String organizationName) {
         String email = InvitationService.normalizeEmail(suppliedEmail);
         requireHmacKey();
         OrganizationInvitation invitation = invitationService.requireUsable(token, email);
@@ -88,7 +89,12 @@ public class EmailVerificationService {
                 codeHmac(key, code).getBytes(StandardCharsets.US_ASCII))) {
             throw new BusinessException(AppErrorCode.EMAIL_CODE_INVALID, HttpStatus.BAD_REQUEST.value());
         }
-        return registrationCommitService.complete(invitation, challenge, email, password, displayName, now);
+        return registrationCommitService.complete(invitation, challenge, email, password, displayName,
+            organizationName, now);
+    }
+
+    public User verifyAndRegister(String token, String suppliedEmail, String code, String password, String displayName) {
+        return verifyAndRegister(token, suppliedEmail, code, password, displayName, null);
     }
 
     private EmailVerificationChallenge reserveChallenge(String key, ObjectId invitationId, String email,

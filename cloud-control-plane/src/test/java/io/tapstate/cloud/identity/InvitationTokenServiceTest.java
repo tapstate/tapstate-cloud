@@ -6,6 +6,7 @@ import io.tapstate.cloud.org.Member;
 import io.tapstate.cloud.org.MemberRepository;
 import io.tapstate.cloud.org.Organization;
 import io.tapstate.cloud.org.OrganizationRepository;
+import io.tapstate.cloud.org.OrganizationService;
 import org.bson.types.ObjectId;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -38,7 +39,7 @@ class InvitationTokenServiceTest {
     @BeforeEach
     void setUp() {
         service = new InvitationService(invitationRepository, organizationRepository, memberRepository,
-            userRepository, mongoTemplate);
+            userRepository, mongoTemplate, mock(OrganizationService.class));
         organizationId = new ObjectId();
     }
 

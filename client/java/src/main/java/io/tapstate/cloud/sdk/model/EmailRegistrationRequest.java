@@ -34,7 +34,8 @@ import java.util.StringJoiner;
   EmailRegistrationRequest.JSON_PROPERTY_INVITATION_TOKEN,
   EmailRegistrationRequest.JSON_PROPERTY_CODE,
   EmailRegistrationRequest.JSON_PROPERTY_PASSWORD,
-  EmailRegistrationRequest.JSON_PROPERTY_DISPLAY_NAME
+  EmailRegistrationRequest.JSON_PROPERTY_DISPLAY_NAME,
+  EmailRegistrationRequest.JSON_PROPERTY_ORGANIZATION_NAME
 })
 @jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", comments = "Generator version: 7.25.0")
 public class EmailRegistrationRequest {
@@ -57,6 +58,10 @@ public class EmailRegistrationRequest {
   public static final String JSON_PROPERTY_DISPLAY_NAME = "displayName";
   @jakarta.annotation.Nullable
   private String displayName;
+
+  public static final String JSON_PROPERTY_ORGANIZATION_NAME = "organizationName";
+  @jakarta.annotation.Nullable
+  private String organizationName;
 
   public EmailRegistrationRequest() {
   }
@@ -186,6 +191,31 @@ public class EmailRegistrationRequest {
     this.displayName = displayName;
   }
 
+  public EmailRegistrationRequest organizationName(@jakarta.annotation.Nullable String organizationName) {
+
+    this.organizationName = organizationName;
+    return this;
+  }
+
+  /**
+   * Get organizationName
+   * @return organizationName
+   */
+  @jakarta.annotation.Nullable
+  @JsonProperty(value = JSON_PROPERTY_ORGANIZATION_NAME, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+
+  public String getOrganizationName() {
+    return organizationName;
+  }
+
+
+  @JsonProperty(value = JSON_PROPERTY_ORGANIZATION_NAME, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+  public void setOrganizationName(@jakarta.annotation.Nullable String organizationName) {
+    this.organizationName = organizationName;
+  }
+
 
   @Override
   public boolean equals(Object o) {
@@ -200,12 +230,13 @@ public class EmailRegistrationRequest {
         Objects.equals(this.invitationToken, emailRegistrationRequest.invitationToken) &&
         Objects.equals(this.code, emailRegistrationRequest.code) &&
         Objects.equals(this.password, emailRegistrationRequest.password) &&
-        Objects.equals(this.displayName, emailRegistrationRequest.displayName);
+        Objects.equals(this.displayName, emailRegistrationRequest.displayName) &&
+        Objects.equals(this.organizationName, emailRegistrationRequest.organizationName);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(email, invitationToken, code, password, displayName);
+    return Objects.hash(email, invitationToken, code, password, displayName, organizationName);
   }
 
   @Override
@@ -217,6 +248,7 @@ public class EmailRegistrationRequest {
     sb.append("    code: ").append(toIndentedString(code)).append("\n");
     sb.append("    password: ").append(toIndentedString(password)).append("\n");
     sb.append("    displayName: ").append(toIndentedString(displayName)).append("\n");
+    sb.append("    organizationName: ").append(toIndentedString(organizationName)).append("\n");
     sb.append("}");
     return sb.toString();
   }
@@ -305,6 +337,16 @@ public class EmailRegistrationRequest {
     if (getDisplayName() != null) {
       try {
         joiner.add(String.format(java.util.Locale.ROOT, "%sdisplayName%s=%s", prefix, suffix, URLEncoder.encode(String.valueOf(getDisplayName()), "UTF-8").replaceAll("\\+", "%20")));
+      } catch (UnsupportedEncodingException e) {
+        // Should never happen, UTF-8 is always supported
+        throw new RuntimeException(e);
+      }
+    }
+
+    // add `organizationName` to the URL query string
+    if (getOrganizationName() != null) {
+      try {
+        joiner.add(String.format(java.util.Locale.ROOT, "%sorganizationName%s=%s", prefix, suffix, URLEncoder.encode(String.valueOf(getOrganizationName()), "UTF-8").replaceAll("\\+", "%20")));
       } catch (UnsupportedEncodingException e) {
         // Should never happen, UTF-8 is always supported
         throw new RuntimeException(e);

@@ -104,6 +104,14 @@ public class AuthController extends BaseController {
         return okStatus(HttpStatus.ACCEPTED, null);
     }
 
+    @PostMapping("/access")
+    public ResponseEntity<ApiResponse<AccessType>> accessType(@Valid @RequestBody AccessCode request) {
+        return ok(new AccessType(invitationService.accessType(request.code())));
+    }
+
+    public record AccessCode(@NotBlank String code) {}
+    public record AccessType(String type) {}
+
     @PostMapping("/email/register")
     @Operation(summary = "Complete invited email registration", description = "Verifies the one-time code and atomically consumes the invitation while creating the account and membership.")
     @ApiResponses(value = {
@@ -118,7 +126,7 @@ public class AuthController extends BaseController {
     public ResponseEntity<ApiResponse<LoginResult>> registerWithEmailCode(
             @Valid @RequestBody EmailRegistrationRequest request, HttpServletRequest httpRequest) {
         User user = emailVerificationService.verifyAndRegister(request.invitationToken(), request.email(),
-            request.code(), request.password(), request.displayName());
+            request.code(), request.password(), request.displayName(), request.organizationName());
         authenticateSession(user, httpRequest);
         return okCreated(new LoginResult(user.getEmail(), user.getDisplayName()));
     }
@@ -131,7 +139,7 @@ public class AuthController extends BaseController {
         if (email == null) {
             return fail(AppErrorCode.UNAUTHORIZED, HttpStatus.UNAUTHORIZED);
         }
-        User user = invitationService.acceptForExistingUser(request.invitationToken(), email);
+        User user = invitationService.acceptForExistingUser(request.invitationToken(), email, request.organizationName());
         return ok(new LoginResult(user.getEmail(), user.getDisplayName()));
     }
 
@@ -180,6 +188,11 @@ public class AuthController extends BaseController {
             session.removeAttribute("TAPSTATE_OAUTH_INVITATION_TOKEN");
         } else {
             session.setAttribute("TAPSTATE_OAUTH_INVITATION_TOKEN", InvitationService.hash(invitationToken));
+        }
+        if (oauthRequest.organizationName() == null || oauthRequest.organizationName().isBlank()) {
+            session.removeAttribute("TAPSTATE_OAUTH_ORGANIZATION_NAME");
+        } else {
+            session.setAttribute("TAPSTATE_OAUTH_ORGANIZATION_NAME", oauthRequest.organizationName().trim());
         }
         return ok(new OAuthStartResult(request.getContextPath() + "/oauth2/authorization/" + provider));
     }
@@ -393,12 +406,13 @@ public class AuthController extends BaseController {
         @NotBlank String invitationToken,
         @NotBlank @Size(min = 6, max = 6) String code,
         @NotBlank @Size(min = 8, max = 128) String password,
-        @Size(max = 100) String displayName
+        @Size(max = 100) String displayName,
+        @Size(max = 100) String organizationName
     ) {}
 
-    public record AcceptInvitationRequest(@NotBlank String invitationToken) {}
+    public record AcceptInvitationRequest(@NotBlank String invitationToken, String organizationName) {}
 
-    public record OAuthStartRequest(@NotBlank String flow, String invitationToken) {}
+    public record OAuthStartRequest(@NotBlank String flow, String invitationToken, String organizationName) {}
 
     public record OAuthStartResult(String authorizationUrl) {}
 

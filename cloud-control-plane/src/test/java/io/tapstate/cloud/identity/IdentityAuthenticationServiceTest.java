@@ -3,6 +3,7 @@ package io.tapstate.cloud.identity;
 import io.tapstate.cloud.common.api.AppErrorCode;
 import io.tapstate.cloud.common.api.BusinessException;
 import io.tapstate.cloud.org.MemberRepository;
+import io.tapstate.cloud.org.OrganizationService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -33,7 +34,7 @@ class IdentityAuthenticationServiceTest {
         when(users.save(user)).thenReturn(user);
 
         IdentityAuthenticationService service = new IdentityAuthenticationService(identities, users, members,
-            invitations, new BCryptPasswordEncoder());
+            invitations, new BCryptPasswordEncoder(), mock(OrganizationService.class));
         User result = service.authenticate("google", "provider-subject", "different@example.com", true,
             "Provider Name", "login", null, null, null);
 
@@ -48,7 +49,7 @@ class IdentityAuthenticationServiceTest {
         when(identities.findByProviderAndSubject("github", "1234")).thenReturn(Optional.empty());
         when(users.existsByEmail("account@example.com")).thenReturn(true);
         IdentityAuthenticationService service = new IdentityAuthenticationService(identities, users, members,
-            invitations, new BCryptPasswordEncoder());
+            invitations, new BCryptPasswordEncoder(), mock(OrganizationService.class));
 
         BusinessException exception = assertThrows(BusinessException.class, () -> service.authenticate(
             "github", "1234", "Account@Example.com", true, "Account", "login", null, null, null));
@@ -61,7 +62,7 @@ class IdentityAuthenticationServiceTest {
     @Test
     void providerWithUnverifiedEmailCannotCreateAnAccount() {
         IdentityAuthenticationService service = new IdentityAuthenticationService(identities, users, members,
-            invitations, new BCryptPasswordEncoder());
+            invitations, new BCryptPasswordEncoder(), mock(OrganizationService.class));
 
         BusinessException exception = assertThrows(BusinessException.class, () -> service.authenticate(
             "google", "subject", "guest@example.com", false, "Guest", "signup", null, null, "invite-hash"));
@@ -77,7 +78,7 @@ class IdentityAuthenticationServiceTest {
         when(identities.findByProviderAndSubject("google", "provider-subject")).thenReturn(Optional.empty());
         when(users.findByEmail("current@example.com")).thenReturn(Optional.of(currentUser));
         IdentityAuthenticationService service = new IdentityAuthenticationService(identities, users, members,
-            invitations, new BCryptPasswordEncoder());
+            invitations, new BCryptPasswordEncoder(), mock(OrganizationService.class));
 
         User result = service.authenticate("google", "provider-subject", "verified@provider.example", true,
             "Provider User", "link", "current@example.com", Instant.now(), null);
@@ -96,7 +97,7 @@ class IdentityAuthenticationServiceTest {
             LinkedIdentity.builder().provider("github").subject("provider-subject")
                 .userEmail("other@example.com").build()));
         IdentityAuthenticationService service = new IdentityAuthenticationService(identities, users, members,
-            invitations, new BCryptPasswordEncoder());
+            invitations, new BCryptPasswordEncoder(), mock(OrganizationService.class));
 
         BusinessException exception = assertThrows(BusinessException.class, () -> service.authenticate(
             "github", "provider-subject", "current@example.com", true, "Provider User", "link",
@@ -111,7 +112,7 @@ class IdentityAuthenticationServiceTest {
     void identityLinkRejectsAStaleReauthentication() {
         when(identities.findByProviderAndSubject("google", "provider-subject")).thenReturn(Optional.empty());
         IdentityAuthenticationService service = new IdentityAuthenticationService(identities, users, members,
-            invitations, new BCryptPasswordEncoder());
+            invitations, new BCryptPasswordEncoder(), mock(OrganizationService.class));
 
         BusinessException exception = assertThrows(BusinessException.class, () -> service.authenticate(
             "google", "provider-subject", "current@example.com", true, "Provider User", "link",
