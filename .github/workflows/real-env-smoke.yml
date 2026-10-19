@@ -105,6 +105,7 @@ jobs:
 
           mvn -B -ntp -DskipSdkGeneration=true \
             -pl cloud-control-plane \
+            -Dspring-boot.start.skip=true -Dspring-boot.stop.skip=true \
             failsafe:integration-test failsafe:verify \
             "-Dit.test=RealEnv*IT" \
             -DfailIfNoSpecifiedTests=false \
