@@ -13,6 +13,8 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.net.InetSocketAddress;
+import java.net.Inet4Address;
+import java.net.NetworkInterface;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPairGenerator;
@@ -33,7 +35,11 @@ class LocalRevocationCallbackTest {
         var requestQuery = new AtomicReference<String>();
         var requestMethod = new AtomicReference<String>();
         var requestHost = new AtomicReference<String>();
-        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        var backend = NetworkInterface.networkInterfaces().flatMap(NetworkInterface::inetAddresses)
+            .filter(address -> address instanceof Inet4Address && !address.isLoopbackAddress()
+                && !address.isAnyLocalAddress() && !address.isLinkLocalAddress())
+            .findFirst().orElseThrow(() -> new IllegalStateException("A non-loopback IPv4 test interface is required"));
+        HttpServer server = HttpServer.create(new InetSocketAddress(backend, 0), 0);
         server.createContext("/auth/invalidate-session", exchange -> {
             requestMethod.set(exchange.getRequestMethod());
             requestHost.set(exchange.getRequestHeaders().getFirst("Host"));
@@ -44,7 +50,8 @@ class LocalRevocationCallbackTest {
         server.start();
         try {
             String clusterOrigin = "http://localhost:" + server.getAddress().getPort();
-            var deployment = properties("http://127.0.0.1:" + server.getAddress().getPort());
+            String backendAuthority = backend.getHostAddress() + ":" + server.getAddress().getPort();
+            var deployment = properties("http://" + backendAuthority);
             deployment.getClusters().get(CLUSTER_ID).setPublicOrigin(clusterOrigin);
             var resolver = local(deployment);
             var keyPair = KeyPairGenerator.getInstance("RSA").generateKeyPair();
@@ -60,7 +67,7 @@ class LocalRevocationCallbackTest {
                 new UsernamePasswordAuthenticationToken("user@example.com", null, List.of()));
             assertEquals(200, controller.logout(new MockHttpServletRequest()).getStatusCode().value());
             assertEquals("POST", requestMethod.get());
-            assertEquals("127.0.0.1:" + server.getAddress().getPort(), requestHost.get());
+            assertEquals(backendAuthority, requestHost.get());
             assertNotNull(requestQuery.get());
             Map<String, String> values = java.util.Arrays.stream(requestQuery.get().split("&"))
                 .map(part -> part.split("=", 2))

@@ -39,6 +39,29 @@ class ExchangeServiceLocalEndpointsTest {
     }
 
     @Test
+    void acceptsUppercaseClusterIdentityDuringRedemption() throws Exception {
+        assertExchangeContract(local(properties("http://cluster-1:28443")),
+            "http://localhost:28443", "localhost", true, new ClusterDomainName(new IacProperties()),
+            CLUSTER_ID.toUpperCase(java.util.Locale.ROOT));
+    }
+
+    @Test
+    void rejectsUnmappedClusterWithExchangeErrorBeforeConsumingCode() {
+        var codes = mock(ExchangeCodeRepository.class);
+        var mongo = mock(MongoTemplate.class);
+        var records = mock(JtiRecordRepository.class);
+        var keys = mock(JwksRotationService.class);
+        var service = new ExchangeService(codes, mongo, mock(ClusterRepository.class), mock(MemberRepository.class),
+            mock(OrganizationRepository.class), mock(UserRepository.class), records, keys,
+            local(properties("http://cluster-1:28443")), mock(ClusterDomainName.class));
+        BusinessException failure = assertThrows(BusinessException.class,
+            () -> service.redeemExchangeCode("unconsumed-code", "fedcba9876543210fedcba98"));
+        assertEquals(AppErrorCode.EXCHANGE_CODE_CLUSTER_MISMATCH, failure.getErrorCode());
+        assertEquals(401, failure.getHttpStatus());
+        verifyNoInteractions(codes, mongo, records, keys);
+    }
+
+    @Test
     void ordinaryExchangeKeepsDomainOriginAudienceAndItsExistingAtomicConditions() throws Exception {
         var properties = properties("http://cluster-1:28443");
         properties.setEnabled(false);
@@ -85,6 +108,12 @@ class ExchangeServiceLocalEndpointsTest {
 
     private void assertExchangeContract(LocalClusterEndpoints resolver, String expectedOrigin,
                                         String expectedAudience, boolean local, ClusterDomainName domains) throws Exception {
+        assertExchangeContract(resolver, expectedOrigin, expectedAudience, local, domains, CLUSTER_ID);
+    }
+
+    private void assertExchangeContract(LocalClusterEndpoints resolver, String expectedOrigin,
+                                        String expectedAudience, boolean local, ClusterDomainName domains,
+                                        String requestClusterId) throws Exception {
         var codes = mock(ExchangeCodeRepository.class);
         var mongo = mock(MongoTemplate.class);
         var clusters = mock(ClusterRepository.class);
@@ -119,7 +148,7 @@ class ExchangeServiceLocalEndpointsTest {
         when(keys.getActiveKey()).thenReturn(Optional.of(JwksKey.builder().kid("local-key").build()));
         when(keys.buildActiveSigningKeyPair()).thenReturn(keyPair);
 
-        var redeemed = service.redeemExchangeCode(issued.rawCode(), CLUSTER_ID);
+        var redeemed = service.redeemExchangeCode(issued.rawCode(), requestClusterId);
         var claims = Jwts.parser().verifyWith(keyPair.getPublic()).requireIssuer(expectedIssuer)
             .build().parseSignedClaims(redeemed.jwt()).getPayload();
         assertEquals(java.util.Set.of(expectedAudience), claims.getAudience());

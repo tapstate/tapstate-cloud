@@ -3,6 +3,8 @@ package io.tapstate.cloud.resolve;
 import io.tapstate.cloud.cluster.Cluster;
 import io.tapstate.cloud.common.api.AppErrorCode;
 import io.tapstate.cloud.common.api.BusinessException;
+import io.tapstate.cloud.common.api.MessageUtils;
+import org.bson.types.ObjectId;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.env.Environment;
 import org.springframework.core.env.Profiles;
@@ -10,10 +12,13 @@ import org.springframework.stereotype.Service;
 
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
+import java.util.Locale;
 
 /** Resolves trusted development endpoints without reading request headers or callback URLs. */
 @Service
@@ -34,7 +39,7 @@ public class LocalClusterEndpoints {
         }
         String console = origin(properties.getConsoleOrigin(), true);
         String controlPlane = origin(properties.getControlPlaneOrigin(), false);
-        if (console.equals(controlPlane) || !controlPlane.equals(origin(issuer, false))) {
+        if (sameSocket(console, controlPlane) || !controlPlane.equals(origin(issuer, false))) {
             throw invalid("issuer must equal the dedicated internal Control Plane origin");
         }
         if (properties.getTrustedInternalOrigins() == null || properties.getClusters() == null) {
@@ -56,13 +61,15 @@ public class LocalClusterEndpoints {
             var configured = entry.getValue();
             String publicOrigin = origin(configured.getPublicOrigin(), true);
             String callbackOrigin = origin(configured.getCallbackOrigin(), false);
-            if (console.equals(publicOrigin) || !publicOrigins.add(publicOrigin)) {
-                throw invalid("Console and Cluster public origins must be distinct");
+            if (sameSocket(console, publicOrigin) || sameSocket(controlPlane, publicOrigin)
+                || !publicOrigins.add(publicOrigin)) {
+                throw invalid("Console, Control Plane and Cluster public origins must be distinct");
             }
             if (!"localhost".equals(configured.getAudience())) {
                 throw invalid("audience must match the literal localhost public host");
             }
-            if (callbackOrigin.equals(controlPlane)
+            if (sameSocket(callbackOrigin, controlPlane) || sameSocket(callbackOrigin, console)
+                || sameSocket(callbackOrigin, publicOrigin)
                 || URI.create(callbackOrigin).getPort() != URI.create(publicOrigin).getPort()) {
                 throw invalid("callback must target the Cluster role at its selected public/backend port");
             }
@@ -83,11 +90,15 @@ public class LocalClusterEndpoints {
     }
 
     String exchangeOrigin(String clusterId) {
-        return enabled ? endpoint(clusterId).publicOrigin() : null;
+        if (!enabled) return null;
+        Endpoint endpoint = clusters.get(new ObjectId(clusterId).toHexString());
+        if (endpoint == null) throw new BusinessException(AppErrorCode.EXCHANGE_CODE_CLUSTER_MISMATCH, 401);
+        return endpoint.publicOrigin();
     }
 
     public String audience(String clusterId) {
-        return enabled ? endpoint(clusterId).audience() : clusterId + ".dev.cloud.tapstate.com";
+        if (!enabled) throw new IllegalStateException("Development audience lookup requires enabled local endpoints");
+        return endpoint(clusterId).audience();
     }
 
     public String callbackOrigin(JtiRecord record) {
@@ -100,9 +111,44 @@ public class LocalClusterEndpoints {
     }
 
     private Endpoint endpoint(String clusterId) {
-        Endpoint endpoint = clusters.get(clusterId);
+        Endpoint endpoint = clusters.get(new ObjectId(clusterId).toHexString());
         if (endpoint == null) throw invalid("Cluster has no explicit development endpoint mapping");
         return endpoint;
+    }
+
+    private static boolean sameSocket(String first, String second) {
+        URI left = URI.create(first);
+        URI right = URI.create(second);
+        // HTTP and HTTPS cannot assign different roles to the same listening socket.
+        return left.getPort() == right.getPort() && socketHost(left).equals(socketHost(right));
+    }
+
+    private static String socketHost(URI origin) {
+        String host = origin.getHost().toLowerCase(Locale.ROOT);
+        if (host.endsWith(".")) host = host.substring(0, host.length() - 1);
+        if ("localhost".equals(host) || host.matches("127(?:\\.\\d{1,3}){3}")) return "loopback";
+        if (host.matches("[0-9]+")) {
+            try {
+                long address = Long.parseLong(host);
+                if (address > 0xffffffffL) throw invalid("numeric IPv4 origin is invalid");
+                byte[] bytes = {(byte) (address >>> 24), (byte) (address >>> 16),
+                    (byte) (address >>> 8), (byte) address};
+                InetAddress literal = InetAddress.getByAddress(bytes);
+                return literal.isLoopbackAddress() ? "loopback" : literal.getHostAddress();
+            } catch (NumberFormatException | UnknownHostException exception) {
+                throw invalid("numeric IPv4 origin is invalid");
+            }
+        }
+        if (host.startsWith("[")) {
+            try {
+                // Only numeric IPv6 literals reach this branch; never resolve deployment DNS names.
+                InetAddress address = InetAddress.getByName(host);
+                return address.isLoopbackAddress() ? "loopback" : address.getHostAddress();
+            } catch (UnknownHostException exception) {
+                throw invalid("internal IPv6 origin is invalid");
+            }
+        }
+        return host;
     }
 
     private static String origin(String value, boolean publicOrigin) {
@@ -127,7 +173,18 @@ public class LocalClusterEndpoints {
     }
 
     private static BusinessException invalid(String reason) {
-        return new BusinessException(AppErrorCode.BAD_REQUEST, 400, "Invalid development endpoint configuration: " + reason);
+        return new ConfigurationException(reason);
+    }
+
+    private static final class ConfigurationException extends BusinessException {
+        private ConfigurationException(String reason) {
+            super(AppErrorCode.BAD_REQUEST, 400, "Invalid development endpoint configuration: " + reason);
+        }
+
+        @Override
+        public String getMessage() {
+            return MessageUtils.getMessage(Locale.ENGLISH, getErrorCode(), getParams());
+        }
     }
 
     private record Endpoint(String publicOrigin, String audience, String callbackOrigin) {}

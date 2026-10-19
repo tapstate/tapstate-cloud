@@ -85,7 +85,7 @@ class LocalClusterEndpointsTest {
         var resolver = new LocalClusterEndpoints(properties, new MockEnvironment(), "https://cloud.tapstate.io");
         var cluster = Cluster.builder().id(new ObjectId(CLUSTER_ID)).publicDns("cluster.example").build();
         assertEquals("https://cluster.example", resolver.publicOrigin(cluster));
-        assertEquals(CLUSTER_ID + ".dev.cloud.tapstate.com", resolver.audience(CLUSTER_ID));
+        assertThrows(IllegalStateException.class, () -> resolver.audience(CLUSTER_ID));
         var record = JtiRecord.builder().clusterBaseUri("https://cluster.example").build();
         assertEquals("https://cluster.example", resolver.callbackOrigin(record));
     }
@@ -100,8 +100,98 @@ class LocalClusterEndpointsTest {
         assertThrows(BusinessException.class, () -> local(properties));
         properties.setTrustedInternalOrigins(List.of("http://cluster-1:28443"));
         assertThrows(BusinessException.class, () -> local(properties));
+        properties.setTrustedInternalOrigins(List.of(ISSUER));
         properties.setClusters(Map.of());
-        assertThrows(BusinessException.class, () -> local(properties));
+        BusinessException emptyMappings = assertThrows(BusinessException.class, () -> local(properties));
+        assertTrue(emptyMappings.getMessage().contains("at least one explicit Cluster mapping is required"));
+    }
+
+    @Test
+    void startupFailureIncludesTheActualConfigurationReason() {
+        new ApplicationContextRunner().withUserConfiguration(EndpointConfiguration.class)
+            .withPropertyValues("tapstate.cloud.local-development.enabled=true")
+            .run(context -> {
+                Throwable cause = context.getStartupFailure();
+                assertNotNull(cause);
+                while (cause.getCause() != null) cause = cause.getCause();
+                assertInstanceOf(BusinessException.class, cause);
+                assertTrue(cause.getMessage().contains("the local-development profile is required"));
+                assertFalse(cause.getMessage().contains("{0}"));
+            });
+    }
+
+    @Test
+    void canonicalizesRequestClusterIdsWithoutChangingConfiguredKeys() {
+        var resolver = local(properties("http://cluster-1:28443"));
+        for (String id : List.of(CLUSTER_ID.toUpperCase(java.util.Locale.ROOT), "0123456789AbCdEf01234567")) {
+            assertEquals("http://localhost:28443", resolver.exchangeOrigin(id));
+            assertEquals("localhost", resolver.audience(id));
+        }
+    }
+
+    @Test
+    void rejectsCallbackAndPublicRolesOnTheSameLoopbackSocket() {
+        for (String host : List.of("localhost", "LOCALHOST", "localhost.", "127.0.0.1", "127.23.4.5",
+            "[::1]", "[0:0:0:0:0:0:0:1]", "[::ffff:127.0.0.1]")) {
+            for (String scheme : List.of("http", "https")) {
+                String callback = scheme + "://" + host + ":28443";
+                BusinessException failure = assertThrows(BusinessException.class,
+                    () -> local(properties(callback)), callback);
+                assertTrue(failure.getParams()[0].toString().contains("callback must target the Cluster role"));
+            }
+        }
+    }
+
+    @Test
+    void rejectsIntegerLoopbackRoleAliases() {
+        for (String host : List.of("2130706433", "2130706434", "0002130706433")) {
+            assertThrows(BusinessException.class, () -> local(properties("http://" + host + ":28443")), host);
+            String controlPlane = "https://" + host + ":28175";
+            var properties = properties("http://cluster-1:28443");
+            properties.setControlPlaneOrigin(controlPlane);
+            properties.setTrustedInternalOrigins(List.of(controlPlane, "http://cluster-1:28443"));
+            var environment = new MockEnvironment();
+            environment.setActiveProfiles("local-development");
+            assertThrows(BusinessException.class,
+                () -> new LocalClusterEndpoints(properties, environment, controlPlane), controlPlane);
+        }
+    }
+
+    @Test
+    void rejectsControlPlaneCollisionsWithEitherPublicRole() {
+        for (String port : List.of("28175", "28443")) {
+            for (String host : List.of("localhost", "127.0.0.1", "[::1]")) {
+                for (String scheme : List.of("http", "https")) {
+                    String controlPlane = scheme + "://" + host + ":" + port;
+                    var properties = properties("http://cluster-1:28443");
+                    properties.setControlPlaneOrigin(controlPlane);
+                    properties.setTrustedInternalOrigins(List.of(controlPlane, "http://cluster-1:28443"));
+                    var environment = new MockEnvironment();
+                    environment.setActiveProfiles("local-development");
+                    assertThrows(BusinessException.class,
+                        () -> new LocalClusterEndpoints(properties, environment, controlPlane), controlPlane);
+                }
+            }
+        }
+    }
+
+    @Test
+    void rejectsDuplicatePublicOriginsAcrossTwoClusters() {
+        var properties = properties("http://cluster-1:28443");
+        var second = new LocalClusterEndpointProperties.Endpoint();
+        second.setPublicOrigin("http://localhost:28443");
+        second.setAudience("localhost");
+        second.setCallbackOrigin("http://cluster-2:28443");
+        properties.setTrustedInternalOrigins(List.of(ISSUER, "http://cluster-1:28443", "http://cluster-2:28443"));
+        properties.setClusters(Map.of(CLUSTER_ID, properties.getClusters().get(CLUSTER_ID),
+            "fedcba9876543210fedcba98", second));
+        var failure = assertThrows(BusinessException.class, () -> local(properties));
+        assertTrue(failure.getParams()[0].toString().contains("public origins must be distinct"));
+        second.setPublicOrigin("http://localhost:28444");
+        second.setCallbackOrigin("http://cluster-2:28444");
+        properties.setTrustedInternalOrigins(List.of(ISSUER, "http://cluster-1:28443", "http://cluster-2:28444"));
+        var resolver = local(properties);
+        assertEquals("http://localhost:28444", resolver.exchangeOrigin("fedcba9876543210fedcba98"));
     }
 
     @Test
