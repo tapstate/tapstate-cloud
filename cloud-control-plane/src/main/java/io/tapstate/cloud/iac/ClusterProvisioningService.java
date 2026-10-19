@@ -223,8 +223,11 @@ public class ClusterProvisioningService {
                     // and compensate runs, retryCleanup can target exactly these
                     // resources without guessing.
                     java.util.Map<String, String> inventory = new java.util.HashMap<>();
-                    inventory.put("cloudFormationStackName", "tapstate-cluster-" + clusterId);
-                    inventory.put("cloudFormationStackId", provisioned.instanceId());
+                    String stackName = "tapstate-cluster-" + clusterId;
+                    inventory.put("cloudFormationStackName", stackName);
+                    // CloudFormation stack ARN is returned by describeStacks; we
+                    // know the stack name and can derive any identifier needed.
+                    inventory.put("cloudFormationStackId", stackName);
                     cluster.setCleanupInventory(inventory);
                     persist(cluster);
                     log.info("[IaC] node ready cluster={} ip={}", clusterId, provisioned.publicIp());
