@@ -37,6 +37,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
@@ -217,6 +218,14 @@ public class ClusterProvisioningService {
                     cluster.setEc2InstanceId(provisioned.instanceId());
                     cluster.setEc2PublicIp(provisioned.publicIp());
                     cluster.setCloudFormationStackStatus("CREATE_COMPLETE");
+                    // T5: persist cleanup inventory as soon as we know what the
+                    // provisioning pipeline created. If a post-stack step fails
+                    // and compensate runs, retryCleanup can target exactly these
+                    // resources without guessing.
+                    java.util.Map<String, String> inventory = new java.util.HashMap<>();
+                    inventory.put("cloudFormationStackName", "tapstate-cluster-" + clusterId);
+                    inventory.put("cloudFormationStackId", provisioned.instanceId());
+                    cluster.setCleanupInventory(inventory);
                     persist(cluster);
                     log.info("[IaC] node ready cluster={} ip={}", clusterId, provisioned.publicIp());
                     return provisioned;
@@ -343,31 +352,122 @@ public class ClusterProvisioningService {
      * Compensate resources based on the durable Cluster state, not on
      * in-memory flags — the worker runs inside lambdas and cannot carry mutable
      * locals across them.
+     * <p>
+     * Before deleting any stack this method queries the provider's remote state
+     * via {@link ComputeInfrastructure#describeInfrastructureStatus} (when
+     * available). If the remote stack is already healthy (e.g. the watcher timed
+     * out on post-SSH steps but CloudFormation itself succeeded), we SKIP the
+     * stack deletion so we do not destroy a healthy, billable resource. DNS
+     * records are still cleaned independently of the stack.
      */
     private void compensateFromDurableState(String clusterId) {
         Cluster latest = clusterRepository.findById(new ObjectId(clusterId)).orElse(null);
         if (latest == null) {
             return;
         }
+
         boolean stackCreated = "CREATE_COMPLETE".equals(latest.getCloudFormationStackStatus())
             || latest.getEc2InstanceId() != null;
         boolean dnsCreated = latest.getDnsRecord() != null;
-        compensate(latest, stackCreated, dnsCreated);
+
+        // Populate cleanup inventory before touching any resource — retry can
+        // later resume from exactly what we know we created.
+        java.util.Map<String, String> inventory = new java.util.HashMap<>();
+        if (stackCreated) {
+            String stackName = "tapstate-cluster-" + clusterId;
+            inventory.put("cloudFormationStackName", stackName);
+            if (latest.getCloudFormationStackId() != null) {
+                inventory.put("cloudFormationStackId", latest.getCloudFormationStackId());
+            }
+        }
+        if (dnsCreated) {
+            inventory.put("dnsRecord", latest.getDnsRecord());
+        }
+        if (latest.getMdbAllocationId() != null) {
+            inventory.put("mdbAllocationId", latest.getMdbAllocationId().toHexString());
+        }
+        latest.setCleanupInventory(inventory);
+        latest.setCleanupErrorCode(null);
+        latest.setCleanupErrorDetail(null);
+        latest.setCleanupFailedAt(null);
+        clusterPartialWriter.apply(latest);
+
+        // T2: query remote state before deciding whether to delete the stack.
+        boolean skipStackDelete = false;
+        if (stackCreated) {
+            java.util.Optional<String> remoteStatus = compute.describeInfrastructureStatus(
+                latest.getRegion(), clusterId);
+            if (remoteStatus.isPresent() && "CREATE_COMPLETE".equals(remoteStatus.get())) {
+                // Remote stack is healthy — we must be here because a post-stack
+                // step (SSH wait, health check, TLS install, etc.) failed after
+                // CloudFormation succeeded. Deleting it would destroy a working
+                // resource the user just paid to create. Skip stack cleanup and
+                // surface a distinct "remote healthy, post-stack failed" marker
+                // so retry can resume safely.
+                skipStackDelete = true;
+                log.warn("[IaC] compensate skipping stack deletion — remote stack is CREATE_COMPLETE, "
+                    + "post-stack step failed. cluster={}", clusterId);
+            } else if (remoteStatus.isEmpty()) {
+                // Provider cannot report remote state (default for non-AWS, or
+                // AWS describe call itself failed). Trust durable state only.
+                log.debug("[IaC] compensate has no remote state for cluster={}, trusting durable state", clusterId);
+            } else {
+                // Remote state is NOT CREATE_COMPLETE (e.g. ROLLBACK_COMPLETE,
+                // DELETE_COMPLETE already, or unknown failure). Proceed with
+                // cleanup — deleting a failed stack is always safe.
+                log.info("[IaC] compensate remote stack status={} cluster={}, proceeding with cleanup",
+                    remoteStatus.get(), clusterId);
+            }
+        }
+
+        compensate(latest, stackCreated, dnsCreated, skipStackDelete);
     }
 
     /**
      * Terminate the node and remove its DNS name.
+     * <p>
+     * On failure, persists a cleanup error on the Cluster document so the user
+     * can discover and retry. The exception still propagates so callers can
+     * decide whether to retry or escalate.
      *
      * @throws IacException when a resource cannot be reclaimed
      */
     public void terminate(Cluster cluster) {
         String clusterId = cluster.getId().toHexString();
         log.info("[IaC] terminate start cluster={}", clusterId);
+
+        // T5: ensure cleanup inventory is populated before we start — callers
+        // (scheduleRetry, startAsyncTermination, compensate) rely on it existing
+        // before they attempt cleanup. Re-write is idempotent.
+        java.util.Map<String, String> inventory = cluster.getCleanupInventory();
+        if (inventory == null) {
+            inventory = new java.util.HashMap<>();
+            if ("CREATE_COMPLETE".equals(cluster.getCloudFormationStackStatus())
+                || cluster.getEc2InstanceId() != null) {
+                inventory.put("cloudFormationStackName", "tapstate-cluster-" + clusterId);
+                if (cluster.getCloudFormationStackId() != null) {
+                    inventory.put("cloudFormationStackId", cluster.getCloudFormationStackId());
+                }
+            }
+            if (cluster.getDnsRecord() != null) {
+                inventory.put("dnsRecord", cluster.getDnsRecord());
+            }
+            if (cluster.getMdbAllocationId() != null) {
+                inventory.put("mdbAllocationId", cluster.getMdbAllocationId().toHexString());
+            }
+            cluster.setCleanupInventory(inventory);
+            clusterPartialWriter.apply(cluster);
+        }
+
         try {
             runStep(cluster, DeploymentOperation.TERMINATE_EC2,
                 "EC2 node terminated", () -> {
                     compute.terminate(cluster.getRegion(), clusterId);
                     cluster.setCloudFormationStackStatus("DELETE_COMPLETE");
+                    cluster.setCleanupInventory(null);
+                    cluster.setCleanupErrorCode(null);
+                    cluster.setCleanupErrorDetail(null);
+                    cluster.setCleanupFailedAt(null);
                     clusterPartialWriter.apply(cluster);
                 });
 
@@ -381,6 +481,9 @@ public class ClusterProvisioningService {
                 });
             log.info("[IaC] terminate complete cluster={}", clusterId);
         } catch (IacException e) {
+            // T5: persist cleanup failure on Cluster — user can discover and retry.
+            persistCleanupFailure(cluster, "IAC_COMPUTE_TERMINATE_FAILED", safeMessage(e));
+            clusterPartialWriter.apply(cluster);
             log.error("[IaC] terminate failed cluster={} code={} detail={}",
                 clusterId, e.errorCode().getCode(), e.getMessage());
             throw e;
@@ -615,7 +718,7 @@ public class ClusterProvisioningService {
     }
 
     /** Reverse-order compensation of resources already created. */
-    private void compensate(Cluster cluster, boolean stackCreated, boolean dnsCreated) {
+    private void compensate(Cluster cluster, boolean stackCreated, boolean dnsCreated, boolean skipStackDelete) {
         String clusterId = cluster.getId().toHexString();
         if (dnsCreated) {
             try {
@@ -623,17 +726,44 @@ public class ClusterProvisioningService {
                 dns.deleteRecord(domain);
                 cluster.setDnsRecord(null);
             } catch (Exception e) {
+                // DNS cleanup failure is logged but not surfaced to the user —
+                // DNS records are cheap to orphan and the stack cleanup is what
+                // matters for billing. We do not persist DNS-specific errors.
                 log.error("[IaC] compensation failed to delete DNS cluster={}: {}",
                     clusterId, safeMessage(e));
             }
         }
         if (stackCreated) {
-            try {
-                compute.terminate(cluster.getRegion(), clusterId);
-                cluster.setCloudFormationStackStatus("DELETE_COMPLETE");
-            } catch (Exception e) {
-                log.error("[IaC] compensation failed to delete stack cluster={}: {}",
-                    clusterId, safeMessage(e));
+            if (skipStackDelete) {
+                // T2: remote stack is healthy — do not destroy it. Surface this
+                // on the Cluster document so retry knows to resume from the
+                // existing stack rather than recreate.
+                cluster.setCleanupErrorCode("REMOTE_STACK_HEALTHY");
+                cluster.setCleanupErrorDetail(
+                    "CloudFormation stack is CREATE_COMPLETE on AWS but post-stack provisioning step failed. "
+                        + "Stack deletion skipped to preserve healthy infrastructure. Retry will resume from this stack.");
+                cluster.setCleanupFailedAt(Instant.now());
+                cluster.setCloudFormationStackStatus("CREATE_COMPLETE");
+                log.warn("[IaC] compensate stack deletion skipped — remote stack healthy cluster={}", clusterId);
+            } else {
+                try {
+                    compute.terminate(cluster.getRegion(), clusterId);
+                    cluster.setCloudFormationStackStatus("DELETE_COMPLETE");
+                    // Clear cleanup inventory on successful cleanup — nothing left to retry.
+                    cluster.setCleanupInventory(null);
+                    cluster.setCleanupErrorCode(null);
+                    cluster.setCleanupErrorDetail(null);
+                    cluster.setCleanupFailedAt(null);
+                } catch (Exception e) {
+                    // T5: cleanup failure persists to the Cluster document — the
+                    // user can discover it, see the AWS error, and retry. The
+                    // exception is swallowed here because compensate() is called
+                    // from a catch block and we do not want to mask the original
+                    // provisioning failure.
+                    persistCleanupFailure(cluster, "IAC_COMPUTE_TERMINATE_FAILED", safeMessage(e));
+                    log.error("[IaC] compensation failed to delete stack cluster={}: {}",
+                        clusterId, safeMessage(e));
+                }
             }
         }
         try {
@@ -642,6 +772,26 @@ public class ClusterProvisioningService {
             log.error("[IaC] compensation state persist failed cluster={}: {}",
                 clusterId, safeMessage(e));
         }
+    }
+
+    /** Persist a cleanup failure onto the Cluster document. Idempotent: last write wins. */
+    private void persistCleanupFailure(Cluster cluster, String errorCode, String detail) {
+        cluster.setCleanupErrorCode(errorCode);
+        cluster.setCleanupErrorDetail(detail);
+        cluster.setCleanupFailedAt(Instant.now());
+        // Keep cleanupInventory — it was written before we started cleaning and
+        // is exactly what retryCleanup needs to know which resources to target.
+    }
+
+    /**
+     * Query the remote infrastructure status for a Cluster. Public because callers
+     * outside this class (e.g. FSM scheduleRetry) need the same "should we delete?"
+     * decision that compensate() uses.
+     *
+     * @return infrastructure status string if provider reports it, empty otherwise
+     */
+    public java.util.Optional<String> describeRemoteStackStatus(String region, String clusterId) {
+        return compute.describeInfrastructureStatus(region, clusterId);
     }
 
     /** Map an operational failure, record it on the Cluster and persist the document. */
