@@ -9,8 +9,8 @@
 #   GitHub Actions UI — Actions → "Real-Env Smoke Test" → Run workflow
 #   gh CLI — gh workflow run real-env-smoke.yml \
 #              --raw-field cp_url=https://dev.cloud.tapstate.com \
-#              --raw-field cp_email=... \
-#              --raw-field mongo_uri=...
+#              --raw-field cp_email_secret=AWSDEV_TEST_EMAIL \
+#              ...
 #   No automatic trigger — we never want a push to accidentally run
 #   billable Cluster provisioning against a shared env.
 #
@@ -20,27 +20,12 @@
 #   env vars and assume nothing about localhost. Missing CP creds →
 #   assumeTrue → SKIP all tests cleanly (not FAIL).
 #
-# Secrets handling:
-#   - cp_url            — PLAIN input (visible in workflow UI + logs)
-#   - cp_email_secret   — SECRET input (masked, never appears in logs)
-#   - cp_password_secret — SECRET input
-#   - mongo_uri_secret  — SECRET input (full mongodb+srv://... URI with db name;
-#                         sanitized before we read it)
-#
 # Inputs map 1:1 to RealEnvIT static fields:
 #   CP_BASE_URL   ← inputs.cp_url
-#   CP_EMAIL      ← secrets.cp_email_secret
-#   CP_PASSWORD   ← secrets.cp_password_secret
-#   MONGO_URI     ← secrets.mongo_uri_secret  (optional — store-visibility
-#                  assertions SKIP when absent)
-#
-# Example invocation:
-#   gh workflow run real-env-smoke.yml \
-#     --repo tapstate/tapstate-cloud \
-#     --raw-field cp_url=https://dev.cloud.tapstate.com \
-#     --secret cp_email_secret=$AWSDEV_TEST_EMAIL \
-#     --secret cp_password_secret=$AWSDEV_TEST_PASSWORD \
-#     --secret mongo_uri_secret=$AWSDEV_MONGO_URI
+#   CP_EMAIL      ← secrets[inputs.cp_email_secret]
+#   CP_PASSWORD   ← secrets[inputs.cp_password_secret]
+#   MONGO_URI     ← secrets[inputs.mongo_uri_secret]  (optional —
+#                  store-visibility assertions SKIP when absent)
 # ============================================================
 
 name: Real-Env Smoke Test
@@ -53,7 +38,7 @@ on:
         required: true
         type: string
       cp_email_secret:
-        description: 'Name of the GitHub secret holding an existing Control Plane user email'
+        description: 'Name of the GitHub secret holding the Control Plane user email'
         required: false
         type: string
       cp_password_secret:
@@ -61,7 +46,7 @@ on:
         required: false
         type: string
       mongo_uri_secret:
-        description: 'Name of the GitHub secret holding the MongoDB connection string (optional — enables store-visibility assertions)'
+        description: 'Name of the GitHub secret holding the MongoDB connection string (optional)'
         required: false
         type: string
       jdk:
@@ -86,21 +71,19 @@ jobs:
           java-version: ${{ inputs.jdk }}
           cache: maven
 
-      - name: Build module (compile-only, skip tests)
-        run: mvn -pl cloud-control-plane -am -DskipTests package
-
-      - name: Resolve secrets by name input
-        id: resolve-secrets
+      - name: Install mongosh
         run: |
-          # Inputs may pass either a secret VALUE directly or a secret NAME.
-          # We handle both: if a name is provided we read it from the job's
-          # secrets context; if the value IS already a secret (masked) we use
-          # it as-is. GitHub automatically masks the actual secret value in
-          # logs when it flows through ${{ secrets.X }}.
-          echo "cp_url=${{ inputs.cp_url }}"
-          echo "cp_email_secret_name=${{ inputs.cp_email_secret }}"
-          echo "cp_password_secret_name=${{ inputs.cp_password_secret }}"
-          echo "mongo_uri_secret_name=${{ inputs.mongo_uri_secret }}"
+          set -euo pipefail
+          . /etc/os-release
+          sudo apt-get update
+          sudo apt-get install -y gnupg ca-certificates curl
+          curl -fsSL https://www.mongodb.org/static/pgp/server-8.0.asc | \
+            sudo gpg -o /usr/share/keyrings/mongodb-server-8.0.gpg --dearmor
+          echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-8.0.gpg ] https://repo.mongodb.org/apt/ubuntu ${VERSION_CODENAME}/mongodb-org/8.0 multiverse" | \
+            sudo tee /etc/apt/sources.list.d/mongodb-org-8.0.list
+          sudo apt-get update
+          sudo apt-get install -y mongodb-mongosh
+          mongosh --version
 
       - name: Run RealEnv integration tests
         env:
@@ -109,16 +92,15 @@ jobs:
           CP_PASSWORD: ${{ secrets[inputs.cp_password_secret] }}
           MONGO_URI: ${{ secrets[inputs.mongo_uri_secret] }}
         run: |
-          cd cloud-control-plane
-          # failsafe only runs classes matching the *IT.java pattern. We use
-          # a failsafe.includes= override to limit the run to RealEnvIT
-          # subclasses so unrelated mock/local ITs never run against the
-          # target environment.
-          mvn failsafe:integration-test failsafe:verify \
-            -Dfailsafe.includes="io.tapstate.cloud.it.RealEnv*IT" \
+          # reactor install + failsafe in one go. -am builds dependency modules
+          # (tapstate-cloud-common, cloud-control-plane-sdk) that are not in
+          # any public Maven repo — they resolve only from the local reactor.
+          mvn -B -ntp -DskipSdkGeneration=true \
+            -pl cloud-control-plane -am verify \
+            "-Dit.test=RealEnv*IT" \
+            -DfailIfNoSpecifiedTests=false \
             -DtrimStackTrace=false \
-            -B \
-            2>&1 | tee target/real-env-smoke.log
+            2>&1 | tee cloud-control-plane/target/real-env-smoke.log
 
       - name: Upload failsafe reports
         if: always()
