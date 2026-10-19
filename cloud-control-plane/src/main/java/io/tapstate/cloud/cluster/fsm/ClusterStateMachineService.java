@@ -334,8 +334,44 @@ public class ClusterStateMachineService {
                     log.info("[Cluster FSM] real retry skipped, cluster {} no longer exists", clusterId);
                     return;
                 }
-                // Idempotent: a fully compensated attempt has no stack and no DNS.
-                clusterProvisioningService.prepareForRetry(latest);
+                // T2: query remote state before terminate — if the previous
+                // attempt's stack is still healthy (e.g. post-stack step failed),
+                // skip terminate entirely and retry provisioning on top of it.
+                java.util.Optional<String> remoteStatus =
+                    clusterProvisioningService.describeRemoteStackStatus(latest.getRegion(), clusterId.toHexString());
+                boolean remoteHealthy = remoteStatus.isPresent()
+                    && "CREATE_COMPLETE".equals(remoteStatus.get());
+                boolean hasProvisionedStack = "CREATE_COMPLETE".equals(latest.getCloudFormationStackStatus())
+                    || latest.getEc2InstanceId() != null;
+
+                if (hasProvisionedStack && remoteHealthy) {
+                    log.warn("[Cluster FSM] retry skipping terminate — remote stack is CREATE_COMPLETE cluster={}",
+                        clusterId);
+                    // Clear the "remote stack healthy, skip cleanup" marker from the
+                    // previous compensate so this retry starts fresh.
+                    mongoTemplate.updateFirst(Query.query(Criteria.where("_id").is(clusterId)),
+                        new Update().unset("cleanupErrorCode").unset("cleanupErrorDetail")
+                            .unset("cleanupFailedAt"), Cluster.class);
+                } else if (hasProvisionedStack) {
+                    try {
+                        // Retry cleanup removes the old node but keeps this Cluster's EIP
+                        // so a provisioning retry reuses the same allowlisted address.
+                        clusterProvisioningService.prepareForRetry(latest);
+                    } catch (Exception e) {
+                        // T5: terminate failure was already persisted on the Cluster
+                        // by terminate() itself. Retry cannot safely proceed without a
+                        // clean slate — surface as CLEANUP_FAILED and stop.
+                        log.error("[Cluster FSM] retry terminate failed cluster={}: {}",
+                            clusterId, e.getMessage());
+                        // Persist terminal cleanup failure reason (terminate already
+                        // did persistCleanupFailure, add retry-specific detail).
+                        String detail = "Retry cleanup failed: " + safeMessage(e)
+                            + ". User must resolve the cleanup failure before retry can proceed.";
+                        mongoTemplate.updateFirst(Query.query(Criteria.where("_id").is(clusterId)),
+                            new Update().set("cleanupErrorDetail", detail), Cluster.class);
+                        return; // abort retry — cleanup must succeed first
+                    }
+                }
                 transition(clusterId, ClusterEventType.START_PROVISION, "system:retry");
             } catch (Exception e) {
                 log.error("[Cluster FSM] retry restart failed for cluster {}: {}",
@@ -359,10 +395,16 @@ public class ClusterStateMachineService {
                 log.info("[Cluster FSM] resource termination finished for cluster {} in {}ms",
                     clusterId, System.currentTimeMillis() - startedAt);
             } catch (Exception e) {
+                // T5: terminate() already persisted cleanup failure. Add async
+                // context and log — user discovers from Cluster cleanupErrorCode.
                 log.error("[Cluster FSM] resource cleanup failed for cluster {} after {}ms: {}",
                     clusterId, System.currentTimeMillis() - startedAt, e.getMessage());
             }
         });
+    }
+
+    private static String safeMessage(Throwable t) {
+        return t != null && t.getMessage() != null ? t.getMessage() : t != null ? t.toString() : "unknown";
     }
 
     // ========== Mock-mode async effects ==========

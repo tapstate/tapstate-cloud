@@ -69,6 +69,7 @@ public class ExchangeService {
     private final UserRepository userRepo;
     private final JtiRecordRepository jtiRecordRepo;
     private final JwksRotationService jwksRotationService;
+    private final LocalClusterEndpoints endpoints;
     private final ClusterDomainName clusterDomainName;
 
     @Value("${tapstate.cloud.issuer:https://cloud.tapstate.io}")
@@ -93,6 +94,7 @@ public class ExchangeService {
                            UserRepository userRepo,
                            JtiRecordRepository jtiRecordRepo,
                            JwksRotationService jwksRotationService,
+                           LocalClusterEndpoints endpoints,
                            ClusterDomainName clusterDomainName) {
         this.codeRepo = codeRepo;
         this.mongoTemplate = mongoTemplate;
@@ -102,6 +104,7 @@ public class ExchangeService {
         this.userRepo = userRepo;
         this.jtiRecordRepo = jtiRecordRepo;
         this.jwksRotationService = jwksRotationService;
+        this.endpoints = endpoints;
         this.clusterDomainName = clusterDomainName;
     }
 
@@ -158,9 +161,7 @@ public class ExchangeService {
             .userId(user.getId())
             .orgId(new ObjectId(orgId))
             .clusterId(new ObjectId(clusterId))
-            .targetOrigin(cluster.getPublicDns() != null
-                ? "https://" + cluster.getPublicDns()
-                : "http://localhost:30080") // Week 2 scaffold fallback
+            .targetOrigin(endpoints.publicOrigin(cluster))
             .createdAt(now)
             .expiresAt(expires)
             .consumedAt(null)
@@ -191,6 +192,10 @@ public class ExchangeService {
             .and("consumedAt").isNull()
             .and("expiresAt").gt(now)
             .and("clusterId").is(new ObjectId(expectedClusterId)));
+        String expectedOrigin = endpoints.exchangeOrigin(expectedClusterId);
+        if (expectedOrigin != null) {
+            query.addCriteria(Criteria.where("targetOrigin").is(expectedOrigin));
+        }
         Update update = Update.update("consumedAt", now);
 
         ExchangeCode consumed = mongoTemplate.findAndModify(query, update, ExchangeCode.class);
@@ -204,7 +209,8 @@ public class ExchangeService {
                 throw new BusinessException(AppErrorCode.EXCHANGE_CODE_CONSUMED, 401);
             } else if (existing.getExpiresAt().isBefore(now)) {
                 throw new BusinessException(AppErrorCode.EXCHANGE_CODE_EXPIRED, 401);
-            } else if (!existing.getClusterId().equals(new ObjectId(expectedClusterId))) {
+            } else if (!existing.getClusterId().equals(new ObjectId(expectedClusterId))
+                || expectedOrigin != null && !expectedOrigin.equals(existing.getTargetOrigin())) {
                 throw new BusinessException(AppErrorCode.EXCHANGE_CODE_CLUSTER_MISMATCH, 401);
             } else {
                 log.error("Exchange code validation failed unexpectedly for cluster={}", expectedClusterId);
@@ -230,7 +236,9 @@ public class ExchangeService {
         // its Host and as publicDns.
         String jwtId = UUID.randomUUID().toString();
         Instant jwtExp = now.plus(jwtExpiryMinutes, ChronoUnit.MINUTES);
-        String aud = clusterDomainName.fqdn(cluster);
+        String aud = expectedOrigin != null
+            ? endpoints.audience(consumed.getClusterId().toHexString())
+            : clusterDomainName.fqdn(cluster);
 
         // Live-read the CURRENT active signing key from MongoDB — rotation-aware:
         // if JwksRotationService rotated since this service bean was built, the new

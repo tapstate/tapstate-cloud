@@ -5,6 +5,7 @@ import io.tapstate.cloud.iac.model.NodeSpec;
 import io.tapstate.cloud.common.api.AppErrorCode;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Compute infrastructure abstraction — creates and destroys the node (and all its
@@ -56,6 +57,23 @@ public interface ComputeInfrastructure {
     /** Remove a failed node while preserving any Cluster-owned stable address for retry. */
     default void terminateNodeForRetry(String region, String clusterId) {
         terminate(region, clusterId);
+    }
+
+    /**
+     * Query whether the infrastructure for the given Cluster currently exists
+     * and, if so, what status the provider reports.
+     * <p>
+     * Used by compensate and retry paths to decide whether a stack created by
+     * a previous attempt is still healthy before attempting deletion. The default
+     * returns empty (no remote state known), which means callers MUST trust the
+     * durable Cluster state only. AWS overrides this to query CloudFormation.
+     *
+     * @return current infrastructure status (e.g. CloudFormation stack status),
+     *         or empty if the infrastructure does not exist or the provider
+     *         cannot report status
+     */
+    default Optional<String> describeInfrastructureStatus(String region, String clusterId) {
+        return Optional.empty();
     }
 
     /**

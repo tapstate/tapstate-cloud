@@ -40,7 +40,8 @@ class ClusterServiceDnsNameTest {
         ClusterStateMachineService stateMachineService = mock(ClusterStateMachineService.class);
         clusterService = new ClusterService(
             clusterRepository, historyRepository, memberRepository,
-            regionService, stateMachineService, mock(MongoTemplate.class));
+            regionService, stateMachineService, mock(MongoTemplate.class), mock(ClusterPartialWriter.class),
+            mock(io.tapstate.cloud.iac.ClusterProvisioningService.class));
 
         when(memberRepository.existsByOrgIdAndUserEmail(any(), anyString())).thenReturn(true);
         when(regionService.getByCode(anyString())).thenReturn(mock(Region.class));

@@ -118,6 +118,31 @@ public class ClusterController extends BaseController {
         return ok(ClusterResponse.from(egressAddressService.requestStabilization(cluster)));
     }
 
+    @PostMapping("/{clusterId}/retry-cleanup")
+    @Operation(
+        summary = "Retry cleanup failure",
+        description = "Retries resource cleanup for a Cluster whose previous cleanup attempt failed "
+            + "(cleanupErrorCode is non-null). Common causes: CloudFormation stack locked by another operation, "
+            + "AWS API throttling, or IAM drift. Requires the user to fix the root cause before retrying.\n\n"
+            + "Idempotent: returns current Cluster state if no cleanup failure exists (cleanupErrorCode is null).\n\n"
+            + "Returns 500 if cleanup still fails — AWS error details are persisted on the Cluster document."
+    )
+    @ApiResponses(value = {
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Cleanup attempted — check cleanupErrorCode in response; null means success"),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "Not authenticated"),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "Not cluster owner"),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Cluster not found"),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "500", description = "Cleanup still failing — check cleanupErrorDetail")
+    })
+    public ResponseEntity<ApiResponse<ClusterResponse>> retryCleanup(
+            @Parameter(description = "Organization UUID") @PathVariable String orgId,
+            @Parameter(description = "Cluster UUID") @PathVariable String clusterId) {
+        String userEmail = CurrentUser.getEmail();
+        if (userEmail == null) return fail(AppErrorCode.UNAUTHORIZED, HttpStatus.UNAUTHORIZED);
+        Cluster cluster = clusterService.retryCleanup(clusterId, orgId, userEmail);
+        return ok(ClusterResponse.from(cluster));
+    }
+
     // ========== Response DTO ==========
 
     public record ClusterResponse(
@@ -135,7 +160,10 @@ public class ClusterController extends BaseController {
         @Schema(description = "Last C2 heartbeat timestamp (ISO-8601 UTC)") String lastHeartbeatAt,
         @Schema(description = "Cluster creation timestamp (ISO-8601 UTC)") String createdAt,
         @Schema(description = "Ready timestamp (ISO-8601 UTC) — null until state = READY") String readyAt,
-        @Schema(description = "Cluster version pinned at subscription time; selects the runtime container image tag") String clusterVersion
+        @Schema(description = "Cluster version pinned at subscription time; selects the runtime container image tag") String clusterVersion,
+        @Schema(description = "Cleanup failure error code — non-null means the user should call retry-cleanup") String cleanupErrorCode,
+        @Schema(description = "Diagnostic detail for cleanup failure (AWS error, which resource, etc.)") String cleanupErrorDetail,
+        @Schema(description = "When cleanup failure was recorded (ISO-8601 UTC)") String cleanupFailedAt
     ) {
         public static ClusterResponse from(Cluster c) {
             return new ClusterResponse(
@@ -147,7 +175,10 @@ public class ClusterController extends BaseController {
                 c.getLastHeartbeatAt() != null ? c.getLastHeartbeatAt().toString() : null,
                 c.getCreatedAt() != null ? c.getCreatedAt().toString() : null,
                 c.getReadyAt() != null ? c.getReadyAt().toString() : null,
-                c.getClusterVersion());
+                c.getClusterVersion(),
+                c.getCleanupErrorCode(),
+                c.getCleanupErrorDetail(),
+                c.getCleanupFailedAt() != null ? c.getCleanupFailedAt().toString() : null);
         }
     }
 }

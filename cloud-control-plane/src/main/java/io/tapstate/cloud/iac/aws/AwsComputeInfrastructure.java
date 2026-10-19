@@ -185,6 +185,24 @@ public class AwsComputeInfrastructure implements ComputeInfrastructure {
         return CloudProvider.AWS;
     }
 
+    @Override
+    public java.util.Optional<String> describeInfrastructureStatus(String region, String clusterId) {
+        String stackName = stackName(clusterId);
+        CloudFormationClient cf = clientFor(region);
+        try {
+            DescribeStacksResponse response = cf.describeStacks(b -> b.stackName(stackName));
+            Stack stack = response.stacks().get(0);
+            return java.util.Optional.of(stack.stackStatusAsString());
+        } catch (CloudFormationException e) {
+            if (isMissingStack(e)) {
+                return java.util.Optional.empty();
+            }
+            // Remote query failure — return empty so caller falls back to local state.
+            log.warn("[AwsIaC] describe stack failed stack={}: {}", stackName, awsMessage(e));
+            return java.util.Optional.empty();
+        }
+    }
+
     // ========== Polling ==========
 
     /** Poll the stack until it reaches a success or failure state, or times out. */
