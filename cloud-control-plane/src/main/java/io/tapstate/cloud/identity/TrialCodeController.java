@@ -1,5 +1,8 @@
 package io.tapstate.cloud.identity;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.tapstate.cloud.common.CurrentUser;
 import io.tapstate.cloud.common.api.ApiResponse;
 import io.tapstate.cloud.common.api.BaseController;
@@ -15,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/v1/api/trial-codes")
 @RequiredArgsConstructor
+@Tag(name = "Auth", description = "Cloud Console authentication and trial access")
 public class TrialCodeController extends BaseController {
     private final InvitationService invitations;
 
@@ -22,6 +26,11 @@ public class TrialCodeController extends BaseController {
     private String consoleUrl;
 
     @PostMapping
+    @Operation(operationId = "createTrialCode", summary = "Issue a single-use trial code")
+    @ApiResponses(value = {
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "Trial code created"),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "Caller is not the configured trial issuer")
+    })
     public ResponseEntity<ApiResponse<TrialCode>> create() {
         String email = CurrentUser.getEmail();
         if (email == null) {

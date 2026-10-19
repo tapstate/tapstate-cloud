@@ -105,6 +105,7 @@ public class AuthController extends BaseController {
     }
 
     @PostMapping("/access")
+    @Operation(operationId = "accessType", summary = "Inspect a trial code or organization invitation")
     public ResponseEntity<ApiResponse<AccessType>> accessType(@Valid @RequestBody AccessCode request) {
         return ok(new AccessType(invitationService.accessType(request.code())));
     }
