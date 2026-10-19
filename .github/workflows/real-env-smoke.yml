@@ -1,8 +1,11 @@
 # ============================================================
 # Real-env smoke test — runs integration tests against a PRE-DEPLOYED
-# Control Plane. Unlike Full Integration, this workflow does NOT fork
-# a Spring Boot application; it connects to whatever Control Plane the
-# caller specifies via workflow_dispatch inputs.
+# Control Plane. Unlike Full Integration, this workflow does NOT use
+# the locally-forked Spring Boot app as the test target. The boot fork
+# exists only because cloud-control-plane pom binds spring-boot-maven-
+# plugin start/stop to pre/post-integration-test — we run a local
+# mongodb service so it can start cleanly, then the tests themselves
+# connect to CP_BASE_URL (external, pre-deployed).
 #
 # Trigger — MANUAL ONLY (no auto-trigger):
 #   gh workflow run real-env-smoke.yml \
@@ -11,14 +14,6 @@
 #     --raw-field cp_email_secret=AWSDEV_TEST_EMAIL \
 #     --raw-field cp_password_secret=AWSDEV_TEST_PASSWORD \
 #     --raw-field mongo_uri_secret=AWSDEV_MONGO_URI
-#
-# Two-phase Maven:
-#   1. mvn install -pl cloud-control-plane -am — reactor build so
-#      cloud-control-plane-sdk / tapstate-cloud-common resolve locally.
-#   2. failsafe:integration-test failsafe:verify with -Dspring-boot.*.skip
-#      to bypass spring-boot-maven-plugin pre/post-integration-test
-#      (which forks a local jar → connects to localhost:27017 Mongo).
-#      We connect to CP_BASE_URL, never fork our own app.
 # ============================================================
 
 name: Real-Env Smoke Test
@@ -53,6 +48,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
+    # Local mongo so spring-boot-maven-plugin pre-integration-test fork
+    # can connect to localhost:27017. The fork is not our test target —
+    # RealEnv*IT connects to CP_BASE_URL, never to the local fork.
+    services:
+      mongodb:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --eval 'db.runCommand({ping:1})'"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -64,7 +71,7 @@ jobs:
           java-version: ${{ inputs.jdk }}
           cache: maven
 
-      - name: Install mongosh
+      - name: Install mongosh (for store-visibility assertions)
         run: |
           set -euo pipefail
           . /etc/os-release
@@ -77,23 +84,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y mongodb-mongosh
 
-      - name: Build + run RealEnv tests (skip boot fork)
+      - name: Build + run RealEnv tests
         env:
           CP_BASE_URL: ${{ inputs.cp_url }}
           CP_EMAIL: ${{ secrets[inputs.cp_email_secret] }}
           CP_PASSWORD: ${{ secrets[inputs.cp_password_secret] }}
           MONGO_URI: ${{ secrets[inputs.mongo_uri_secret] }}
         run: |
-          # Phase 1: reactor install — dependencies are tapstate-internal.
-          mvn -B -ntp -DskipTests -DskipSdkGeneration=true \
-            -pl cloud-control-plane -am install
-          # Phase 2: run RealEnv*IT directly.
-          # -Dspring-boot.start.skip/stop.skip bypass the pom's
-          # pre/post-integration-test fork (which tries localhost:27017).
           mvn -B -ntp -DskipSdkGeneration=true \
-            -pl cloud-control-plane \
-            -Dspring-boot.start.skip=true -Dspring-boot.stop.skip=true \
-            failsafe:integration-test failsafe:verify \
+            -pl cloud-control-plane -am verify \
             "-Dit.test=RealEnv*IT" \
             -DfailIfNoSpecifiedTests=false \
             -DtrimStackTrace=false
