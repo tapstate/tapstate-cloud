@@ -123,6 +123,8 @@ public class AwsComputeInfrastructure implements ComputeInfrastructure {
             return ensureEgressAddress(spec.region(), node, null);
         } catch (RuntimeException provisioningFailure) {
             // A repeated invocation does not own the node created by an earlier attempt.
+            // Leave it for the state machine's durable-state compensation, which can
+            // distinguish retrying that node from deleting the Cluster and its EIP.
             if (existing != null) throw provisioningFailure;
             try {
                 terminateNodeForRetry(spec.region(), spec.clusterId());

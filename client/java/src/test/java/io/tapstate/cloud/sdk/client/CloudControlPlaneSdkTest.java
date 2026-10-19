@@ -5,6 +5,7 @@
 
 package io.tapstate.cloud.sdk.client;
 
+import io.tapstate.cloud.sdk.ApiClient;
 import io.tapstate.cloud.sdk.ApiException;
 import io.tapstate.cloud.sdk.api.ExchangeApi;
 import io.tapstate.cloud.sdk.model.ApiResponseExchangeResponse;
@@ -45,6 +46,7 @@ class CloudControlPlaneSdkTest {
 
     @BeforeEach
     void setUp() {
+        when(mockExchangeApi.getApiClient()).thenReturn(new ApiClient());
         JwksKeyCache jwksCache = new JwksKeyCache(BASE_URL + "/v1/api/jwks.json",
             java.time.Duration.ofMinutes(10));
         sdk = CloudControlPlaneSdk.builder()

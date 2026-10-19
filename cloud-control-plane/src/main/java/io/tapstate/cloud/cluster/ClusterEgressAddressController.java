@@ -5,6 +5,7 @@ import io.tapstate.cloud.common.api.ApiResponse;
 import io.tapstate.cloud.common.api.AppErrorCode;
 import io.tapstate.cloud.common.api.BaseController;
 import io.tapstate.cloud.common.api.BusinessException;
+import io.tapstate.cloud.common.api.OpIdHolder;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;
@@ -38,7 +39,9 @@ public class ClusterEgressAddressController extends BaseController {
         }
         Address address = new Address(cluster.getOrgId().toHexString(), clusterId,
             live ? cluster.getEc2PublicIp() : null, status.name());
-        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(ok(address).getBody());
+        ApiResponse<Address> response = ApiResponse.ok(address);
+        response.setOpId(OpIdHolder.get());
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(response);
     }
 
     public record Address(String organizationId, String clusterId, String ec2PublicIp, String egressAddressStatus) { }

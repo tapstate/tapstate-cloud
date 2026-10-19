@@ -165,8 +165,10 @@ jobs:
       - name: Check for committed secrets
         run: bash scripts/check-no-secrets.sh
 
+  # Publish the feature branch SDK for pre-merge consumers. After merge,
+  # deploy.yaml owns Nexus publishing on main and release-v* branches.
   publish-workstream-sdk-snapshot:
-    name: Publish workstream SDK snapshot to Nexus
+    name: Publish feature branch SDK snapshot to Nexus
     if: github.event_name == 'push' && github.ref == 'refs/heads/ws/cloud-week4-cluster-address-visibility'
     needs: [build, test, openapi, docker-build, helm-lint, repo-hygiene]
     runs-on: ubuntu-latest

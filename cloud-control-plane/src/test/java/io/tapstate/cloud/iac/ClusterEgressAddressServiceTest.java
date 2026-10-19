@@ -162,13 +162,17 @@ class ClusterEgressAddressServiceTest {
     }
 
     @Test
-    void terminatedRecordRetriesFailedReleaseEvenAfterTheStackWasDeleted() {
+    void terminatedCleanupRetriesFailuresWithBackoff() {
         cluster.setState(ClusterState.TERMINATED);
         when(clusters.findByState(
             eq(ClusterState.TERMINATED), any(Pageable.class))).thenReturn(java.util.List.of(cluster));
         doThrow(new IllegalStateException("controlled release failure")).doNothing()
             .when(compute).terminate("us-east-1", cluster.getId().toHexString());
         service.reconcileTerminatedClusters();
+        service.reconcileTerminatedClusters();
+        verify(compute, times(1)).terminate("us-east-1", cluster.getId().toHexString());
+
+        cluster.setTerminatedResourceCleanupLastAttemptAt(Instant.now().minusSeconds(6 * 60));
         service.reconcileTerminatedClusters();
         verify(compute, times(2)).terminate("us-east-1", cluster.getId().toHexString());
         verify(dns).deleteRecord("cluster.example.test");
@@ -267,6 +271,7 @@ class ClusterEgressAddressServiceTest {
                 java.util.List.of(cluster), java.util.List.of(cluster));
 
         service.reconcileTerminatedClusters();
+        cluster.setTerminatedResourceCleanupLastAttemptAt(Instant.now().minusSeconds(6 * 60));
         service.reconcileTerminatedClusters();
 
         verify(compute, times(2)).terminate("us-east-1", cluster.getId().toHexString());

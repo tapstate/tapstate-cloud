@@ -11,6 +11,7 @@ import lombok.extern.slf4j.Slf4j;
 import net.javacrumbs.shedlock.core.LockConfiguration;
 import net.javacrumbs.shedlock.core.LockProvider;
 import net.javacrumbs.shedlock.core.SimpleLock;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.bson.types.ObjectId;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
@@ -44,6 +45,7 @@ import java.time.Duration;
 public class ClusterEgressAddressService {
 
     private static final int TERMINATED_CLEANUP_BATCH_SIZE = 100;
+    private static final Duration TERMINATED_CLEANUP_RETRY_BACKOFF = Duration.ofMinutes(5);
 
     private final ClusterRepository clusterRepository;
     private final MongoTemplate mongoTemplate;
@@ -86,6 +88,7 @@ public class ClusterEgressAddressService {
             return latest;
         }
 
+        // FAILED is retried only after an explicit request; the scheduled sweep resumes interrupted operations.
         Instant startedAt = Instant.now();
         Criteria statusCanStart = new Criteria().orOperator(
             Criteria.where("egressAddressStatus").is(null),
@@ -165,14 +168,18 @@ public class ClusterEgressAddressService {
 
     /** Reconcile every TERMINATED Cluster so late AWS side effects remain recoverable after a crash. */
     @Scheduled(fixedDelay = 60_000)
+    @SchedulerLock(name = "reconcile-terminated-clusters", lockAtMostFor = "10m")
     public void reconcileTerminatedClusters() {
         if (!"real".equalsIgnoreCase(mode)) return;
+        Instant retryBefore = Instant.now().minus(TERMINATED_CLEANUP_RETRY_BACKOFF);
         Sort cleanupOrder = Sort.by(
             Sort.Order.asc("terminatedResourceCleanupLastAttemptAt"),
             Sort.Order.asc("createdAt"),
             Sort.Order.asc("_id"));
         PageRequest page = PageRequest.of(0, TERMINATED_CLEANUP_BATCH_SIZE, cleanupOrder);
         for (Cluster cluster : clusterRepository.findByState(ClusterState.TERMINATED, page)) {
+            Instant lastAttemptAt = cluster.getTerminatedResourceCleanupLastAttemptAt();
+            if (lastAttemptAt != null && lastAttemptAt.isAfter(retryBefore)) continue;
             scheduleTerminatedCleanup(cluster);
         }
     }
@@ -201,7 +208,8 @@ public class ClusterEgressAddressService {
                     if (lease.isEmpty()) return;
                     try {
                         Instant attemptAt = Instant.now();
-                        // Move this Cluster behind untouched work before retrying any external cleanup.
+                        // Advance the fair-queue cursor before external cleanup. Failed attempts
+                        // rotate behind untouched Clusters instead of monopolizing every sweep.
                         var claimed = mongoTemplate.updateFirst(
                             Query.query(new Criteria().andOperator(
                                 Criteria.where("_id").is(clusterId),
@@ -230,6 +238,7 @@ public class ClusterEgressAddressService {
     }
 
     @Scheduled(fixedDelay = 60_000)
+    @SchedulerLock(name = "resume-stale-egress-stabilizations", lockAtMostFor = "10m")
     public void resumeStaleStabilizations() {
         Instant threshold = Instant.now().minus(30, ChronoUnit.MINUTES);
         for (ClusterEgressAddressStatus status : List.of(
@@ -243,6 +252,7 @@ public class ClusterEgressAddressService {
     }
 
     @Scheduled(fixedDelay = 300_000)
+    @SchedulerLock(name = "reconcile-replaced-cluster-nodes", lockAtMostFor = "10m")
     public void reconcileReplacedNodes() {
         List<Cluster> stableClusters = clusterRepository.findByEgressAddressStatusAndStateIn(
             ClusterEgressAddressStatus.STABLE, List.of(ClusterState.READY, ClusterState.DEGRADED));

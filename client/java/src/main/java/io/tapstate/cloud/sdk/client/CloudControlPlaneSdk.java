@@ -117,6 +117,7 @@ public final class CloudControlPlaneSdk {
 
     /** ExchangeCode → JWT (Function 1). */
     private final ExchangeApi exchangeApi;
+    private final ObjectMapper addressObjectMapper;
 
     /** JWKS → cached RSA keys (Function 2). */
     private final JwksKeyCache jwksCache;
@@ -143,7 +144,7 @@ public final class CloudControlPlaneSdk {
                 throw new CloudControlPlaneException("sdk.context-unavailable", response.statusCode(),
                     "Current Cluster address could not be read");
             }
-            JsonNode body = new ObjectMapper().readTree(response.body());
+            JsonNode body = addressObjectMapper.readTree(response.body());
             if (body == null) {
                 throw new CloudControlPlaneException("sdk.context-unavailable", 200,
                     "Current Cluster address response was empty");
@@ -181,6 +182,7 @@ public final class CloudControlPlaneSdk {
         this.clusterId = clusterId;
         this.sdkStaticToken = sdkStaticToken;
         this.exchangeApi = exchangeApi;
+        this.addressObjectMapper = exchangeApi.getApiClient().getObjectMapper();
         this.jwksCache = jwksCache;
     }
 

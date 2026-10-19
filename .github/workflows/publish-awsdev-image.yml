@@ -1,5 +1,8 @@
 name: Publish Cloud Control image for awsdev
 
+# This workflow is the explicit pre-merge awsdev image lane. Pushes to main
+# use deploy.yaml, which gates and deploys the main image after CI succeeds.
+
 on:
   workflow_dispatch:
     inputs:
