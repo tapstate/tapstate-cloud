@@ -99,7 +99,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 HELM_CHART_DIR="${PROJECT_ROOT}/helm/tapstate-cloud-control"
 HELM_VALUES_PATH="${HELM_CHART_DIR}/${HELM_VALUES_FILE}"
 JAR_PATH="${PROJECT_ROOT}/cloud-control-plane/target/tapstate-cloud-control-plane.jar"
-REMOTE_BUILD_DIR="/home2/${SSH_USER}/tapstate-cloud-build"
+REMOTE_BUILD_DIR="~/tapstate-cloud-build"   # under the build host's home, not the k3s user's
 TUNNEL_PORT=6443
 
 HEADER="\033[1;36m"
@@ -141,18 +141,27 @@ if [ ! -f "$HELM_VALUES_PATH" ]; then
 fi
 
 # ----------------------------------------------------------------------
-# k3s kubeconfig setup — tunnel for dev, direct copy for awsdev
+# k3s kubeconfig setup — both envs reach the API server through an SSH tunnel
 # ----------------------------------------------------------------------
 setup_k3s_tunnel() {
   if [ "$USE_ECR" = "true" ]; then
-    # awsdev: EC2 is reachable directly, copy kubeconfig
-    log "Copying EC2 kubeconfig (direct access)..."
+    # awsdev: the k3s API listens on the EC2 private address, which is not
+    # routable from the workstation — reach it through an SSH tunnel and point
+    # the kubeconfig at the local end.
+    log "Setting up SSH tunnel to the EC2 k3s API server..."
+    if ! nc -z 127.0.0.1 "$TUNNEL_PORT" 2>/dev/null; then
+      ssh -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+          -fNL "${TUNNEL_PORT}:${K3S_CLUSTER_IP}:6443" "$GATEWAY" 2>&1
+    fi
+    for i in $(seq 1 10); do
+      if nc -z 127.0.0.1 "$TUNNEL_PORT" 2>/dev/null; then break; fi
+      sleep 1
+    done
     ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
         -i "$SSH_KEY" "$GATEWAY" "sudo cat /etc/rancher/k3s/k3s.yaml" > "$KUBECONFIG_PATH"
-    # Replace localhost with EC2 private IP
-    sed -i.bak "s|server: https://127.0.0.1:6443|server: https://${K3S_CLUSTER_IP}:6443|" "$KUBECONFIG_PATH"
+    sed -i.bak "s|server: https://127.0.0.1:6443|server: https://127.0.0.1:${TUNNEL_PORT}|" "$KUBECONFIG_PATH"
     rm -f "${KUBECONFIG_PATH}.bak"
-    log_ok "kubeconfig → $KUBECONFIG_PATH (direct)"
+    log_ok "kubeconfig → $KUBECONFIG_PATH (via tunnel :${TUNNEL_PORT})"
   else
     # dev: need SSH tunnel through gateway server
     log "Setting up SSH tunnel for k3s API server..."
