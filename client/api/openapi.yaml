@@ -125,6 +125,27 @@ paths:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseOrganizationResponse"
+  /v1/api/specs:
+    get:
+      tags:
+      - Subscription
+      summary: List subscription specs with their payment-channel pricing
+      description: |-
+        Public catalog endpoint — no session required, because the Console renders
+        pricing before the user signs in.
+
+        JOINs the platform spec catalog (`spec_config`, enabled only) with the active
+        Stripe prices (`stripe_products`, enabled Product + enabled Price). A spec with
+        no active price on any enabled Product is omitted: it cannot be purchased.
+      operationId: listSpecs
+      security: []
+      responses:
+        "200":
+          description: Enabled specs that have active pricing
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseListSpecWithPricingResponse"
   /v1/api/orgs/{orgId}/subscriptions:
     get:
       tags:
@@ -225,6 +246,64 @@ paths:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+  /v1/api/orgs/{orgId}/subscriptions/checkout:
+    post:
+      tags:
+      - Subscription
+      summary: Start a Stripe Checkout session for a spec
+      description: |-
+        Validates the spec against the platform catalog and its payment-channel
+        pricing, creates a Stripe Checkout Session, and persists a
+        `PENDING_PAYMENT` Subscription shell.
+
+        No Cluster and no MdbAllocation are created here. Provisioning starts only
+        after Stripe confirms payment via the `checkout.session.completed` webhook,
+        which drives `PENDING_PAYMENT → ACTIVE` and sets `provisionInitiated`.
+      operationId: createCheckoutSession
+      parameters:
+      - name: orgId
+        in: path
+        description: Organization UUID
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCheckoutRequest"
+        required: true
+      responses:
+        "201":
+          description: Checkout session created — shell subscription plus redirect URL
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseCheckoutResponse"
+        "400":
+          description: Unknown spec key, or no active pricing configured for it
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseCheckoutResponse"
+        "401":
+          description: Not authenticated
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseCheckoutResponse"
+        "403":
+          description: Not a member of this Organization
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseCheckoutResponse"
+        "409":
+          description: Duplicate request (clientRequestId already used)
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseCheckoutResponse"
   /v1/api/orgs/{orgId}/subscriptions/{subscriptionId}/status:
     post:
       tags:
@@ -311,6 +390,172 @@ paths:
       responses:
         "200":
           description: "Subscription cancelled, cascade termination scheduled"
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+        "401":
+          description: Not authenticated
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+        "403":
+          description: Not a member of this Organization
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+        "404":
+          description: Subscription not found
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+  /v1/api/orgs/{orgId}/subscriptions/{subscriptionId}/cancel-at-period-end:
+    post:
+      tags:
+      - Subscription
+      summary: Cancel at the end of the current billing period
+      description: |-
+        Sets `cancel_at_period_end=true` on the payment channel's subscription and
+        moves the Subscription to `PENDING_CANCEL`. Resources stay usable until the
+        period ends; a scheduled reaper then transitions to `CANCELLED` and cascades
+        Cluster termination.
+
+        Only valid from `ACTIVE`. Idempotent from `PENDING_CANCEL` / `CANCELLED`.
+      operationId: cancelAtPeriodEnd
+      parameters:
+      - name: orgId
+        in: path
+        description: Organization UUID
+        required: true
+        schema:
+          type: string
+      - name: subscriptionId
+        in: path
+        description: Subscription UUID
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          description: Subscription moved to PENDING_CANCEL
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+        "400":
+          description: Invalid state for this operation
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+        "401":
+          description: Not authenticated
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+        "403":
+          description: Not a member of this Organization
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+        "404":
+          description: Subscription not found
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+  /v1/api/orgs/{orgId}/subscriptions/{subscriptionId}/cancel-now:
+    post:
+      tags:
+      - Subscription
+      summary: Cancel immediately, with no grace period
+      description: |-
+        Cancels the payment channel's subscription right away and moves the
+        Subscription to `CANCELLED`, cascading Cluster termination and MdbAllocation
+        reclaim. Unlike `/cancel-at-period-end` there is no remaining service period.
+      operationId: cancelNow
+      parameters:
+      - name: orgId
+        in: path
+        description: Organization UUID
+        required: true
+        schema:
+          type: string
+      - name: subscriptionId
+        in: path
+        description: Subscription UUID
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          description: Subscription cancelled immediately
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+        "401":
+          description: Not authenticated
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+        "403":
+          description: Not a member of this Organization
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+        "404":
+          description: Subscription not found
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+  /v1/api/orgs/{orgId}/subscriptions/{subscriptionId}/finalize-provisioning:
+    post:
+      tags:
+      - Subscription
+      summary: Provision Cluster + MDB after a confirmed checkout
+      description: |-
+        Called by the Console once the user returns from Stripe Checkout. Requires a
+        Subscription already activated by the webhook (`ACTIVE` + `provisionInitiated`).
+        Creates the Cluster and MdbAllocation from the spec snapshot taken at checkout
+        time and starts asynchronous provisioning.
+      operationId: finalizeProvisioning
+      parameters:
+      - name: orgId
+        in: path
+        description: Organization UUID
+        required: true
+        schema:
+          type: string
+      - name: subscriptionId
+        in: path
+        description: Subscription UUID
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FinalizeProvisioningRequest"
+        required: true
+      responses:
+        "201":
+          description: Resources created, provisioning started
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+        "400":
+          description: Subscription not activated, or spec snapshot missing
           content:
             '*/*':
               schema:
@@ -1130,6 +1375,118 @@ components:
       required:
       - clusterName
       - region
+    CreateCheckoutRequest:
+      type: object
+      properties:
+        specKey:
+          type: string
+          maxLength: 50
+          description: Platform spec key to purchase
+          example: 2c8g
+        clientRequestId:
+          type: string
+          maxLength: 100
+          description: Idempotency key — a retry with the same value must not create
+            a second Subscription
+      required:
+      - specKey
+    CheckoutResponse:
+      type: object
+      properties:
+        subscriptionId:
+          type: string
+          description: The PENDING_PAYMENT Subscription created by this call
+        status:
+          type: string
+          description: Subscription status — always PENDING_PAYMENT here
+          example: PENDING_PAYMENT
+        checkoutUrl:
+          type: string
+          description: Stripe-hosted Checkout URL the caller redirects the user to
+    ApiResponseCheckoutResponse:
+      type: object
+      description: Global API response envelope
+      properties:
+        opId:
+          type: string
+          description: Request correlation ID — unique per request
+        code:
+          type: string
+          description: "Business result code — 'ok' on success, error code on failure"
+          example: ok
+        msg:
+          type: string
+          description: Detailed message — success info or failure reason
+        data:
+          $ref: "#/components/schemas/CheckoutResponse"
+    FinalizeProvisioningRequest:
+      type: object
+      properties:
+        region:
+          type: string
+          minLength: 1
+          example: ap-southeast-1
+        clusterName:
+          type: string
+          maxLength: 100
+          minLength: 1
+      required:
+      - clusterName
+      - region
+    SpecWithPricingResponse:
+      type: object
+      description: A platform spec joined with the pricing of one payment channel
+      properties:
+        key:
+          type: string
+          example: 2c8g
+        displayName:
+          type: string
+          example: 2C8G Starter
+        cpuCores:
+          type: integer
+          format: int32
+        memoryGb:
+          type: integer
+          format: int32
+        trialDays:
+          type: integer
+          format: int32
+        mdbSizeGb:
+          type: integer
+          format: int32
+        currency:
+          type: string
+          example: usd
+        unitPriceCents:
+          type: integer
+          format: int64
+          description: Price per billing interval, in the smallest currency unit
+          example: 19900
+        stripePriceId:
+          type: string
+          description: Payment-channel price identifier to pass back at checkout
+        paymentMethod:
+          type: string
+          example: STRIPE
+    ApiResponseListSpecWithPricingResponse:
+      type: object
+      description: Global API response envelope
+      properties:
+        opId:
+          type: string
+          description: Request correlation ID — unique per request
+        code:
+          type: string
+          description: "Business result code — 'ok' on success, error code on failure"
+          example: ok
+        msg:
+          type: string
+          description: Detailed message — success info or failure reason
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/SpecWithPricingResponse"
     ApiResponseSubscriptionResponse:
       type: object
       description: Global API response envelope

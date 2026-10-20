@@ -71,6 +71,14 @@ secrets:
   clusterVersionReleaseToken:
     name: tapstate-cloud-control-cluster-version
     key: release-token
+  # Stripe API key + webhook secret (Week 4 — Stripe Checkout)
+  # Optional: when the Secret is absent the payment controller stays up but
+  # stripe_product catalog refresh logs a warning and /specs excludes
+  # payment-channel pricing. Created by scripts/k3s-stripe-secrets.sh.
+  stripe:
+    name: tapstate-cloud-control-secrets
+    secretKeyKey: stripe.secret-key
+    webhookSecretKey: stripe.webhook-secret
 
 # ========== ConfigMap (non-sensitive config) ==========
 config:

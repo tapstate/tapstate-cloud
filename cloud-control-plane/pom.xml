@@ -92,6 +92,15 @@
       <artifactId>spring-statemachine-starter</artifactId>
     </dependency>
 
+    <!-- Stripe Java SDK — Checkout Session, Price sync, Webhook signature verification.
+         Using native SDK directly (not Spring Boot Stripe starter) to keep full
+         control over webhook endpoint path and payload handling. -->
+    <dependency>
+      <groupId>com.stripe</groupId>
+      <artifactId>stripe-java</artifactId>
+      <version>20.125.0</version>
+    </dependency>
+
     <!-- AWS CloudFormation — Cluster node provisioning (version via AWS SDK BOM) -->
     <dependency>
       <groupId>software.amazon.awssdk</groupId>
@@ -175,6 +184,15 @@
     <dependency>
       <groupId>io.tapstate</groupId>
       <artifactId>cloud-control-plane-sdk</artifactId>
+      <scope>test</scope>
+    </dependency>
+
+    <!-- WireMock — a fake Stripe endpoint so subscription tests exercise the real
+         SDK call path (request shape, retries, error mapping) without the network -->
+    <dependency>
+      <groupId>org.wiremock</groupId>
+      <artifactId>wiremock-standalone</artifactId>
+      <version>3.9.1</version>
       <scope>test</scope>
     </dependency>
   </dependencies>

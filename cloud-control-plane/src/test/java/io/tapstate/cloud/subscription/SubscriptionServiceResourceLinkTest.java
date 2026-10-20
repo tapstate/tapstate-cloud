@@ -54,6 +54,12 @@ class SubscriptionServiceResourceLinkTest {
     private DeploymentStepRecorder deploymentStepRecorder;
     @Mock
     private ClusterVersionService clusterVersionService;
+    @Mock
+    private SpecConfigService specConfigService;
+    @Mock
+    private io.tapstate.cloud.payment.stripe.StripeProductService stripeProductService;
+    @Mock
+    private io.tapstate.cloud.payment.PaymentGateway paymentGateway;
 
     private SubscriptionService subscriptionService;
 
@@ -70,7 +76,7 @@ class SubscriptionServiceResourceLinkTest {
         subscriptionService = new SubscriptionService(
             subscriptionRepository, itemRepository, subscriptionStateMachineService,
             eventPublisher, clusterService, mdbAllocationService, deploymentStepRecorder,
-            clusterVersionService);
+            clusterVersionService, specConfigService, stripeProductService, paymentGateway);
 
         // Every call creates a new subscription; the repository assigns the id
         // and the final PROVISIONING save returns the same entity. Lenient
