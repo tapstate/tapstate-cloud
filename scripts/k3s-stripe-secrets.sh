@@ -34,17 +34,21 @@ IFS=$'\n\t'
 KUBECONFIG_PATH="${KUBECONFIG:-}"
 NAMESPACE="${NAMESPACE:-tapstate}"
 FORCE=0
+DRY_RUN=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -k|--kubeconfig)   KUBECONFIG_PATH="$2"; shift 2 ;;
     -n|--namespace)    NAMESPACE="$2"; shift 2 ;;
     -f|--force)        FORCE=1; shift ;;
+    --dry-run)         DRY_RUN=1; shift ;;
     -h|--help)
-      echo "Usage: $0 [-k kubeconfig] [-n namespace] [-f]"
+      echo "Usage: $0 [-k kubeconfig] [-n namespace] [-f] [--dry-run]"
       echo ""
-      echo "Reads STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET from env."
-      echo "Creates k3s Secret: tapstate-cloud-control-secrets"
+      echo "Reads STRIPE_SECRET_KEY (required) and STRIPE_WEBHOOK_SECRET (optional)"
+      echo "from env. Creates k3s Secret: tapstate-cloud-control-secrets"
+      echo ""
+      echo "  --dry-run   Print the manifest instead of applying it"
       echo ""
       echo "Defaults: kubeconfig=\$KUBECONFIG, namespace=tapstate"
       exit 0
@@ -58,10 +62,6 @@ done
 # ----------------------------------------------------------------------
 if [ -z "${STRIPE_SECRET_KEY:-}" ]; then
   echo "ERROR: STRIPE_SECRET_KEY is not set. Export it first (sk_test_xxx or sk_live_xxx)." >&2
-  exit 1
-fi
-if [ -z "${STRIPE_WEBHOOK_SECRET:-}" ]; then
-  echo "ERROR: STRIPE_WEBHOOK_SECRET is not set. Export it first (whsec_xxx)." >&2
   exit 1
 fi
 
@@ -118,9 +118,13 @@ log_ok "Cluster reachable"
 # Ensure namespace exists
 # ----------------------------------------------------------------------
 if ! KUBECTL get ns "$NAMESPACE" >/dev/null 2>&1; then
-  log "Creating namespace $NAMESPACE..."
-  KUBECTL create namespace "$NAMESPACE"
-  log_ok "Namespace created"
+  if [ "$DRY_RUN" = "1" ]; then
+    log_warn "Namespace $NAMESPACE does not exist (dry run — not creating it)"
+  else
+    log "Creating namespace $NAMESPACE..."
+    KUBECTL create namespace "$NAMESPACE"
+    log_ok "Namespace created"
+  fi
 else
   log_ok "Namespace exists: $NAMESPACE"
 fi
@@ -134,21 +138,52 @@ SECRET_NAME="tapstate-cloud-control-secrets"
 if KUBECTL get secret "$SECRET_NAME" >/dev/null 2>&1; then
   immutable="$(KUBECTL get secret "$SECRET_NAME" -o jsonpath='{.immutable}' 2>/dev/null || echo '')"
   if [ "$immutable" = "true" ]; then
-    log_warn "Secret $SECRET_NAME is immutable — deleting + recreating"
-    KUBECTL delete secret "$SECRET_NAME"
+    if [ "$DRY_RUN" = "1" ]; then
+      log_warn "Secret $SECRET_NAME is immutable — a real run would delete + recreate it"
+    else
+      log_warn "Secret $SECRET_NAME is immutable — deleting + recreating"
+      KUBECTL delete secret "$SECRET_NAME"
+    fi
   else
     log "Secret $SECRET_NAME exists — patching"
   fi
+fi
+
+# If no webhook secret is supplied, preserve whatever is already in the Secret —
+# a partial run must never silently drop it.
+if [ -z "${STRIPE_WEBHOOK_SECRET:-}" ] && KUBECTL get secret "$SECRET_NAME" >/dev/null 2>&1; then
+  preserved="$(KUBECTL get secret "$SECRET_NAME" \
+    -o go-template='{{index .data "stripe.webhook-secret"}}' 2>/dev/null | base64 -d 2>/dev/null || true)"
+  if [ -n "$preserved" ]; then
+    STRIPE_WEBHOOK_SECRET="$preserved"
+    log_warn "STRIPE_WEBHOOK_SECRET not set — preserving the value already in Secret $SECRET_NAME"
+  fi
+fi
+if [ -z "${STRIPE_WEBHOOK_SECRET:-}" ]; then
+  log_warn "STRIPE_WEBHOOK_SECRET not set — writing the API key only."
+  log_warn "Webhook signature verification will fail until a webhook secret is added."
 fi
 
 # Use --from-env-file to avoid shell escaping issues with base64 values
 # (kubectl automatically does base64 encoding)
 tmpfile="$(mktemp)"
 trap 'rm -f "$tmpfile"' EXIT
-cat > "$tmpfile" <<EOF
-stripe.secret-key=${STRIPE_SECRET_KEY}
-stripe.webhook-secret=${STRIPE_WEBHOOK_SECRET}
-EOF
+{
+  printf 'stripe.secret-key=%s\n' "$STRIPE_SECRET_KEY"
+  if [ -n "${STRIPE_WEBHOOK_SECRET:-}" ]; then
+    printf 'stripe.webhook-secret=%s\n' "$STRIPE_WEBHOOK_SECRET"
+  fi
+} > "$tmpfile"
+
+if [ "$DRY_RUN" = "1" ]; then
+  log "Manifest that would be applied to namespace '$NAMESPACE':"
+  KUBECTL create secret generic "$SECRET_NAME" --from-env-file="$tmpfile" --dry-run=client -o yaml \
+    | sed -E 's/(stripe\.(secret-key|webhook-secret):).*/\1 <redacted>/' | sed 's/^/  /'
+  rm -f "$tmpfile"
+  echo
+  log_ok "Dry run — nothing was written."
+  exit 0
+fi
 
 if KUBECTL get secret "$SECRET_NAME" >/dev/null 2>&1; then
   KUBECTL create secret generic "$SECRET_NAME" --from-env-file="$tmpfile" --dry-run=client -o yaml \
@@ -174,10 +209,12 @@ KUBECTL get secret "$SECRET_NAME" -o jsonpath='{.data}' 2>/dev/null \
 echo
 
 log "Verifying decode works (length only, NO echo):"
-stripe_key_len="${#STRIPE_SECRET_KEY}"
-webhook_key_len="${#STRIPE_WEBHOOK_SECRET}"
-log "  stripe.secret-key     len=$stripe_key_len  (prefix: ${STRIPE_SECRET_KEY%%_*}_${key_env})"
-log "  stripe.webhook-secret  len=$webhook_key_len"
+log "  stripe.secret-key      len=${#STRIPE_SECRET_KEY}  (prefix: ${STRIPE_SECRET_KEY%%_*}_${key_env})"
+if [ -n "${STRIPE_WEBHOOK_SECRET:-}" ]; then
+  log "  stripe.webhook-secret  len=${#STRIPE_WEBHOOK_SECRET}"
+else
+  log "  stripe.webhook-secret  (not set)"
+fi
 echo
 
 log_ok "Done. Pods in deployment 'tapstate-cloud-control' will auto-load this Secret."
