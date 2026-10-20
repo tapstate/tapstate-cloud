@@ -103,6 +103,10 @@ spec:
               value: {{ .Values.config.iacEnvironment | quote }}
             - name: TAPSTATE_CLOUD_IAC_PUBLIC_BASE_URL
               value: {{ .Values.config.publicBaseUrl | quote }}
+            # Payment redirects (Stripe checkout success/cancel) return the
+            # browser to THIS control plane, so they share the same public URL.
+            - name: TAPSTATE_CLOUD_PUBLIC_BASE_URL
+              value: {{ .Values.config.publicBaseUrl | quote }}
             - name: TAPSTATE_CLOUD_MDB_ATLAS_MOCK
               value: {{ .Values.config.atlasMdbMock | quote }}
             - name: TAPSTATE_CLOUD_IAC_AWS_INSTANCE_TYPE
