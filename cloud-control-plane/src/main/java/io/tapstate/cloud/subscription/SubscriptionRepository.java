@@ -19,5 +19,18 @@ public interface SubscriptionRepository extends MongoRepository<Subscription, Ob
 
     List<Subscription> findByStatus(SubscriptionStatus status);
 
+    List<Subscription> findByStatusAndCurrentPeriodEndBefore(SubscriptionStatus status, java.time.Instant cutoff);
+
+    List<Subscription> findByStatusAndCreatedAtBefore(SubscriptionStatus status, java.time.Instant cutoff);
+
     Optional<Subscription> findByIdAndOrgId(ObjectId id, ObjectId orgId);
+
+    /** Resolve a Subscription from a Stripe Checkout Session ID — used by checkout.session.completed webhook. */
+    Optional<Subscription> findByStripeCheckoutSessionId(String checkoutSessionId);
+
+    /** Resolve a Subscription from a Stripe Subscription ID — used by subscription.* and invoice.* webhooks. */
+    Optional<Subscription> findByStripeSubscriptionId(String stripeSubscriptionId);
+
+    /** Resolve by client-supplied idempotency key (dedup Checkout creation races). */
+    Optional<Subscription> findByClientRequestIdAndOrgId(String clientRequestId, ObjectId orgId);
 }

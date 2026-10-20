@@ -70,6 +70,16 @@ public enum AppErrorCode implements ErrorCode {
     SUBSCRIPTION_NOT_FOUND("subscription.not-found", "Subscription {0} not found"),
     SUBSCRIPTION_CANCELLED("subscription.cancelled", "Subscription is cancelled — provisioning is blocked"),
     SUBSCRIPTION_PAST_DUE("subscription.past-due", "Subscription is past due — provisioning is blocked until payment is made"),
+    SUBSCRIPTION_SPEC_NOT_FOUND("subscription.spec-not-found", "Platform spec key {0} not found or deprecated"),
+    SUBSCRIPTION_PRICING_NOT_CONFIGURED("subscription.pricing-not-configured", "No active Stripe pricing configured for spec {0} — admin must sync catalog"),
+    SUBSCRIPTION_ALREADY_ACTIVE("subscription.already-active", "Subscription {0} is already active or pending payment — cannot create duplicate"),
+    SUBSCRIPTION_CANNOT_CANCEL("subscription.cannot-cancel", "Subscription cannot be cancelled from current state"),
+    SUBSCRIPTION_PENDING_PAYMENT("subscription.pending-payment", "Subscription is still pending payment — waiting for Stripe checkout"),
+
+    // ---------- Stripe integration ----------
+    STRIPE_WEBHOOK_SIGNATURE_INVALID("stripe.webhook-signature-invalid", "Stripe webhook signature verification failed"),
+    STRIPE_CHECKOUT_FAILED("stripe.checkout-failed", "Failed to create Stripe Checkout session: {0}"),
+    STRIPE_INTEGRATION_ERROR("stripe.integration-error", "Stripe API call failed: {0}"),
 
     // ---------- SDK ----------
     SDK_TOKEN_MISSING("sdk.token-missing", "SDK static token is required (Bearer header)"),

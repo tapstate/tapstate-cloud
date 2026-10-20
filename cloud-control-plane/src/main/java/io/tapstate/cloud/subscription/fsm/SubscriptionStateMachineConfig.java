@@ -19,15 +19,29 @@ import java.util.EnumSet;
  * <p>
  * State model:
  * <pre>
- *           PAYMENT_CONFIRMED ──→ ACTIVE
- * TRIAL ──┘
+ * CHECKOUT_CREATED ──→ PENDING_PAYMENT ──CHECKOUT_COMPLETED──→ ACTIVE
+ *                          │  (24h expired)                       │
+ *                          └── PAYMENT_PENDING_EXPIRED → CANCELLED   CANCEL_AT_PERIOD_END_REQUESTED
+ *                                                                 │
+ *                                                                 └──→ PENDING_CANCEL
+ *                                                              PERIOD_END_REAPED
+ *                                                                 └──→ CANCELLED
+ *
+ * TRIAL ──PAYMENT_CONFIRMED──→ ACTIVE (legacy scaffold path, still valid)
  *   │
- *   └─┐    PAYMENT_FAILED ──→ PAST_DUE ──[PAYMENT_RECEIVED]──→ ACTIVE
- *     │                                 │
- *     └── CANCEL_REQUESTED ──→ CANCELLED ←── ADMIN_RESTORE ── TRIAL / ACTIVE
+ *   └── CANCEL_REQUESTED / IMMEDIATE_CANCEL ──→ CANCELLED
+ *
+ * ACTIVE ──PAYMENT_FAILED──→ PAST_DUE ──PAYMENT_RECEIVED──→ ACTIVE
+ *   │
+ *   └── CANCEL_REQUESTED / IMMEDIATE_CANCEL ──→ CANCELLED
+ *
+ * PAST_DUE ── CANCEL_REQUESTED / IMMEDIATE_CANCEL ──→ CANCELLED
+ *
+ * CANCELLED ── ADMIN_RESTORE ──→ TRIAL
  * </pre>
- * <p>
- * {@link SubscriptionStatus} enum is used directly as states (matching the SM state IDs).
+ * {@link SubscriptionStatus} enum is used directly as states. CANCELLED is the
+ * sole end state. Every non-CANCELLED state transitions to CANCELLED via either
+ * {@code CANCEL_REQUESTED}, {@code IMMEDIATE_CANCEL}, or a scheduled reaper.
  */
 @Slf4j
 @Configuration
@@ -46,7 +60,24 @@ public class SubscriptionStateMachineConfig extends EnumStateMachineConfigurerAd
     @Override
     public void configure(StateMachineTransitionConfigurer<SubscriptionStatus, SubscriptionEventType> transitions) throws Exception {
         transitions
-            // ===== TRIAL transitions =====
+            // ===== PENDING_PAYMENT (Stripe Checkout shell) =====
+            .withExternal()
+                .source(SubscriptionStatus.PENDING_PAYMENT)
+                .event(SubscriptionEventType.CHECKOUT_COMPLETED)
+                .target(SubscriptionStatus.ACTIVE)
+            .and()
+            .withExternal()
+                .source(SubscriptionStatus.PENDING_PAYMENT)
+                .event(SubscriptionEventType.PAYMENT_PENDING_EXPIRED)
+                .target(SubscriptionStatus.CANCELLED)
+            .and()
+            .withExternal()
+                .source(SubscriptionStatus.PENDING_PAYMENT)
+                .event(SubscriptionEventType.IMMEDIATE_CANCEL)
+                .target(SubscriptionStatus.CANCELLED)
+            .and()
+
+            // ===== TRIAL transitions (legacy scaffold path) =====
             .withExternal()
                 .source(SubscriptionStatus.TRIAL)
                 .event(SubscriptionEventType.PAYMENT_CONFIRMED)
@@ -55,6 +86,11 @@ public class SubscriptionStateMachineConfig extends EnumStateMachineConfigurerAd
             .withExternal()
                 .source(SubscriptionStatus.TRIAL)
                 .event(SubscriptionEventType.CANCEL_REQUESTED)
+                .target(SubscriptionStatus.CANCELLED)
+            .and()
+            .withExternal()
+                .source(SubscriptionStatus.TRIAL)
+                .event(SubscriptionEventType.IMMEDIATE_CANCEL)
                 .target(SubscriptionStatus.CANCELLED)
             .and()
 
@@ -69,6 +105,16 @@ public class SubscriptionStateMachineConfig extends EnumStateMachineConfigurerAd
                 .event(SubscriptionEventType.CANCEL_REQUESTED)
                 .target(SubscriptionStatus.CANCELLED)
             .and()
+            .withExternal()
+                .source(SubscriptionStatus.ACTIVE)
+                .event(SubscriptionEventType.CANCEL_AT_PERIOD_END_REQUESTED)
+                .target(SubscriptionStatus.PENDING_CANCEL)
+            .and()
+            .withExternal()
+                .source(SubscriptionStatus.ACTIVE)
+                .event(SubscriptionEventType.IMMEDIATE_CANCEL)
+                .target(SubscriptionStatus.CANCELLED)
+            .and()
 
             // ===== PAST_DUE transitions =====
             .withExternal()
@@ -79,6 +125,23 @@ public class SubscriptionStateMachineConfig extends EnumStateMachineConfigurerAd
             .withExternal()
                 .source(SubscriptionStatus.PAST_DUE)
                 .event(SubscriptionEventType.CANCEL_REQUESTED)
+                .target(SubscriptionStatus.CANCELLED)
+            .and()
+            .withExternal()
+                .source(SubscriptionStatus.PAST_DUE)
+                .event(SubscriptionEventType.IMMEDIATE_CANCEL)
+                .target(SubscriptionStatus.CANCELLED)
+            .and()
+
+            // ===== PENDING_CANCEL transitions =====
+            .withExternal()
+                .source(SubscriptionStatus.PENDING_CANCEL)
+                .event(SubscriptionEventType.PERIOD_END_REAPED)
+                .target(SubscriptionStatus.CANCELLED)
+            .and()
+            .withExternal()
+                .source(SubscriptionStatus.PENDING_CANCEL)
+                .event(SubscriptionEventType.IMMEDIATE_CANCEL)
                 .target(SubscriptionStatus.CANCELLED)
             .and()
 

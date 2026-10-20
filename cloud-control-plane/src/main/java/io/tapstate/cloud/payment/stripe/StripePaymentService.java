@@ -1,0 +1,202 @@
+package io.tapstate.cloud.payment.stripe;
+
+import com.stripe.Stripe;
+import com.stripe.exception.StripeException;
+import com.stripe.model.Subscription;
+import com.stripe.model.checkout.Session;
+import com.stripe.param.checkout.SessionCreateParams;
+import com.stripe.net.Webhook;
+import io.tapstate.cloud.payment.PaymentChannelRef;
+import io.tapstate.cloud.payment.PaymentGateway;
+import io.tapstate.cloud.payment.PaymentMethod;
+import io.tapstate.cloud.subscription.Subscription;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+
+import java.util.Map;
+
+/**
+ * Stripe Checkout implementation of {@link PaymentGateway}.
+ * <p>
+ * Creates hosted Checkout Sessions with a single recurring line item (the
+ * pre-resolved Stripe Price ID), and handles webhook events that the Stripe
+ * Dashboard posts back to {@code POST /v1/api/internal/payment/stripe/webhook}.
+ * <p>
+ * All outbound calls use the native Stripe SDK directly (no Spring Boot Stripe
+ * starter) so that we fully control endpoint paths, redirect URLs, and idempotency.
+ * The {@link StripeWebhookConfig} provides both the secret key (for outbound
+ * API calls) and webhook signing secret (for inbound signature verification).
+ */
+@Slf4j
+@Service
+public class StripePaymentService implements PaymentGateway {
+
+    private final StripeWebhookConfig config;
+    private final StripeCustomerService customerService;
+
+    // Injected at construction; resolved lazily to avoid circular bean dep with StripeWebhookEventService
+    private final StripeWebhookEventService webhookEventService;
+
+    public StripePaymentService(StripeWebhookConfig config,
+                                StripeCustomerService customerService,
+                                StripeWebhookEventService webhookEventService) {
+        this.config = config;
+        this.customerService = customerService;
+        this.webhookEventService = webhookEventService;
+    }
+
+    @Override
+    public PaymentMethod getPaymentMethod() {
+        return PaymentMethod.STRIPE;
+    }
+
+    // ---- Checkout session creation -------------------------------------
+
+    @Override
+    public PaymentSessionResult createSession(CreateSessionRequest request) {
+        if (config.secretKey() == null || config.secretKey().isBlank()) {
+            throw new IllegalStateException("Stripe secret key is not configured");
+        }
+        Stripe.apiKey = config.secretKey();
+
+        try {
+            String stripeCustomerId = customerService.getOrCreate(
+                    request.orgId(), request.userEmail());
+
+            SessionCreateParams.LineItem lineItem = SessionCreateParams.LineItem.builder()
+                    .setPrice(request.stripePriceId())
+                    .setQuantity(1L)
+                    .build();
+
+            // Stripe Price already has billing configured (monthly USD recurring).
+            // We don't override it here — just pass through.
+            SessionCreateParams params = SessionCreateParams.builder()
+                    .setMode(SessionCreateParams.Mode.SUBSCRIPTION)
+                    .addLineItem(lineItem)
+                    .setCustomer(stripeCustomerId)
+                    .putMetadata("org_id", request.orgId())
+                    .putMetadata("spec_key", request.specConfig().getKey())
+                    .setClientReferenceId(request.orgId() + ":" + request.specConfig().getKey())
+                    .setSuccessUrl(buildSuccessUrl())
+                    .setCancelUrl(buildCancelUrl())
+                    .setAutomaticTax(SessionCreateParams.AutomaticTax.builder()
+                            .setEnabled(true).build())
+                    .build();
+
+            Session session = Session.create(params);
+            log.info("StripePaymentService: created Checkout session {} for org {} price {}",
+                    session.getId(), request.orgId(), request.stripePriceId());
+
+            // Build the channel ref — session and price IDs are known here;
+            // stripeSubscriptionId will be filled in by the webhook handler.
+            PaymentChannelRef channelRef = new StripePaymentChannelRecord(
+                    stripeCustomerId,
+                    null,                              // subscriptionId → webhook fills this
+                    session.getId(),                   // checkoutSessionId
+                    request.stripePriceId(),           // priceId
+                    null                               // productId → resolved from Price in webhook
+            );
+
+            return new PaymentSessionResult(session.getUrl(), channelRef);
+        } catch (StripeException e) {
+            log.error("StripePaymentService: Checkout session creation failed", e);
+            throw new StripeIntegrationException("Checkout session creation failed: " + e.getMessage(), e);
+        }
+    }
+
+    // ---- Cancellation flows --------------------------------------------
+
+    @Override
+    public void requestCancelAtPeriodEnd(Subscription subscription) {
+        if (config.secretKey() == null || config.secretKey().isBlank()) {
+            log.warn("Stripe secret key missing — cannot send cancel_at_period_end for subscription {}",
+                    subscription.getId());
+            return;
+        }
+        if (subscription.getStripe() == null || subscription.getStripe().getSubscriptionId() == null) {
+            log.warn("No Stripe Subscription ID on subscription {} — cancel_at_period_end skipped",
+                    subscription.getId());
+            return;
+        }
+
+        Stripe.apiKey = config.secretKey();
+        try {
+            Subscription stripeSub = Subscription.retrieve(subscription.getStripe().getSubscriptionId());
+            Subscription updated = stripeSub.update(Map.of("cancel_at_period_end", true));
+            log.info("StripePaymentService: cancel_at_period_end=true for Stripe subscription {}",
+                    updated.getId());
+        } catch (StripeException e) {
+            log.error("StripePaymentService: cancel_at_period_end failed for Stripe subscription {}",
+                    subscription.getStripe().getSubscriptionId(), e);
+            throw new StripeIntegrationException(
+                    "cancel_at_period_end failed: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public void cancelImmediately(Subscription subscription) {
+        if (config.secretKey() == null || config.secretKey().isBlank()) {
+            log.warn("Stripe secret key missing — cannot perform immediate cancel for subscription {}",
+                    subscription.getId());
+            return;
+        }
+        if (subscription.getStripe() == null || subscription.getStripe().getSubscriptionId() == null) {
+            log.info("No Stripe Subscription ID on subscription {} — skipping Stripe cancel (local-only)",
+                    subscription.getId());
+            return;
+        }
+
+        Stripe.apiKey = config.secretKey();
+        try {
+            Subscription stripeSub = Subscription.retrieve(subscription.getStripe().getSubscriptionId());
+            Subscription cancelled = stripeSub.cancel(Map.of("invoice_now", false));
+            log.info("StripePaymentService: Stripe subscription {} cancelled immediately (status={})",
+                    cancelled.getId(), cancelled.getStatus());
+        } catch (StripeException e) {
+            log.error("StripePaymentService: immediate cancel failed for Stripe subscription {}",
+                    subscription.getStripe().getSubscriptionId(), e);
+            throw new StripeIntegrationException(
+                    "Immediate cancel failed: " + e.getMessage(), e);
+        }
+    }
+
+    // ---- Webhook handling ----------------------------------------------
+
+    @Override
+    public void verifyWebhookSignature(RawWebhookEvent event) {
+        String webhookSecret = config.webhookSecret();
+        if (webhookSecret == null || webhookSecret.isBlank()) {
+            throw new IllegalStateException("Stripe webhook secret is not configured");
+        }
+        try {
+            // Stripe SDK's SignatureVerifier throws SignatureVerificationException
+            Webhook.SignatureVerifier.verifyHeader(
+                    new String(event.rawBody()),
+                    event.signatureHeader(),
+                    webhookSecret,
+                    Webhook.DEFAULT_TOLERANCE);
+        } catch (Exception e) {
+            log.warn("StripePaymentService: webhook signature verification failed");
+            throw new StripeSignatureInvalidException("Webhook signature verification failed", e);
+        }
+    }
+
+    @Override
+    public WebhookResult handleWebhookEvent(RawWebhookEvent event) {
+        return webhookEventService.dispatch(event);
+    }
+
+    // ---- helpers --------------------------------------------------------
+
+    private String buildSuccessUrl() {
+        return System.getenv().getOrDefault(
+                "TAPSTATE_CLOUD_PUBLIC_BASE_URL",
+                "https://cloud.tapstate.com") + "/checkout/success";
+    }
+
+    private String buildCancelUrl() {
+        return System.getenv().getOrDefault(
+                "TAPSTATE_CLOUD_PUBLIC_BASE_URL",
+                "https://cloud.tapstate.com") + "/checkout/cancel";
+    }
+}
