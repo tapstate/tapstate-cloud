@@ -432,6 +432,36 @@ public class SubscriptionService {
         return performCancel(subscription, SubscriptionEventType.CANCEL_REQUESTED, operator);
     }
 
+    // ========== Status transition (admin/internal endpoint) ==========
+
+    /**
+     * Transition subscription status — delegates to Spring Statemachine.
+     * Maps target status → the correct event type; the state machine validates
+     * that the transition is allowed from the current state. Rejected
+     * transitions return the current subscription unchanged.
+     */
+    @Transactional
+    public Subscription transitionStatus(String subscriptionId, String orgId, SubscriptionStatus target) {
+        Subscription subscription = getByIdAndOrgId(subscriptionId, orgId);
+        SubscriptionStatus from = subscription.getStatus();
+        SubscriptionEventType event = mapToEvent(from, target);
+
+        if (event == null) {
+            log.warn("Subscription {} transition {} → {} has no state-machine edge — ignoring request",
+                subscriptionId, from, target);
+            return subscription;
+        }
+
+        log.info("Subscription {} status transition request: {} → {} (event={})", subscriptionId, from, target, event);
+        var result = subscriptionStateMachineService.transition(subscription.getId(), event, "api:transitionStatus");
+
+        if (!result.accepted()) {
+            log.warn("Subscription {} transition {} rejected by state machine", subscriptionId, event);
+            return subscriptionRepository.findById(subscription.getId()).orElse(subscription);
+        }
+        return subscriptionRepository.findById(subscription.getId()).orElse(subscription);
+    }
+
     // ========== Private helpers ==========
 
     private Subscription performCancel(Subscription subscription, SubscriptionEventType event, String operator) {

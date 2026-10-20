@@ -31,7 +31,8 @@ import java.util.List;
 @Document(collection = "stripe_products")
 public class StripeProduct {
 
-    /** Stripe Product ID (prod_xxx), unique across the entire collection. */
+    /** Stripe Product ID (prod_xxx), unique across the entire collection. Acts as Mongo @Id. */
+    @org.springframework.data.annotation.Id
     private String productId;
 
     /** Human-readable product name from Stripe (e.g. "Tapstate Cloud 2C8G Starter"). */

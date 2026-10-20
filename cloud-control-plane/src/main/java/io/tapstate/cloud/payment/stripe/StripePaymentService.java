@@ -2,7 +2,6 @@ package io.tapstate.cloud.payment.stripe;
 
 import com.stripe.Stripe;
 import com.stripe.exception.StripeException;
-import com.stripe.model.Subscription;
 import com.stripe.model.checkout.Session;
 import com.stripe.param.checkout.SessionCreateParams;
 import com.stripe.net.Webhook;
@@ -121,8 +120,8 @@ public class StripePaymentService implements PaymentGateway {
 
         Stripe.apiKey = config.secretKey();
         try {
-            Subscription stripeSub = Subscription.retrieve(subscription.getStripe().getSubscriptionId());
-            Subscription updated = stripeSub.update(Map.of("cancel_at_period_end", true));
+            com.stripe.model.Subscription stripeSub = com.stripe.model.Subscription.retrieve(subscription.getStripe().getSubscriptionId());
+            com.stripe.model.Subscription updated = stripeSub.update(Map.of("cancel_at_period_end", true));
             log.info("StripePaymentService: cancel_at_period_end=true for Stripe subscription {}",
                     updated.getId());
         } catch (StripeException e) {
@@ -148,8 +147,8 @@ public class StripePaymentService implements PaymentGateway {
 
         Stripe.apiKey = config.secretKey();
         try {
-            Subscription stripeSub = Subscription.retrieve(subscription.getStripe().getSubscriptionId());
-            Subscription cancelled = stripeSub.cancel(Map.of("invoice_now", false));
+            com.stripe.model.Subscription stripeSub = com.stripe.model.Subscription.retrieve(subscription.getStripe().getSubscriptionId());
+            com.stripe.model.Subscription cancelled = stripeSub.cancel(Map.of("invoice_now", false));
             log.info("StripePaymentService: Stripe subscription {} cancelled immediately (status={})",
                     cancelled.getId(), cancelled.getStatus());
         } catch (StripeException e) {
@@ -169,12 +168,9 @@ public class StripePaymentService implements PaymentGateway {
             throw new IllegalStateException("Stripe webhook secret is not configured");
         }
         try {
-            // Stripe SDK's SignatureVerifier throws SignatureVerificationException
-            Webhook.SignatureVerifier.verifyHeader(
-                    new String(event.rawBody()),
-                    event.signatureHeader(),
-                    webhookSecret,
-                    Webhook.DEFAULT_TOLERANCE);
+            // constructEvent parses + verifies signature in one call. Throws
+            // SignatureVerificationException on mismatch — caller responds 400.
+            Webhook.constructEvent(new String(event.rawBody()), event.signatureHeader(), webhookSecret);
         } catch (Exception e) {
             log.warn("StripePaymentService: webhook signature verification failed");
             throw new StripeSignatureInvalidException("Webhook signature verification failed", e);

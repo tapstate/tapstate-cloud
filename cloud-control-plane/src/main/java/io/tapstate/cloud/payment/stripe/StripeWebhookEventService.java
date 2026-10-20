@@ -45,35 +45,41 @@ public class StripeWebhookEventService {
     private final SubscriptionRepository subscriptionRepository;
     private final SubscriptionService subscriptionService;
     private final ObjectMapper objectMapper;
+    private final StripeWebhookConfig config;
 
     public StripeWebhookEventService(StripeEventRepository eventRepository,
                                      SubscriptionRepository subscriptionRepository,
                                      @Lazy SubscriptionService subscriptionService,
-                                     ObjectMapper objectMapper) {
+                                     ObjectMapper objectMapper,
+                                     StripeWebhookConfig config) {
         this.eventRepository = eventRepository;
         this.subscriptionRepository = subscriptionRepository;
         this.subscriptionService = subscriptionService;
         this.objectMapper = objectMapper;
+        this.config = config;
     }
 
     /**
      * Parse a raw webhook body, audit it, and dispatch by event type.
-     * Signature verification must already have passed (handled by
-     * {@link StripePaymentService#verifyWebhookSignature} BEFORE this method).
+     * Signature verification already happened upstream
+     * (StripePaymentService.verifyWebhookSignature). We re-call
+     * Webhook.constructEvent here to get a fully-typed Event object —
+     * the signature check is redundant but cheap (computes HMAC again)
+     * and ensures we never process a malformed or tampered payload even
+     * if the upstream guard is somehow bypassed.
      */
     public PaymentGateway.WebhookResult dispatch(PaymentGateway.RawWebhookEvent rawEvent) {
         String rawBody = new String(rawEvent.rawBody());
         Event stripeEvent;
         try {
-            // Use fromRawJson — signature verification already happened upstream
-            // (StripePaymentService.verifyWebhookSignature). We parse without
-            // re-verifying because the Stripe SDK constructEvent would demand
-            // a valid secret and re-compute HMAC.
-            stripeEvent = Event.fromRawJson(rawBody);
+            stripeEvent = Webhook.constructEvent(
+                    rawBody, rawEvent.signatureHeader(), config.webhookSecret());
+        } catch (SignatureVerificationException e) {
+            log.warn("StripeWebhookEventService: signature verification failed (should have been caught upstream)");
+            return new PaymentGateway.WebhookResult(false, "signature verification failed");
         } catch (Exception e) {
             log.warn("StripeWebhookEventService: failed to parse webhook body", e);
             return new PaymentGateway.WebhookResult(false, "failed to parse webhook body: " + e.getMessage());
-        }
         }
 
         // Idempotency — already processed?

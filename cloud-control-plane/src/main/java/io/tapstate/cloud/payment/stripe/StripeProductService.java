@@ -8,6 +8,7 @@ import com.stripe.param.ProductListParams;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.aggregation.Aggregation;
+import org.springframework.data.mongodb.core.aggregation.Field;
 import org.springframework.data.mongodb.core.aggregation.MatchOperation;
 import org.springframework.data.mongodb.core.aggregation.ReplaceRootOperation;
 import org.springframework.data.mongodb.core.aggregation.UnwindOperation;
@@ -75,25 +76,25 @@ public class StripeProductService {
         }
         Stripe.apiKey = webhookConfig.secretKey();
 
+        try {
         // 1. List all Stripe Products tagged catalog=tapstate
         List<Product> tapstateProducts = new ArrayList<>();
-        ProductListParams params = ProductListParams.builder()
-                .putExpand("data.default_price")
-                .putLimit(100L)
-                .build();
-        Product.Collection productColl = null;
-        do {
-            if (productColl == null) {
-                productColl = Product.list(params);
-            } else {
-                productColl = productColl.list();
-            }
+        ProductListParams.Builder paramsBuilder = ProductListParams.builder()
+                .addExpand("data.default_price")
+                .setLimit(100L);
+        ProductListParams params = paramsBuilder.build();
+        while (true) {
+            com.stripe.model.ProductCollection productColl = Product.list(params);
             for (Product p : productColl.getData()) {
                 if ("tapstate".equals(p.getMetadata().get("catalog"))) {
                     tapstateProducts.add(p);
                 }
             }
-        } while (productColl.getHasMore());
+            if (!productColl.getHasMore() || productColl.getData().isEmpty()) break;
+            params = paramsBuilder
+                    .setStartingAfter(productColl.getData().get(productColl.getData().size() - 1).getId())
+                    .build();
+        }
 
         // 2. List Prices per Product (recurring monthly USD, active only)
         int totalUpserted = 0;
@@ -101,20 +102,19 @@ public class StripeProductService {
 
         for (Product stripeProduct : tapstateProducts) {
             List<Price> stripePrices = new ArrayList<>();
-            PriceListParams pParams = PriceListParams.builder()
+            PriceListParams.Builder pParamsBuilder = PriceListParams.builder()
                     .setProduct(stripeProduct.getId())
-                    .setType("recurring")
-                    .putLimit(100L)
-                    .build();
-            Price.Collection priceColl = null;
-            do {
-                if (priceColl == null) {
-                    priceColl = Price.list(pParams);
-                } else {
-                    priceColl = priceColl.list();
-                }
+                    .setType(PriceListParams.Type.RECURRING)
+                    .setLimit(100L);
+            PriceListParams pParams = pParamsBuilder.build();
+            while (true) {
+                com.stripe.model.PriceCollection priceColl = Price.list(pParams);
                 stripePrices.addAll(priceColl.getData());
-            } while (priceColl.getHasMore());
+                if (!priceColl.getHasMore() || priceColl.getData().isEmpty()) break;
+                pParams = pParamsBuilder
+                        .setStartingAfter(priceColl.getData().get(priceColl.getData().size() - 1).getId())
+                        .build();
+            }
 
             // Filter: USD + monthly + active + valid spec_key
             List<StripePriceEntry> priceEntries = new ArrayList<>();
@@ -157,8 +157,8 @@ public class StripeProductService {
                     .updatedAt(Instant.now())
                     .build();
 
-            Query query = Query.query(Criteria.where("productId").is(doc.getProductId()));
-            mongoTemplate.upsert(query, doc, StripeProduct.class);
+            // productId is @Id — repo.save does upsert automatically
+            repository.save(doc);
             totalUpserted++;
             log.info("StripeProductService: upserted product {} ({} prices, enabled={})",
                     doc.getProductId(), priceEntries.size(), doc.isEnabled());
@@ -177,6 +177,10 @@ public class StripeProductService {
         log.info("StripeProductService: sync complete — {} products upserted, {} specKeys",
                 totalUpserted, seenSpecKeys.size());
         return totalUpserted;
+        } catch (com.stripe.exception.StripeException e) {
+            log.error("StripeProductService: refreshAll Stripe API call failed", e);
+            throw new StripeIntegrationException("Stripe API call failed: " + e.getMessage(), e);
+        }
     }
 
     // ---- aggregation-backed lookups -------------------------------------
@@ -192,10 +196,10 @@ public class StripeProductService {
     public Optional<StripePriceEntry> findEnabledBySpecKey(String specKey) {
         Aggregation agg = Aggregation.newAggregation(
                 new MatchOperation(Criteria.where("enabled").is(true)),
-                new UnwindOperation(Aggregation.fields().and("prices")),
+                Aggregation.unwind("prices"),
                 new MatchOperation(Criteria.where("prices.enabled").is(true)
                         .and("prices.specKey").is(specKey)),
-                new ReplaceRootOperation(Aggregation.fields().and("prices"))
+                Aggregation.replaceRoot("prices")
         );
         List<StripePriceEntry> results = mongoTemplate.aggregate(
                 agg, StripeProduct.class, StripePriceEntry.class).getMappedResults();
@@ -215,9 +219,9 @@ public class StripeProductService {
     public List<StripePriceEntry> findAllEnabledPriceEntries() {
         Aggregation agg = Aggregation.newAggregation(
                 new MatchOperation(Criteria.where("enabled").is(true)),
-                new UnwindOperation(Aggregation.fields().and("prices")),
+                Aggregation.unwind("prices"),
                 new MatchOperation(Criteria.where("prices.enabled").is(true)),
-                new ReplaceRootOperation(Aggregation.fields().and("prices"))
+                Aggregation.replaceRoot("prices")
         );
         return mongoTemplate.aggregate(
                 agg, StripeProduct.class, StripePriceEntry.class).getMappedResults();
