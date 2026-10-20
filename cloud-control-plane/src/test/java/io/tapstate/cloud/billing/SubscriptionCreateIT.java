@@ -156,6 +156,8 @@ class SubscriptionCreateIT {
         });
         lenient().when(subscriptionRepository.findByStripeCheckoutSessionId(anyString()))
                 .thenAnswer(invocation -> Optional.ofNullable(shell));
+        lenient().when(subscriptionRepository.findByStripeSubscriptionId(anyString()))
+                .thenAnswer(invocation -> Optional.ofNullable(shell));
         lenient().when(stripeEventRepository.findByStripeEventId(anyString()))
                 .thenAnswer(invocation -> Optional.ofNullable(auditRows.get(invocation.getArgument(0))));
         lenient().when(stripeEventRepository.save(any())).thenAnswer(invocation -> {
@@ -203,6 +205,34 @@ class SubscriptionCreateIT {
 
         // Exactly one Checkout Session was created — a replay is not a second charge.
         stripe.verify(1, postRequestedFor(urlPathEqualTo("/v1/checkout/sessions")));
+    }
+
+    @Test
+    @DisplayName("trial-start $0 invoice keeps TRIAL and records the trial end")
+    void trialStartInvoiceKeepsTrial() {
+        stubCatalogue("2c8g");
+        subscriptionService.createCheckoutSession(ORG_ID, "2c8g", EMAIL, "req-trial");
+        deliverCheckoutCompleted();
+        assertThat(shell.getStatus()).isEqualTo(SubscriptionStatus.TRIAL);
+
+        long trialStart = Instant.now().getEpochSecond();
+        long trialEnd = trialStart + 7L * 24 * 3600;
+        deliverInvoicePaid(StripeStub.invoicePaid(
+                "evt_it_trial_invoice", trialStart, trialStart, trialStart, trialEnd,
+                "subscription_create", 0));
+
+        assertThat(shell.getStatus()).isEqualTo(SubscriptionStatus.TRIAL);
+        assertThat(shell.getCurrentPeriodEnd()).isEqualTo(Instant.ofEpochSecond(trialEnd));
+        verify(subscriptionStateMachineService, never())
+                .transition(any(), eq(SubscriptionEventType.PAYMENT_CONFIRMED), anyString());
+
+        long cycleEnd = trialEnd + 30L * 24 * 3600;
+        deliverInvoicePaid(StripeStub.invoicePaid(
+                "evt_it_paid_invoice", trialEnd, trialEnd, trialEnd, cycleEnd,
+                "subscription_cycle", 19_900L));
+
+        assertThat(shell.getStatus()).isEqualTo(SubscriptionStatus.ACTIVE);
+        assertThat(shell.getCurrentPeriodEnd()).isEqualTo(Instant.ofEpochSecond(cycleEnd));
     }
 
     @Test
@@ -279,6 +309,13 @@ class SubscriptionCreateIT {
 
     private PaymentGateway.WebhookResult deliverCheckoutCompleted() {
         String payload = StripeStub.checkoutCompleted(StripeStub.CHECKOUT_SESSION_ID);
+        return webhookEventService.dispatch(new PaymentGateway.RawWebhookEvent(
+                payload.getBytes(StandardCharsets.UTF_8),
+                StripeStub.stripeSignatureHeader(payload),
+                Map.of()));
+    }
+
+    private PaymentGateway.WebhookResult deliverInvoicePaid(String payload) {
         return webhookEventService.dispatch(new PaymentGateway.RawWebhookEvent(
                 payload.getBytes(StandardCharsets.UTF_8),
                 StripeStub.stripeSignatureHeader(payload),

@@ -14,6 +14,7 @@ import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -277,7 +278,12 @@ public class StripeWebhookEventService {
         }
 
         Instant periodStart = epochSeconds(invoice.get("period_start"));
-        Instant periodEnd = epochSeconds(invoice.get("period_end"));
+        // The invoice-level period can be zero-length (a trial-start $0 invoice),
+        // so the billable period is the one on the line item.
+        Instant periodEnd = latestLinePeriodEnd(invoice);
+        if (periodEnd == null) {
+            periodEnd = epochSeconds(invoice.get("period_end"));
+        }
         if (periodEnd == null) {
             return "SKIPPED (invoice carries no period_end)";
         }
@@ -287,6 +293,18 @@ public class StripeWebhookEventService {
         }
         subscription.setCurrentPeriodEnd(periodEnd);
         subscriptionRepository.save(subscription);
+
+        // Stripe emits a $0 invoice when a trial starts (billing_reason
+        // subscription_create). It records the trial window but collects nothing,
+        // so it must not convert the subscription to ACTIVE — the first invoice
+        // that actually collects money does that.
+        String billingReason = str(invoice, "billing_reason");
+        long amountPaid = longValue(invoice.get("amount_paid"));
+        if ("subscription_create".equals(billingReason) && amountPaid <= 0) {
+            log.info("invoice.paid: trial-start invoice for subscription {} — period ends {}, "
+                    + "staying in {}", subscription.getId(), periodEnd, subscription.getStatus());
+            return "PROCESSED — trial period recorded, activation deferred";
+        }
 
         // A paid invoice means the paid period is running again: the first invoice
         // after a trial converts TRIAL, and one after dunning converts PAST_DUE.
@@ -303,6 +321,41 @@ public class StripeWebhookEventService {
         log.info("invoice.paid: subscription {} period advanced to {} (stripe subscription {})",
                 subscription.getId(), periodEnd, stripeSubscriptionId);
         return "PROCESSED — billing period advanced to " + periodEnd;
+    }
+
+    /**
+     * Latest {@code lines.data[].period.end} on the invoice. A monthly invoice's
+     * top-level period can be a single instant, while the line carries the real
+     * service window; taking the latest line end works for both the trial-start
+     * invoice and a renewal.
+     */
+    private static Instant latestLinePeriodEnd(Map<String, Object> invoice) {
+        Object lines = invoice.get("lines");
+        if (!(lines instanceof Map<?, ?> linesMap)) {
+            return null;
+        }
+        Object data = linesMap.get("data");
+        if (!(data instanceof List<?> items)) {
+            return null;
+        }
+        Instant latest = null;
+        for (Object item : items) {
+            if (!(item instanceof Map<?, ?> line)) {
+                continue;
+            }
+            if (!(line.get("period") instanceof Map<?, ?> period)) {
+                continue;
+            }
+            Instant end = epochSeconds(period.get("end"));
+            if (end != null && (latest == null || end.isAfter(latest))) {
+                latest = end;
+            }
+        }
+        return latest;
+    }
+
+    private static long longValue(Object value) {
+        return value instanceof Number n ? n.longValue() : 0L;
     }
 
     /**

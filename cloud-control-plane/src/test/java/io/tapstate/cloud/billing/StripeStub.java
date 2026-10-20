@@ -69,10 +69,19 @@ final class StripeStub {
     /** Envelope for one webhook event; {@code dataObject} is the raw {@code data.object}. */
     static String event(String type, String dataObject) {
         long now = Instant.now().getEpochSecond();
+        return event("evt_it_" + now, type, dataObject);
+    }
+
+    /**
+     * Envelope with an explicit event id. Distinct events delivered in the same
+     * second need distinct ids, otherwise the audit row reads as a replay.
+     */
+    static String event(String eventId, String type, String dataObject) {
+        long now = Instant.now().getEpochSecond();
         return """
-                {"id":"evt_it_%d","object":"event","api_version":"2024-10-28","created":%d,
+                {"id":"%s","object":"event","api_version":"2024-10-28","created":%d,
                  "livemode":false,"type":"%s","data":{"object":%s}}
-                """.formatted(now, now, type, dataObject);
+                """.formatted(eventId, now, type, dataObject);
     }
 
     static String checkoutCompleted(String checkoutSessionId) {
@@ -80,6 +89,25 @@ final class StripeStub {
                 {"id":"%s","object":"checkout.session","mode":"subscription","status":"complete",
                  "payment_status":"paid","customer":"%s","subscription":"%s"}
                 """.formatted(checkoutSessionId, CUSTOMER_ID, SUBSCRIPTION_ID));
+    }
+
+    /**
+     * One {@code invoice.paid} delivery. The invoice-level period and the line
+     * period are separate on purpose: a trial-start {@code $0} invoice carries a
+     * zero-length invoice period and the real trial window on its line item.
+     */
+    static String invoicePaid(String eventId, long invoicePeriodStart, long invoicePeriodEnd,
+                              long linePeriodStart, long linePeriodEnd,
+                              String billingReason, long amountPaid) {
+        return event(eventId, "invoice.paid", """
+                {"id":"in_it_%s","object":"invoice","subscription":"%s",
+                 "billing_reason":"%s","amount_paid":%d,"amount_due":%d,
+                 "period_start":%d,"period_end":%d,
+                 "lines":{"object":"list","has_more":false,"data":[
+                   {"id":"il_it","object":"line_item","amount":%d,
+                    "period":{"start":%d,"end":%d}}]}}
+                """.formatted(eventId, SUBSCRIPTION_ID, billingReason, amountPaid, amountPaid,
+                invoicePeriodStart, invoicePeriodEnd, amountPaid, linePeriodStart, linePeriodEnd));
     }
 
     static String stripeSignatureHeader(String payload) {
