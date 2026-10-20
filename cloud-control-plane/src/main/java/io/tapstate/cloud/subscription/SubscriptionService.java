@@ -374,7 +374,25 @@ public class SubscriptionService {
     @Transactional
     public Subscription cancelNow(String subscriptionId, String orgId, String operator) {
         Subscription subscription = getByIdAndOrgId(subscriptionId, orgId);
-        return performCancel(subscription, SubscriptionEventType.IMMEDIATE_CANCEL, operator);
+        return performCancel(subscription, SubscriptionEventType.IMMEDIATE_CANCEL, operator, true);
+    }
+
+    /**
+     * Cancel because the payment channel reports the subscription is gone
+     * (e.g. Stripe deleted it at the end of the billing period).
+     * <p>
+     * The channel call is skipped — the subscription no longer exists there, and
+     * asking Stripe to cancel it again fails with {@code resource_missing}. The
+     * local event is derived from the current status: a subscription already in
+     * {@code PENDING_CANCEL} expired at its period end, anything else is an
+     * out-of-band cancellation.
+     */
+    @Transactional
+    public Subscription cancelDueToChannelDeletion(String subscriptionId, String operator) {
+        Subscription subscription = subscriptionRepository.findById(new ObjectId(subscriptionId))
+                .orElseThrow(() -> new BusinessException(
+                        AppErrorCode.SUBSCRIPTION_NOT_FOUND, 404, subscriptionId));
+        return performCancel(subscription, null, operator, false);
     }
 
     // ========== Legacy TRIAL path (Week 2 scaffold — still valid) ==========
@@ -447,7 +465,7 @@ public class SubscriptionService {
     @Transactional
     public Subscription cancelSubscription(String subscriptionId, String orgId, String operator) {
         Subscription subscription = getByIdAndOrgId(subscriptionId, orgId);
-        return performCancel(subscription, SubscriptionEventType.CANCEL_REQUESTED, operator);
+        return performCancel(subscription, SubscriptionEventType.CANCEL_REQUESTED, operator, true);
     }
 
     // ========== Status transition (admin/internal endpoint) ==========
@@ -482,23 +500,32 @@ public class SubscriptionService {
 
     // ========== Private helpers ==========
 
-    private Subscription performCancel(Subscription subscription, SubscriptionEventType event, String operator) {
+    /**
+     * @param event         state-machine event to fire; {@code null} means "derive from status"
+     * @param notifyChannel false when the payment channel already removed the subscription,
+     *                      so cancelling it there again would fail with {@code resource_missing}
+     */
+    private Subscription performCancel(Subscription subscription, SubscriptionEventType event,
+                                       String operator, boolean notifyChannel) {
         if (subscription.getStatus() == SubscriptionStatus.CANCELLED) {
             return subscription;
         }
 
-        // Stripe-side immediate cancel
-        paymentGateway.cancelImmediately(subscription);
+        if (notifyChannel) {
+            paymentGateway.cancelImmediately(subscription);
+        }
+
+        SubscriptionEventType resolved = event != null ? event : defaultCancelEvent(subscription.getStatus());
 
         var result = subscriptionStateMachineService.transition(
-                subscription.getId(), event, operator);
+                subscription.getId(), resolved, operator);
 
         if (result.accepted()) {
             Subscription updated = subscriptionRepository.findById(subscription.getId())
                 .orElse(subscription);
-            log.info("Subscription {} CANCELLED for org={} by operator={}",
+            log.info("Subscription {} CANCELLED for org={} by operator={} (event={}, channelNotified={})",
                 subscription.getId().toHexString(),
-                subscription.getOrgId().toHexString(), operator);
+                subscription.getOrgId().toHexString(), operator, resolved, notifyChannel);
 
             deploymentStepRecorder.seed(subscription.getOrgId(), subscription.getId(),
                 DeploymentOpType.UNINSTALL);
@@ -509,10 +536,20 @@ public class SubscriptionService {
 
             return updated;
         } else {
-            log.warn("Subscription {} cancel transition rejected (current status={})",
-                subscription.getId(), subscription.getStatus());
+            log.warn("Subscription {} cancel transition {} rejected (current status={})",
+                subscription.getId(), resolved, subscription.getStatus());
             return subscription;
         }
+    }
+
+    /**
+     * A subscription awaiting its period end expires via the reaper event; anything
+     * else is an out-of-band cancellation with no remaining paid period.
+     */
+    private static SubscriptionEventType defaultCancelEvent(SubscriptionStatus status) {
+        return status == SubscriptionStatus.PENDING_CANCEL
+                ? SubscriptionEventType.PERIOD_END_REAPED
+                : SubscriptionEventType.IMMEDIATE_CANCEL;
     }
 
     private void linkItemResource(ObjectId subscriptionId, SubscriptionItemType itemType,

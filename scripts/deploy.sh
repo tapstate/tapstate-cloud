@@ -52,9 +52,9 @@ case "$ENV_NAME" in
     NEXUS_HOST="263186327888.dkr.ecr.ap-east-1.amazonaws.com"
     NEXUS_REPO="tapstate-cloud/tapstate-cloud-control"
     BUILD_HOST="lg@113.98.206.142"       # Gateway with Docker — same as dev
-    SSH_HOST="ec2"                       # aliased to 18.166.228.163 in ~/.ssh/config
+    SSH_HOST="awsdev"                    # ssh(1) alias → EC2 k3s host (ProxyCommand via SOCKS)
     SSH_USER="ubuntu"
-    K3S_CONTROL_PLANE_HOST="ec2"         # Same — single-node k3s on EC2
+    K3S_CONTROL_PLANE_HOST="awsdev"      # Same — single-node k3s on EC2
     K3S_CONTROL_PLANE_NODE="ip-172-31-4-81"
     K3S_NAMESPACE="tapstate"
     K3S_CLUSTER_IP="172.31.4.81"         # Private IP of EC2 k3s (direct, no tunnel needed)
@@ -337,12 +337,13 @@ deploy_k3s() {
   local helm_values_override="$(mktemp)"
 
   # Always override tag (whether build-only or deploy-only)
+  # Only the tag is overridden — imagePullSecrets comes from the env values
+  # file (ECR pull secret), so an empty list here would break the rollout.
   cat > "$helm_values_override" <<EOF
 image:
   repository: ${NEXUS_HOST}/${NEXUS_REPO}
   tag: "${IMAGE_TAG}"
   pullPolicy: Always
-imagePullSecrets: []
 EOF
 
   log "Step 7: Ensure namespace '$K3S_NAMESPACE' exists"

@@ -156,6 +156,18 @@ public class StripePaymentService implements PaymentGateway {
             com.stripe.model.Subscription cancelled = stripeSub.cancel(Map.of("invoice_now", false));
             log.info("StripePaymentService: Stripe subscription {} cancelled immediately (status={})",
                     cancelled.getId(), cancelled.getStatus());
+        } catch (com.stripe.exception.InvalidRequestException e) {
+            // Already gone on Stripe's side (period-end deletion, manual Dashboard cancel).
+            // Cancelling is idempotent from our point of view, so this is not an error.
+            if ("resource_missing".equals(e.getCode())) {
+                log.info("StripePaymentService: Stripe subscription {} already absent — treated as cancelled",
+                        subscription.getStripe().getSubscriptionId());
+                return;
+            }
+            log.error("StripePaymentService: immediate cancel failed for Stripe subscription {}",
+                    subscription.getStripe().getSubscriptionId(), e);
+            throw new StripeIntegrationException(
+                    "Immediate cancel failed: " + e.getMessage(), e);
         } catch (StripeException e) {
             log.error("StripePaymentService: immediate cancel failed for Stripe subscription {}",
                     subscription.getStripe().getSubscriptionId(), e);

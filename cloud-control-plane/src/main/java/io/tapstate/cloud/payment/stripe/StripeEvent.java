@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.springframework.data.annotation.CreatedDate;
+import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.Instant;
@@ -21,7 +22,11 @@ import java.time.Instant;
 @Document(collection = "stripe_events")
 public class StripeEvent {
 
-    /** Stripe Event ID (evt_xxx) — unique across the entire collection. */
+    /**
+     * Stripe Event ID (evt_xxx) — the document's {@code _id}, so a retried
+     * delivery replaces its audit row instead of inserting a second one.
+     */
+    @Id
     private String stripeEventId;
 
     /** Stripe webhook payload type (e.g. "checkout.session.completed"). */

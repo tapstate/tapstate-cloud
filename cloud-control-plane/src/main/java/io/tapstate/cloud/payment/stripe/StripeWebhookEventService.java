@@ -45,16 +45,19 @@ public class StripeWebhookEventService {
     private final StripeEventRepository eventRepository;
     private final SubscriptionRepository subscriptionRepository;
     private final SubscriptionService subscriptionService;
+    private final io.tapstate.cloud.subscription.fsm.SubscriptionStateMachineService subscriptionStateMachineService;
     private final StripeWebhookConfig config;
     private final JsonMapper jsonMapper = JsonMapper.builder().build();
 
     public StripeWebhookEventService(StripeEventRepository eventRepository,
                                      SubscriptionRepository subscriptionRepository,
                                      @Lazy SubscriptionService subscriptionService,
+                                     io.tapstate.cloud.subscription.fsm.SubscriptionStateMachineService subscriptionStateMachineService,
                                      StripeWebhookConfig config) {
         this.eventRepository = eventRepository;
         this.subscriptionRepository = subscriptionRepository;
         this.subscriptionService = subscriptionService;
+        this.subscriptionStateMachineService = subscriptionStateMachineService;
         this.config = config;
     }
 
@@ -81,10 +84,19 @@ public class StripeWebhookEventService {
             return new PaymentGateway.WebhookResult(false, "failed to parse webhook body: " + e.getMessage());
         }
 
-        // Idempotency — already processed?
-        if (eventRepository.existsByStripeEventId(stripeEvent.getId())) {
-            log.info("StripeWebhookEventService: event {} already processed — skipping", stripeEvent.getId());
-            return new PaymentGateway.WebhookResult(false, "already processed — replay skipped");
+        // Idempotency — skip a replay only when a previous delivery actually succeeded.
+        // An ERRORED record must stay replayable: Stripe retries failed deliveries, and a
+        // blind "event id seen before" check would turn every retry into a silent no-op,
+        // leaving the state the failure left behind forever.
+        var previous = eventRepository.findByStripeEventId(stripeEvent.getId());
+        if (previous.isPresent()) {
+            if (!"ERRORED".equals(previous.get().getOutcome())) {
+                log.info("StripeWebhookEventService: event {} already processed — skipping", stripeEvent.getId());
+                return new PaymentGateway.WebhookResult(false, "already processed — replay skipped");
+            }
+            log.info("StripeWebhookEventService: event {} previously failed — retrying", stripeEvent.getId());
+            // The audit row is keyed by the Stripe event id, so the save below
+            // upserts over it — no delete is needed to make the retry durable.
         }
 
         StripeEvent auditRecord = StripeEvent.builder()
@@ -232,9 +244,8 @@ public class StripeWebhookEventService {
             return "SKIPPED (subscription not found in our DB)";
         }
 
-        subscriptionService.cancelSubscription(
+        subscriptionService.cancelDueToChannelDeletion(
                 subscription.getId().toHexString(),
-                subscription.getOrgId().toHexString(),
                 "stripe:customer.subscription.deleted");
         return "PROCESSED — subscription cancelled due to Stripe deletion";
     }
@@ -244,8 +255,76 @@ public class StripeWebhookEventService {
         return "SKIPPED (invoice.payment_failed not yet wired — will be payment reminder)";
     }
 
+    /**
+     * Renewal — Stripe collected the next invoice. The billing period the customer
+     * just paid for lives on the invoice, so this is what advances our own
+     * {@code currentPeriodEnd}; without it the locally stored period would freeze at
+     * the value written at checkout time and every period-end decision (cancel
+     * reaper, entitlement) would be based on a stale date.
+     */
     private String handleInvoicePaid(Event event) {
-        log.info("invoice.paid — recording only (renewal flow not yet wired)");
-        return "SKIPPED (invoice.paid — renewal flow)";
+        Map<String, Object> invoice = dataObject(event);
+        String stripeSubscriptionId = invoiceSubscriptionId(invoice);
+        if (stripeSubscriptionId == null) {
+            return "SKIPPED (invoice is not tied to a subscription)";
+        }
+
+        Subscription subscription = subscriptionRepository
+                .findByStripeSubscriptionId(stripeSubscriptionId)
+                .orElse(null);
+        if (subscription == null) {
+            return "SKIPPED (subscription not found in our DB)";
+        }
+
+        Instant periodStart = epochSeconds(invoice.get("period_start"));
+        Instant periodEnd = epochSeconds(invoice.get("period_end"));
+        if (periodEnd == null) {
+            return "SKIPPED (invoice carries no period_end)";
+        }
+
+        if (periodStart != null) {
+            subscription.setCurrentPeriodStart(periodStart);
+        }
+        subscription.setCurrentPeriodEnd(periodEnd);
+        subscriptionRepository.save(subscription);
+
+        // A paid invoice after dunning means the account is current again.
+        if (subscription.getStatus() == io.tapstate.cloud.subscription.SubscriptionStatus.PAST_DUE) {
+            subscriptionStateMachineService.transition(subscription.getId(),
+                    io.tapstate.cloud.subscription.fsm.SubscriptionEventType.PAYMENT_RECEIVED,
+                    "stripe:invoice.paid");
+        }
+
+        log.info("invoice.paid: subscription {} period advanced to {} (stripe subscription {})",
+                subscription.getId(), periodEnd, stripeSubscriptionId);
+        return "PROCESSED — billing period advanced to " + periodEnd;
+    }
+
+    /**
+     * Stripe moved the subscription reference from {@code invoice.subscription} to
+     * {@code invoice.parent.subscription_details.subscription}; accept either so the
+     * handler keeps working across account API versions.
+     */
+    @SuppressWarnings("unchecked")
+    private static String invoiceSubscriptionId(Map<String, Object> invoice) {
+        String direct = str(invoice, "subscription");
+        if (direct != null) {
+            return direct;
+        }
+        Object parent = invoice.get("parent");
+        if (parent instanceof Map<?, ?> parentMap) {
+            Object details = ((Map<String, Object>) parentMap).get("subscription_details");
+            if (details instanceof Map<?, ?> detailsMap) {
+                return str((Map<String, Object>) detailsMap, "subscription");
+            }
+        }
+        return null;
+    }
+
+    private static Instant epochSeconds(Object value) {
+        if (value instanceof Number n) {
+            return Instant.ofEpochSecond(n.longValue());
+        }
+        return null;
     }
 }
