@@ -22,6 +22,11 @@ kubectl create secret generic tapstate-cloud-control-aws-credentials \
   --from-literal=access-key-id='AKIA...' \
   --from-literal=secret-access-key='...'
 
+# The configured AWS identity must also allow the Cloud Control Plane to manage
+# per-Cluster Elastic IPs: ec2:AllocateAddress, ec2:AssociateAddress,
+# ec2:DescribeAddresses, ec2:DisassociateAddress, ec2:ReleaseAddress, and
+# ec2:CreateTags. Keep the existing CloudFormation stack and EC2 permissions.
+
 # ---- GoDaddy DNS API key (required only when config.iacMode=real) ----
 # A gd_pat_ Personal Access Token works as Bearer with an empty api-secret;
 # a classic sso-key needs both values.

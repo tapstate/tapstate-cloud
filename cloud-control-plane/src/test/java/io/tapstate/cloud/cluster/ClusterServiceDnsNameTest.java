@@ -10,6 +10,7 @@ import org.bson.types.ObjectId;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.data.mongodb.core.MongoTemplate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -39,7 +40,7 @@ class ClusterServiceDnsNameTest {
         ClusterStateMachineService stateMachineService = mock(ClusterStateMachineService.class);
         clusterService = new ClusterService(
             clusterRepository, historyRepository, memberRepository,
-            regionService, stateMachineService, mock(ClusterPartialWriter.class),
+            regionService, stateMachineService, mock(MongoTemplate.class), mock(ClusterPartialWriter.class),
             mock(io.tapstate.cloud.iac.ClusterProvisioningService.class));
 
         when(memberRepository.existsByOrgIdAndUserEmail(any(), anyString())).thenReturn(true);

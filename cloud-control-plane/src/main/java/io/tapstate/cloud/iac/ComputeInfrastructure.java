@@ -2,6 +2,7 @@ package io.tapstate.cloud.iac;
 
 import io.tapstate.cloud.iac.model.NodeInstance;
 import io.tapstate.cloud.iac.model.NodeSpec;
+import io.tapstate.cloud.common.api.AppErrorCode;
 
 import java.util.List;
 import java.util.Optional;
@@ -31,6 +32,18 @@ public interface ComputeInfrastructure {
      */
     NodeInstance provision(NodeSpec spec);
 
+    /** Attach or reattach the Cluster-owned stable egress address without replacing the node. */
+    default NodeInstance stabilizeEgressAddress(String region, String clusterId, String allocationId) {
+        throw new IacException(AppErrorCode.IAC_COMPUTE_PROVISION_FAILED,
+            "Stable egress addresses are not supported by this provider");
+    }
+
+    /** Return the current node identity from the provider's authoritative infrastructure record. */
+    default NodeInstance currentNode(String region, String clusterId) {
+        throw new IacException(AppErrorCode.IAC_COMPUTE_PROVISION_FAILED,
+            "Current node inspection is not supported by this provider");
+    }
+
     /**
      * Destroy every resource created for the given Cluster and wait for completion.
      * <p>
@@ -40,6 +53,11 @@ public interface ComputeInfrastructure {
      * @param clusterId Cluster id hex the node was created for
      */
     void terminate(String region, String clusterId);
+
+    /** Remove a failed node while preserving any Cluster-owned stable address for retry. */
+    default void terminateNodeForRetry(String region, String clusterId) {
+        terminate(region, clusterId);
+    }
 
     /**
      * Query whether the infrastructure for the given Cluster currently exists

@@ -1,8 +1,9 @@
 package io.tapstate.cloud.iac;
 
 import io.tapstate.cloud.cluster.Cluster;
-import io.tapstate.cloud.cluster.ClusterPartialWriter;
+import io.tapstate.cloud.cluster.ClusterEgressAddressStatus;
 import io.tapstate.cloud.cluster.ClusterRepository;
+import io.tapstate.cloud.cluster.ClusterState;
 import io.tapstate.cloud.cluster.ProvisionErrorCode;
 import io.tapstate.cloud.common.api.AppErrorCode;
 import io.tapstate.cloud.iac.config.ClusterImageResolver;
@@ -26,6 +27,10 @@ import io.tapstate.cloud.version.ClusterVersionService;
 import lombok.extern.slf4j.Slf4j;
 import org.bson.types.ObjectId;
 import org.springframework.stereotype.Service;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.mongodb.core.query.Update;
 
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -55,11 +60,10 @@ import java.util.function.Supplier;
 public class ClusterProvisioningService {
 
     private final ClusterRepository clusterRepository;
-    private final ClusterPartialWriter clusterPartialWriter;
     private final IacProperties properties;
     private final ClusterDomainName clusterDomainName;
     private final ComputeInfrastructure compute;
-    private final DnsInfrastructure dns;
+    private final ClusterDnsRecordCoordinator dnsRecords;
     private final SshClient sshClient;
     private final SshKeyPairGenerator keyPairGenerator;
     private final SshKeyCrypto keyCrypto;
@@ -70,6 +74,7 @@ public class ClusterProvisioningService {
     private final TlsNodeInstaller tlsInstaller;
     private final ClusterVersionService clusterVersionService;
     private final ClusterImageResolver imageResolver;
+    private final MongoTemplate mongoTemplate;
 
     // ---- Timing budget ----
     private static final Duration STACK_TIMEOUT = Duration.ofMinutes(15);
@@ -85,11 +90,10 @@ public class ClusterProvisioningService {
 
     public ClusterProvisioningService(
         ClusterRepository clusterRepository,
-        ClusterPartialWriter clusterPartialWriter,
         IacProperties properties,
         ClusterDomainName clusterDomainName,
         Map<String, ComputeInfrastructure> computeBeans,
-        DnsInfrastructure dns,
+        ClusterDnsRecordCoordinator dnsRecords,
         SshClient sshClient,
         SshKeyPairGenerator keyPairGenerator,
         SshKeyCrypto keyCrypto,
@@ -99,12 +103,12 @@ public class ClusterProvisioningService {
         TlsCertificateService tlsCertificateService,
         TlsNodeInstaller tlsInstaller,
         ClusterVersionService clusterVersionService,
-        ClusterImageResolver imageResolver) {
+        ClusterImageResolver imageResolver,
+        MongoTemplate mongoTemplate) {
         this.clusterRepository = clusterRepository;
-        this.clusterPartialWriter = clusterPartialWriter;
         this.properties = properties;
         this.clusterDomainName = clusterDomainName;
-        this.dns = dns;
+        this.dnsRecords = dnsRecords;
         this.sshClient = sshClient;
         this.keyPairGenerator = keyPairGenerator;
         this.keyCrypto = keyCrypto;
@@ -115,6 +119,7 @@ public class ClusterProvisioningService {
         this.tlsInstaller = tlsInstaller;
         this.clusterVersionService = clusterVersionService;
         this.imageResolver = imageResolver;
+        this.mongoTemplate = mongoTemplate;
 
         CloudProvider provider = CloudProvider.fromId(properties.getProvider());
         ComputeInfrastructure selected = computeBeans.values().stream()
@@ -160,7 +165,7 @@ public class ClusterProvisioningService {
                 return recordFailure(cluster, unavailable);
             }
             cluster.setClusterVersion(fallback.getVersion());
-            persist(cluster);
+            persist(cluster, new Update().set("clusterVersion", fallback.getVersion()));
             clusterVersion = fallback.getVersion();
         }
         final String runtimeImage = imageResolver.runtimeImage(clusterVersion);
@@ -190,7 +195,8 @@ public class ClusterProvisioningService {
                         keyPair.privateKeyPem(), properties.getCrypto().getMasterKey());
                     cluster.setSshPublicKey(keyPair.openSshPublicKey());
                     cluster.setSshPrivateKeyEnc(encryptedKey);
-                    persist(cluster);
+                    persist(cluster, new Update().set("sshPublicKey", cluster.getSshPublicKey())
+                        .set("sshPrivateKeyEnc", encryptedKey));
                     return keyPair;
                 });
             String privateKeyPem = generated.privateKeyPem();
@@ -215,21 +221,29 @@ public class ClusterProvisioningService {
                         properties.getAws().getSubnetId());
 
                     NodeInstance provisioned = compute.provision(spec);
+                    if (compute.provider() == CloudProvider.AWS
+                            && (provisioned.egressAddressAllocationId() == null
+                                || provisioned.egressAddressAllocationId().isBlank())) {
+                        throw new IacException(AppErrorCode.IAC_COMPUTE_PROVISION_FAILED,
+                            "AWS Cluster provisioning completed without a stable egress address allocation");
+                    }
                     cluster.setEc2InstanceId(provisioned.instanceId());
                     cluster.setEc2PublicIp(provisioned.publicIp());
+                    cluster.setEgressAddressAllocationId(provisioned.egressAddressAllocationId());
+                    cluster.setEgressAddressStatus(compute.provider() == CloudProvider.AWS
+                        ? ClusterEgressAddressStatus.STABLE : ClusterEgressAddressStatus.DYNAMIC);
                     cluster.setCloudFormationStackStatus("CREATE_COMPLETE");
-                    // T5: persist cleanup inventory as soon as we know what the
-                    // provisioning pipeline created. If a post-stack step fails
-                    // and compensate runs, retryCleanup can target exactly these
-                    // resources without guessing.
                     java.util.Map<String, String> inventory = new java.util.HashMap<>();
                     String stackName = "tapstate-cluster-" + clusterId;
                     inventory.put("cloudFormationStackName", stackName);
-                    // CloudFormation stack ARN is returned by describeStacks; we
-                    // know the stack name and can derive any identifier needed.
                     inventory.put("cloudFormationStackId", stackName);
                     cluster.setCleanupInventory(inventory);
-                    persist(cluster);
+                    persist(cluster, new Update().set("ec2InstanceId", provisioned.instanceId())
+                        .set("ec2PublicIp", provisioned.publicIp())
+                        .set("egressAddressAllocationId", provisioned.egressAddressAllocationId())
+                        .set("egressAddressStatus", cluster.getEgressAddressStatus())
+                        .set("cloudFormationStackStatus", "CREATE_COMPLETE")
+                        .set("cleanupInventory", inventory));
                     log.info("[IaC] node ready cluster={} ip={}", clusterId, provisioned.publicIp());
                     return provisioned;
                 });
@@ -245,10 +259,11 @@ public class ClusterProvisioningService {
             // 5. Publish the DNS name before pushing service configuration.
             runStep(cluster, DeploymentOperation.CREATE_DNS_RECORD,
                 "DNS record created", () -> {
-                    dns.upsertARecord(domain, node.publicIp());
-                    cluster.setDnsRecord(domain);
-                    cluster.setPublicDns(domain);
-                    persist(cluster);
+                    dnsRecords.publish(domain, node.publicIp(), cluster.getId(), () -> {
+                        cluster.setDnsRecord(domain);
+                        cluster.setPublicDns(domain);
+                        persist(cluster, new Update().set("dnsRecord", domain).set("publicDns", domain));
+                    });
                 });
 
             // 6. The Atlas allocation runs in parallel with the EC2 provisioning;
@@ -315,7 +330,7 @@ public class ClusterProvisioningService {
                         throw new IacException(AppErrorCode.IAC_SSH_COMMAND_FAILED, e, safeMessage(e));
                     }
                     cluster.setTlsCertificateId(tlsCertificate.getId());
-                    persist(cluster);
+                    persist(cluster, new Update().set("tlsCertificateId", tlsCertificate.getId()));
                     log.info("[IaC] TLS certificate {} installed cluster={}",
                         tlsCertificate.getId().toHexString(), clusterId);
                 });
@@ -368,7 +383,15 @@ public class ClusterProvisioningService {
         if (latest == null) {
             return;
         }
-
+        if (latest.getState() == ClusterState.TERMINATED) {
+            try {
+                terminate(latest);
+            } catch (Exception cleanupFailure) {
+                log.warn("[IaC] cancelled provisioning cleanup will be retried cluster={} type={}",
+                    clusterId, cleanupFailure.getClass().getSimpleName());
+            }
+            return;
+        }
         boolean stackCreated = "CREATE_COMPLETE".equals(latest.getCloudFormationStackStatus())
             || latest.getEc2InstanceId() != null;
         boolean dnsCreated = latest.getDnsRecord() != null;
@@ -393,7 +416,18 @@ public class ClusterProvisioningService {
         latest.setCleanupErrorCode(null);
         latest.setCleanupErrorDetail(null);
         latest.setCleanupFailedAt(null);
-        clusterPartialWriter.apply(latest);
+        if (!persistCleanupState(latest)) {
+            Cluster current = clusterRepository.findById(latest.getId()).orElse(null);
+            if (current != null && current.getState() == ClusterState.TERMINATED) {
+                try {
+                    terminate(current);
+                } catch (Exception cleanupFailure) {
+                    log.warn("[IaC] cancelled provisioning cleanup will be retried cluster={} type={}",
+                        clusterId, cleanupFailure.getClass().getSimpleName());
+                }
+            }
+            return;
+        }
 
         // T2: query remote state before deciding whether to delete the stack.
         boolean skipStackDelete = false;
@@ -436,6 +470,15 @@ public class ClusterProvisioningService {
      * @throws IacException when a resource cannot be reclaimed
      */
     public void terminate(Cluster cluster) {
+        terminate(cluster, false);
+    }
+
+    /** Clean up a failed attempt without releasing the Cluster's allowlisted identity. */
+    public void prepareForRetry(Cluster cluster) {
+        terminate(cluster, true);
+    }
+
+    private void terminate(Cluster cluster, boolean retry) {
         String clusterId = cluster.getId().toHexString();
         log.info("[IaC] terminate start cluster={}", clusterId);
 
@@ -459,34 +502,39 @@ public class ClusterProvisioningService {
                 inventory.put("mdbAllocationId", cluster.getMdbAllocationId().toHexString());
             }
             cluster.setCleanupInventory(inventory);
-            clusterPartialWriter.apply(cluster);
+            persistCleanupState(cluster);
         }
 
         try {
             runStep(cluster, DeploymentOperation.TERMINATE_EC2,
                 "EC2 node terminated", () -> {
-                    compute.terminate(cluster.getRegion(), clusterId);
+                    if (retry) {
+                        compute.terminateNodeForRetry(cluster.getRegion(), clusterId);
+                    } else {
+                        compute.terminate(cluster.getRegion(), clusterId);
+                    }
                     cluster.setCloudFormationStackStatus("DELETE_COMPLETE");
                     cluster.setCleanupInventory(null);
                     cluster.setCleanupErrorCode(null);
                     cluster.setCleanupErrorDetail(null);
                     cluster.setCleanupFailedAt(null);
-                    clusterPartialWriter.apply(cluster);
+                    persistCleanupState(cluster);
                 });
 
-            String domain = cluster.getDnsRecord() != null ? cluster.getDnsRecord() : cluster.getPublicDns();
+            String domain = dnsRecords.recordName(cluster);
             runStep(cluster, DeploymentOperation.DELETE_DNS_RECORD,
                 domain != null && !domain.isBlank() ? "DNS record deleted" : "No DNS record to delete",
                 () -> {
-                    if (domain != null && !domain.isBlank()) {
-                        dns.deleteRecord(domain);
+                    if (domain != null && !domain.isBlank() && !dnsRecords.deleteIfUnowned(cluster)) {
+                        throw new IacException(AppErrorCode.IAC_DNS_PROVIDER_FAILED,
+                            "DNS record is being updated by another Cluster operation");
                     }
                 });
             log.info("[IaC] terminate complete cluster={}", clusterId);
         } catch (IacException e) {
             // T5: persist cleanup failure on Cluster — user can discover and retry.
             persistCleanupFailure(cluster, "IAC_COMPUTE_TERMINATE_FAILED", safeMessage(e));
-            clusterPartialWriter.apply(cluster);
+            persistCleanupState(cluster);
             log.error("[IaC] terminate failed cluster={} code={} detail={}",
                 clusterId, e.errorCode().getCode(), e.getMessage());
             throw e;
@@ -725,22 +773,22 @@ public class ClusterProvisioningService {
         String clusterId = cluster.getId().toHexString();
         if (dnsCreated) {
             try {
-                String domain = cluster.getDnsRecord();
-                dns.deleteRecord(domain);
-                cluster.setDnsRecord(null);
+                if (dnsRecords.deleteIfUnowned(cluster)) {
+                    cluster.setDnsRecord(null);
+                } else {
+                    log.info("[IaC] DNS cleanup deferred while another operation owns hostname cluster={}",
+                        clusterId);
+                }
             } catch (Exception e) {
                 // DNS cleanup failure is logged but not surfaced to the user —
-                // DNS records are cheap to orphan and the stack cleanup is what
-                // matters for billing. We do not persist DNS-specific errors.
+                // the terminated-resource sweeper or a later retry can reclaim it.
                 log.error("[IaC] compensation failed to delete DNS cluster={}: {}",
                     clusterId, safeMessage(e));
             }
         }
         if (stackCreated) {
             if (skipStackDelete) {
-                // T2: remote stack is healthy — do not destroy it. Surface this
-                // on the Cluster document so retry knows to resume from the
-                // existing stack rather than recreate.
+                // Preserve a healthy stack after a post-stack failure so retry can resume it.
                 cluster.setCleanupErrorCode("REMOTE_STACK_HEALTHY");
                 cluster.setCleanupErrorDetail(
                     "CloudFormation stack is CREATE_COMPLETE on AWS but post-stack provisioning step failed. "
@@ -750,19 +798,17 @@ public class ClusterProvisioningService {
                 log.warn("[IaC] compensate stack deletion skipped — remote stack healthy cluster={}", clusterId);
             } else {
                 try {
-                    compute.terminate(cluster.getRegion(), clusterId);
+                    // This is a failed provisioning attempt, not Cluster deletion:
+                    // preserve the tagged EIP so a later retry reuses the same address.
+                    compute.terminateNodeForRetry(cluster.getRegion(), clusterId);
                     cluster.setCloudFormationStackStatus("DELETE_COMPLETE");
-                    // Clear cleanup inventory on successful cleanup — nothing left to retry.
                     cluster.setCleanupInventory(null);
                     cluster.setCleanupErrorCode(null);
                     cluster.setCleanupErrorDetail(null);
                     cluster.setCleanupFailedAt(null);
                 } catch (Exception e) {
-                    // T5: cleanup failure persists to the Cluster document — the
-                    // user can discover it, see the AWS error, and retry. The
-                    // exception is swallowed here because compensate() is called
-                    // from a catch block and we do not want to mask the original
-                    // provisioning failure.
+                    // Do not mask the original provisioning error; expose the cleanup
+                    // failure so the user can repair its cause and retry.
                     persistCleanupFailure(cluster, "IAC_COMPUTE_TERMINATE_FAILED", safeMessage(e));
                     log.error("[IaC] compensation failed to delete stack cluster={}: {}",
                         clusterId, safeMessage(e));
@@ -770,7 +816,7 @@ public class ClusterProvisioningService {
             }
         }
         try {
-            clusterPartialWriter.apply(cluster);
+            persistCleanupState(cluster);
         } catch (Exception e) {
             log.error("[IaC] compensation state persist failed cluster={}: {}",
                 clusterId, safeMessage(e));
@@ -811,12 +857,46 @@ public class ClusterProvisioningService {
         String detail = e.errorCode().getCode() + ": " + e.getMessage();
         cluster.setProvisionErrorCode(code);
         cluster.setProvisionErrorDetail(detail);
-        clusterPartialWriter.apply(cluster);
+        mongoTemplate.updateFirst(provisioningQuery(cluster),
+            new Update().set("provisionErrorCode", code).set("provisionErrorDetail", detail), Cluster.class);
         return ProvisionResult.failed(code, detail);
     }
 
-    private void persist(Cluster cluster) {
-        clusterPartialWriter.apply(cluster);
+    private void persist(Cluster cluster, Update update) {
+        if (mongoTemplate.updateFirst(provisioningQuery(cluster), update, Cluster.class).getMatchedCount() == 0) {
+            throw new IacException(AppErrorCode.IAC_COMPUTE_PROVISION_FAILED,
+                "Cluster provisioning was cancelled before its resource update could be recorded");
+        }
+    }
+
+    /** Persist only cleanup-owned fields while the SDK identity still matches this Cluster. */
+    private boolean persistCleanupState(Cluster cluster) {
+        Instant updatedAt = Instant.now();
+        cluster.setUpdatedAt(updatedAt);
+        Update update = new Update().set("updatedAt", updatedAt);
+        setOrUnset(update, "dnsRecord", cluster.getDnsRecord());
+        setOrUnset(update, "cloudFormationStackStatus", cluster.getCloudFormationStackStatus());
+        setOrUnset(update, "cleanupInventory", cluster.getCleanupInventory());
+        setOrUnset(update, "cleanupErrorCode", cluster.getCleanupErrorCode());
+        setOrUnset(update, "cleanupErrorDetail", cluster.getCleanupErrorDetail());
+        setOrUnset(update, "cleanupFailedAt", cluster.getCleanupFailedAt());
+        Query query = Query.query(Criteria.where("_id").is(cluster.getId())
+            .and("sdkStaticToken").is(cluster.getSdkStaticToken()));
+        return mongoTemplate.updateFirst(query, update, Cluster.class).getMatchedCount() == 1;
+    }
+
+    private static void setOrUnset(Update update, String field, Object value) {
+        if (value == null) {
+            update.unset(field);
+        } else {
+            update.set(field, value);
+        }
+    }
+
+    private static Query provisioningQuery(Cluster cluster) {
+        return Query.query(Criteria.where("_id").is(cluster.getId())
+            .and("state").is(ClusterState.PROVISIONING)
+            .and("sdkStaticToken").is(cluster.getSdkStaticToken()));
     }
 
     private static void sleep(long ms) {

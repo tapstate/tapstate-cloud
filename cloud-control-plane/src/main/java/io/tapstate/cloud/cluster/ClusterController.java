@@ -10,6 +10,7 @@ import io.tapstate.cloud.common.api.ApiResponse;
 import io.tapstate.cloud.common.api.AppErrorCode;
 import io.tapstate.cloud.common.api.BaseController;
 import io.tapstate.cloud.common.CurrentUser;
+import io.tapstate.cloud.iac.ClusterEgressAddressService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -35,6 +36,7 @@ import java.util.List;
 public class ClusterController extends BaseController {
 
     private final ClusterService clusterService;
+    private final ClusterEgressAddressService egressAddressService;
 
     @GetMapping
     @Operation(
@@ -101,6 +103,21 @@ public class ClusterController extends BaseController {
         return ok(ClusterResponse.from(cluster));
     }
 
+    @PostMapping("/{clusterId}/egress-address:stabilize")
+    @Operation(
+        summary = "Stabilize the Cluster egress IPv4 address",
+        description = "Attaches a Cluster-owned Elastic IP to a live Cluster. The public address and DNS record " +
+                      "change when the operation completes; the EC2 runtime is not replaced."
+    )
+    public ResponseEntity<ApiResponse<ClusterResponse>> stabilizeEgressAddress(
+            @Parameter(description = "Organization UUID") @PathVariable String orgId,
+            @Parameter(description = "Cluster UUID") @PathVariable String clusterId) {
+        String userEmail = CurrentUser.getEmail();
+        if (userEmail == null) return fail(AppErrorCode.UNAUTHORIZED, HttpStatus.UNAUTHORIZED);
+        Cluster cluster = clusterService.getCluster(clusterId, orgId, userEmail);
+        return ok(ClusterResponse.from(egressAddressService.requestStabilization(cluster)));
+    }
+
     @PostMapping("/{clusterId}/retry-cleanup")
     @Operation(
         summary = "Retry cleanup failure",
@@ -138,7 +155,8 @@ public class ClusterController extends BaseController {
         @Schema(description = "Provisioning failure error code (null if not failed)") ProvisionErrorCode provisionErrorCode,
         @Schema(description = "Pipeline Runtime ID (EC2 instance identifier)") String runtimeId,
         @Schema(description = "Public DNS name for Cluster Console") String publicDns,
-        @Schema(description = "EC2 node public IPv4 address") String ec2PublicIp,
+        @Schema(description = "Cluster public and source-firewall egress IPv4 address") String ec2PublicIp,
+        @Schema(description = "Stability state of the Cluster egress address") ClusterEgressAddressStatus egressAddressStatus,
         @Schema(description = "Last C2 heartbeat timestamp (ISO-8601 UTC)") String lastHeartbeatAt,
         @Schema(description = "Cluster creation timestamp (ISO-8601 UTC)") String createdAt,
         @Schema(description = "Ready timestamp (ISO-8601 UTC) — null until state = READY") String readyAt,
@@ -153,6 +171,7 @@ public class ClusterController extends BaseController {
                 c.getRegion(), c.getName(), c.getSpecKey(),
                 c.getState(), c.getProvisionErrorCode(),
                 c.getRuntimeId(), c.getPublicDns(), c.getEc2PublicIp(),
+                c.getEgressAddressStatus() != null ? c.getEgressAddressStatus() : ClusterEgressAddressStatus.DYNAMIC,
                 c.getLastHeartbeatAt() != null ? c.getLastHeartbeatAt().toString() : null,
                 c.getCreatedAt() != null ? c.getCreatedAt().toString() : null,
                 c.getReadyAt() != null ? c.getReadyAt().toString() : null,

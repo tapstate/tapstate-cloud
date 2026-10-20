@@ -6,6 +6,7 @@
 package io.tapstate.cloud.sdk.client;
 
 import io.jsonwebtoken.Jwts;
+import io.tapstate.cloud.sdk.ApiClient;
 import io.tapstate.cloud.sdk.api.ExchangeApi;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -44,6 +45,7 @@ class CloudControlPlaneSdkVerifyTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        when(mockExchangeApi.getApiClient()).thenReturn(new ApiClient());
         KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
         kpg.initialize(2048);
         keyPair = kpg.generateKeyPair();

@@ -23,6 +23,11 @@ import software.amazon.awssdk.services.cloudformation.model.Parameter;
 import software.amazon.awssdk.services.cloudformation.model.Stack;
 import software.amazon.awssdk.services.cloudformation.model.StackStatus;
 import software.amazon.awssdk.services.ec2.Ec2Client;
+import software.amazon.awssdk.services.ec2.model.Address;
+import software.amazon.awssdk.services.ec2.model.DomainType;
+import software.amazon.awssdk.services.ec2.model.ResourceType;
+import software.amazon.awssdk.services.ec2.model.Tag;
+import software.amazon.awssdk.services.ec2.model.TagSpecification;
 import software.amazon.awssdk.services.ec2.model.DescribeSubnetsResponse;
 import software.amazon.awssdk.services.ec2.model.DescribeVpcsResponse;
 import software.amazon.awssdk.services.ec2.model.Subnet;
@@ -32,18 +37,20 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * AWS implementation of {@link ComputeInfrastructure}.
  * <p>
- * All node resources live in one CloudFormation stack rendered from a classpath
- * template. Provision creates the stack and polls to completion; termination
- * deletes it and polls until the stack no longer exists, so an instance, its
- * security group and its disk are always reclaimed as a unit.
+ * The node and its supporting resources live in one CloudFormation stack rendered
+ * from the configured template. Cluster-owned Elastic IPs are managed through the
+ * EC2 API and tagged independently so they can be reused across node replacement
+ * and released during Cluster termination.
  */
 @Component
 @Slf4j
@@ -51,6 +58,7 @@ public class AwsComputeInfrastructure implements ComputeInfrastructure {
 
     private static final String TEMPLATE_RESOURCE = "/io/tapstate/cloud/iac/aws/cluster-node.yaml";
     private static final String STACK_NAME_PREFIX = "tapstate-cluster-";
+    private static final String CLUSTER_TAG = "io.tapstate/cluster-id";
     private static final Duration POLL_INTERVAL = Duration.ofSeconds(15);
     private static final Duration STACK_CREATE_TIMEOUT = Duration.ofMinutes(15);
     private static final Duration STACK_DELETE_TIMEOUT = Duration.ofMinutes(10);
@@ -81,8 +89,10 @@ public class AwsComputeInfrastructure implements ComputeInfrastructure {
         CloudFormationClient cf = clientFor(spec.region());
         Network network = resolveNetwork(spec);
 
-        try {
-            cf.createStack(b -> b
+        Stack existing = describeStack(stackName, cf);
+        if (existing == null) {
+            try {
+                cf.createStack(b -> b
                 .stackName(stackName)
                 .templateBody(loadTemplate())
                 .parameters(
@@ -92,42 +102,84 @@ public class AwsComputeInfrastructure implements ComputeInfrastructure {
                     cfParameter("SshPublicKey", spec.sshPublicKey()),
                     cfParameter("VpcId", network.vpcId()),
                     cfParameter("SubnetId", network.subnetId())));
-            log.info("[AwsIaC] stack create requested stack={} region={} vpc={} subnet={}",
-                stackName, spec.region(), network.vpcId(), network.subnetId());
-        } catch (CloudFormationException e) {
-            throw new IacException(AppErrorCode.IAC_COMPUTE_PROVISION_FAILED, e, awsMessage(e));
+                log.info("[AwsIaC] stack create requested stack={} region={} vpc={} subnet={}",
+                    stackName, spec.region(), network.vpcId(), network.subnetId());
+            } catch (CloudFormationException e) {
+                throw new IacException(AppErrorCode.IAC_COMPUTE_PROVISION_FAILED, e, awsMessage(e));
+            }
         }
 
         Stack stack = awaitStatus(stackName, cf, CREATE_SUCCESS, CREATE_FAILED_STATES,
             STACK_CREATE_TIMEOUT, AppErrorCode.IAC_COMPUTE_PROVISION_FAILED);
 
-        Map<String, String> outputs = mapOutputs(stack);
-        openTemporarySshIngress(ec2ClientFor(spec.region()), outputs.get("SecurityGroupId"));
+        try {
+            Map<String, String> outputs = mapOutputs(stack);
+            openTemporarySshIngress(ec2ClientFor(spec.region()), outputs.get("SecurityGroupId"));
 
-        String instanceId = outputs.get("InstanceId");
-        String publicIp = outputs.get("PublicIp");
-        String privateIp = outputs.get("PrivateIp");
-        return new NodeInstance(CloudProvider.AWS, spec.clusterId(), instanceId, publicIp, privateIp);
+            String instanceId = outputs.get("InstanceId");
+            String publicIp = outputs.get("PublicIp");
+            String privateIp = outputs.get("PrivateIp");
+            NodeInstance node = new NodeInstance(CloudProvider.AWS, spec.clusterId(), instanceId, publicIp, privateIp);
+            return ensureEgressAddress(spec.region(), node, null);
+        } catch (RuntimeException provisioningFailure) {
+            // A repeated invocation does not own the node created by an earlier attempt.
+            // Leave it for the state machine's durable-state compensation, which can
+            // distinguish retrying that node from deleting the Cluster and its EIP.
+            if (existing != null) throw provisioningFailure;
+            try {
+                terminateNodeForRetry(spec.region(), spec.clusterId());
+            } catch (RuntimeException cleanupFailure) {
+                provisioningFailure.addSuppressed(cleanupFailure);
+                log.error("[AwsIaC] compensation failed after node provisioning error cluster={} cleanupType={}",
+                    spec.clusterId(), cleanupFailure.getClass().getSimpleName());
+            }
+            throw provisioningFailure;
+        }
+    }
+
+    @Override
+    public NodeInstance stabilizeEgressAddress(String region, String clusterId, String allocationId) {
+        return ensureEgressAddress(region, currentNode(region, clusterId), allocationId);
+    }
+
+    @Override
+    public NodeInstance currentNode(String region, String clusterId) {
+        String name = stackName(clusterId);
+        CloudFormationClient cf = clientFor(region);
+        Stack current = describeStack(name, cf);
+        if (current == null) {
+            throw new IacException(AppErrorCode.IAC_COMPUTE_PROVISION_FAILED,
+                "Cluster stack is missing; current node cannot be inspected");
+        }
+        NodeInstance node = nodeFromStack(clusterId, current);
+        Address address = findClusterAddress(ec2ClientFor(region), clusterId, null, node.instanceId());
+        if (address == null || !Objects.equals(address.instanceId(), node.instanceId())) return node;
+        return new NodeInstance(CloudProvider.AWS, clusterId, node.instanceId(),
+            address.publicIp(), node.privateIp(), address.allocationId());
     }
 
     @Override
     public void terminate(String region, String clusterId) {
+        terminateNodeForRetry(region, clusterId);
+        releaseEgressAddresses(region, clusterId);
+    }
+
+    @Override
+    public void terminateNodeForRetry(String region, String clusterId) {
         String stackName = stackName(clusterId);
         CloudFormationClient cf = clientFor(region);
 
-        if (!stackExists(stackName, cf)) {
+        if (stackExists(stackName, cf)) {
+            try {
+                cf.deleteStack(b -> b.stackName(stackName));
+                log.info("[AwsIaC] stack delete requested stack={}", stackName);
+            } catch (CloudFormationException e) {
+                throw new IacException(AppErrorCode.IAC_COMPUTE_TERMINATE_FAILED, e, awsMessage(e));
+            }
+            awaitDeletion(stackName, cf);
+        } else {
             log.info("[AwsIaC] stack already absent stack={}", stackName);
-            return;
         }
-
-        try {
-            cf.deleteStack(b -> b.stackName(stackName));
-            log.info("[AwsIaC] stack delete requested stack={}", stackName);
-        } catch (CloudFormationException e) {
-            throw new IacException(AppErrorCode.IAC_COMPUTE_TERMINATE_FAILED, e, awsMessage(e));
-        }
-
-        awaitDeletion(stackName, cf);
     }
 
     @Override
@@ -212,6 +264,124 @@ public class AwsComputeInfrastructure implements ComputeInfrastructure {
             }
             throw new IacException(AppErrorCode.IAC_COMPUTE_TERMINATE_FAILED, e, awsMessage(e));
         }
+    }
+
+    private Stack describeStack(String stackName, CloudFormationClient cf) {
+        try {
+            return cf.describeStacks(b -> b.stackName(stackName)).stacks().get(0);
+        } catch (CloudFormationException e) {
+            if (isMissingStack(e)) return null;
+            throw new IacException(AppErrorCode.IAC_COMPUTE_PROVISION_FAILED, e, awsMessage(e));
+        }
+    }
+
+    private static NodeInstance nodeFromStack(String clusterId, Stack stack) {
+        Map<String, String> outputs = mapOutputs(stack);
+        return new NodeInstance(CloudProvider.AWS, clusterId,
+            outputs.get("InstanceId"), outputs.get("PublicIp"), outputs.get("PrivateIp"));
+    }
+
+    private NodeInstance ensureEgressAddress(String region, NodeInstance node, String preferredAllocationId) {
+        Ec2Client ec2 = ec2ClientFor(region);
+        Address address = findClusterAddress(ec2, node.clusterId(), preferredAllocationId, node.instanceId());
+        if (preferredAllocationId != null && !preferredAllocationId.isBlank()
+                && (address == null || !preferredAllocationId.equals(address.allocationId()))) {
+            throw new IacException(AppErrorCode.IAC_COMPUTE_PROVISION_FAILED,
+                "Pinned Cluster egress allocation is missing; refusing to change the allowlisted address");
+        }
+        if (address == null) {
+            try {
+                var allocated = ec2.allocateAddress(b -> b
+                    .domain(DomainType.VPC)
+                    .tagSpecifications(TagSpecification.builder()
+                        .resourceType(ResourceType.ELASTIC_IP)
+                        .tags(List.of(
+                            Tag.builder().key("Name").value("tapstate-cluster-egress-" + node.clusterId()).build(),
+                            Tag.builder().key(CLUSTER_TAG).value(node.clusterId()).build()))
+                        .build()));
+                address = Address.builder()
+                    .allocationId(allocated.allocationId())
+                    .publicIp(allocated.publicIp())
+                    .build();
+                log.info("[AwsIaC] Cluster egress address allocated cluster={} allocation={}",
+                    node.clusterId(), allocated.allocationId());
+            } catch (software.amazon.awssdk.services.ec2.model.Ec2Exception e) {
+                throw new IacException(AppErrorCode.IAC_COMPUTE_PROVISION_FAILED, e,
+                    "failed to allocate Cluster egress address: " + e.getMessage());
+            }
+        }
+
+        String allocationId = address.allocationId();
+        if (!Objects.equals(address.instanceId(), node.instanceId())) {
+            try {
+                ec2.associateAddress(b -> b
+                    .allocationId(allocationId)
+                    .instanceId(node.instanceId())
+                    .allowReassociation(true));
+            } catch (software.amazon.awssdk.services.ec2.model.Ec2Exception e) {
+                throw new IacException(AppErrorCode.IAC_COMPUTE_PROVISION_FAILED, e,
+                    "failed to associate Cluster egress address: " + e.getMessage());
+            }
+        }
+
+        return new NodeInstance(CloudProvider.AWS, node.clusterId(), node.instanceId(),
+            address.publicIp(), node.privateIp(), allocationId);
+    }
+
+    private static Address findClusterAddress(Ec2Client ec2, String clusterId,
+            String preferredAllocationId, String instanceId) {
+        List<Address> addresses;
+        try {
+            addresses = ec2.describeAddresses(b -> b.filters(
+                software.amazon.awssdk.services.ec2.model.Filter.builder()
+                    .name("tag:" + CLUSTER_TAG).values(clusterId).build())).addresses();
+        } catch (software.amazon.awssdk.services.ec2.model.Ec2Exception e) {
+            throw new IacException(AppErrorCode.IAC_COMPUTE_PROVISION_FAILED, e,
+                "failed to find Cluster egress addresses: " + e.getMessage());
+        }
+        Comparator<Address> priority = Comparator
+            .comparing((Address candidate) -> !Objects.equals(candidate.allocationId(), preferredAllocationId))
+            .thenComparing(candidate -> !Objects.equals(candidate.instanceId(), instanceId))
+            .thenComparing(Address::allocationId);
+        return addresses.stream().sorted(priority).findFirst().orElse(null);
+    }
+
+    private void releaseEgressAddresses(String region, String clusterId) {
+        Ec2Client ec2 = ec2ClientFor(region);
+        List<Address> addresses;
+        try {
+            addresses = ec2.describeAddresses(b -> b.filters(
+                software.amazon.awssdk.services.ec2.model.Filter.builder()
+                    .name("tag:" + CLUSTER_TAG).values(clusterId).build())).addresses();
+        } catch (software.amazon.awssdk.services.ec2.model.Ec2Exception e) {
+            throw new IacException(AppErrorCode.IAC_COMPUTE_TERMINATE_FAILED, e,
+                "failed to find Cluster egress addresses: " + e.getMessage());
+        }
+
+        for (Address address : addresses) {
+            if (address.associationId() != null && !address.associationId().isBlank()) {
+                try {
+                    ec2.disassociateAddress(b -> b.associationId(address.associationId()));
+                } catch (software.amazon.awssdk.services.ec2.model.Ec2Exception e) {
+                    if (!"InvalidAssociationID.NotFound".equals(awsErrorCode(e))) {
+                        throw new IacException(AppErrorCode.IAC_COMPUTE_TERMINATE_FAILED, e,
+                            "failed to disassociate Cluster egress address: " + e.getMessage());
+                    }
+                }
+            }
+            try {
+                ec2.releaseAddress(b -> b.allocationId(address.allocationId()));
+            } catch (software.amazon.awssdk.services.ec2.model.Ec2Exception e) {
+                if (!"InvalidAllocationID.NotFound".equals(awsErrorCode(e))) {
+                    throw new IacException(AppErrorCode.IAC_COMPUTE_TERMINATE_FAILED, e,
+                        "failed to release Cluster egress address: " + e.getMessage());
+                }
+            }
+        }
+    }
+
+    private static String awsErrorCode(software.amazon.awssdk.services.ec2.model.Ec2Exception e) {
+        return e.awsErrorDetails() == null ? null : e.awsErrorDetails().errorCode();
     }
 
     /** A 400 "stack does not exist" response marks successful completion. */
@@ -321,6 +491,7 @@ public class AwsComputeInfrastructure implements ComputeInfrastructure {
                         .cidrIp("0.0.0.0/0").build()))));
             log.info("[AwsIaC] temporary SSH ingress opened sg={}", securityGroupId);
         } catch (software.amazon.awssdk.services.ec2.model.Ec2Exception e) {
+            if ("InvalidPermission.Duplicate".equals(awsErrorCode(e))) return;
             throw new IacException(AppErrorCode.IAC_COMPUTE_PROVISION_FAILED, e,
                 "failed to open temporary SSH ingress: " + e.getMessage());
         }

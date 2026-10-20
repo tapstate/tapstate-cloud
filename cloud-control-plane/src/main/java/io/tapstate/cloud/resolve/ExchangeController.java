@@ -6,6 +6,7 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import io.tapstate.cloud.cluster.ClusterEgressAddressStatus;
 import io.tapstate.cloud.common.api.ApiResponse;
 import io.tapstate.cloud.common.api.AppErrorCode;
 import io.tapstate.cloud.common.api.BaseController;
@@ -108,7 +109,8 @@ public class ExchangeController extends BaseController {
         return ok(new ExchangeResponse(
             redeemed.jwt(), redeemed.expiresAt(), redeemed.jti(),
             redeemed.userEmail(), redeemed.userId(), redeemed.orgId(), redeemed.clusterId(),
-            redeemed.organizationName(), redeemed.clusterName(), redeemed.region()));
+            redeemed.organizationName(), redeemed.clusterName(), redeemed.region(),
+            redeemed.ec2PublicIp(), redeemed.egressAddressStatus()));
     }
 
     // ========== DTOs ==========
@@ -131,6 +133,9 @@ public class ExchangeController extends BaseController {
         @Schema(description = "Cluster UUID bound to this session") String clusterId,
         @Schema(description = "Organization display name from the bound Organization record") String organizationName,
         @Schema(description = "Cluster display name from the bound Cluster record") String clusterName,
-        @Schema(description = "AWS region from the bound Cluster record") String region
+        @Schema(description = "AWS region from the bound Cluster record") String region,
+        @Schema(description = "Cluster public and source-firewall egress IPv4 address") String ec2PublicIp,
+        @Schema(description = "Stability state of the Cluster egress address")
+        ClusterEgressAddressStatus egressAddressStatus
     ) {}
 }
