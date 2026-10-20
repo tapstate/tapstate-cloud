@@ -71,7 +71,7 @@ public class VerificationMailerConfiguration {
                     <h1 style="margin:28px 0 8px;font-size:22px;line-height:1.35;font-weight:600;color:#101820;">Verify your email</h1>
                     <p style="margin:0;font-size:15px;line-height:1.6;color:#334155;">Enter this code to continue creating your Tapstate account.</p>
                     <div style="margin:24px 0;padding:16px 20px;border-radius:10px;background:#f1f5f9;text-align:center;font-family:Arial,Helvetica,sans-serif;font-size:32px;line-height:1.25;font-weight:700;letter-spacing:0.28em;color:#101820;">
-                      %s
+                      {{verificationCode}}
                     </div>
                     <p style="margin:0;font-size:14px;line-height:1.6;color:#334155;">This code expires in 10 minutes. Do not share it with anyone.</p>
                     <p style="margin:20px 0 0;font-size:13px;line-height:1.6;color:#64748b;">If you did not request this code, you can ignore this email.</p>
@@ -79,13 +79,14 @@ public class VerificationMailerConfiguration {
                 </table>
               </body>
             </html>
-            """.formatted(code);
+            """.replace("{{verificationCode}}", code);
     }
 
     @Bean
     @ConditionalOnMissingBean(VerificationCodeMailer.class)
     VerificationCodeMailer unavailableVerificationCodeMailer() {
         return (email, code) -> {
+            log.warn("Verification email fallback mailer invoked; SMTP mailer bean is unavailable");
             throw new IllegalStateException("Email delivery is not configured");
         };
     }
