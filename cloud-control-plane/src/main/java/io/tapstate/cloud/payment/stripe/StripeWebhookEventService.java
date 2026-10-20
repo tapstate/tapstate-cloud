@@ -288,11 +288,16 @@ public class StripeWebhookEventService {
         subscription.setCurrentPeriodEnd(periodEnd);
         subscriptionRepository.save(subscription);
 
-        // A paid invoice after dunning means the account is current again.
-        if (subscription.getStatus() == io.tapstate.cloud.subscription.SubscriptionStatus.PAST_DUE) {
+        // A paid invoice means the paid period is running again: the first invoice
+        // after a trial converts TRIAL, and one after dunning converts PAST_DUE.
+        var statusNow = subscription.getStatus();
+        if (statusNow == io.tapstate.cloud.subscription.SubscriptionStatus.TRIAL
+                || statusNow == io.tapstate.cloud.subscription.SubscriptionStatus.PAST_DUE) {
+            var conversionEvent = statusNow == io.tapstate.cloud.subscription.SubscriptionStatus.TRIAL
+                    ? io.tapstate.cloud.subscription.fsm.SubscriptionEventType.PAYMENT_CONFIRMED
+                    : io.tapstate.cloud.subscription.fsm.SubscriptionEventType.PAYMENT_RECEIVED;
             subscriptionStateMachineService.transition(subscription.getId(),
-                    io.tapstate.cloud.subscription.fsm.SubscriptionEventType.PAYMENT_RECEIVED,
-                    "stripe:invoice.paid");
+                    conversionEvent, "stripe:invoice.paid");
         }
 
         log.info("invoice.paid: subscription {} period advanced to {} (stripe subscription {})",

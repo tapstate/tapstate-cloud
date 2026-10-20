@@ -186,6 +186,15 @@
       <artifactId>cloud-control-plane-sdk</artifactId>
       <scope>test</scope>
     </dependency>
+
+    <!-- WireMock — a fake Stripe endpoint so subscription tests exercise the real
+         SDK call path (request shape, retries, error mapping) without the network -->
+    <dependency>
+      <groupId>org.wiremock</groupId>
+      <artifactId>wiremock-standalone</artifactId>
+      <version>3.9.1</version>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 
   <build>

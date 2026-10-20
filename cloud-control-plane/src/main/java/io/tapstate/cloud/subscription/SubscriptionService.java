@@ -107,6 +107,15 @@ public class SubscriptionService {
                 .orElseThrow(() -> new BusinessException(
                         AppErrorCode.SUBSCRIPTION_PRICING_NOT_CONFIGURED, 400, specKey));
 
+        // USD monthly is the only shape the product sells. The catalogue sync only
+        // stores those, so anything else was written outside it — refuse rather
+        // than take a payment in a currency the price page never offered.
+        if (!"usd".equalsIgnoreCase(priceEntry.currency())
+                || !"month".equalsIgnoreCase(priceEntry.billingInterval())) {
+            throw new BusinessException(
+                    AppErrorCode.SUBSCRIPTION_PRICING_NOT_CONFIGURED, 400, specKey);
+        }
+
         // ③ Resolve the latest ACTIVE Cluster version (same as legacy path)
         ClusterVersion clusterVersion = clusterVersionService.findClusterLastVersion();
 
@@ -208,24 +217,30 @@ public class SubscriptionService {
                         AppErrorCode.SUBSCRIPTION_NOT_FOUND, 404, subscriptionId));
 
         // Idempotency — already activated?
-        if (subscription.getStatus() == SubscriptionStatus.ACTIVE
+        if ((subscription.getStatus() == SubscriptionStatus.ACTIVE
+                || subscription.getStatus() == SubscriptionStatus.TRIAL)
                 && subscription.isProvisionInitiated()) {
-            log.info("[Subscription] activateAndProvision — already active+provisioned, idempotent skip");
+            log.info("[Subscription] activateAndProvision — already activated+provisioned, idempotent skip");
             return;
         }
 
-        // FSM transition: PENDING_PAYMENT → ACTIVE
+        // FSM transition: PENDING_PAYMENT → ACTIVE, or → TRIAL for a trial spec.
         if (subscription.getStatus() == SubscriptionStatus.PENDING_PAYMENT) {
+            boolean trial = subscription.getSpecConfig() != null && subscription.getSpecConfig().hasTrial();
+            SubscriptionEventType checkoutEvent = trial
+                    ? SubscriptionEventType.CHECKOUT_COMPLETED_TRIAL
+                    : SubscriptionEventType.CHECKOUT_COMPLETED;
             var result = subscriptionStateMachineService.transition(
-                    subscription.getId(), SubscriptionEventType.CHECKOUT_COMPLETED,
+                    subscription.getId(), checkoutEvent,
                     "webhook:checkout.session.completed");
             if (!result.accepted()) {
-                log.warn("[Subscription] FSM transition CHECKOUT_COMPLETED rejected for subscription={}, current={}",
-                        subscriptionId, subscription.getStatus());
+                log.warn("[Subscription] FSM transition {} rejected for subscription={}, current={}",
+                        checkoutEvent, subscriptionId, subscription.getStatus());
                 throw new BusinessException(AppErrorCode.SUBSCRIPTION_ALREADY_ACTIVE, 400, subscriptionId);
             }
             subscription = subscriptionRepository.findById(subscription.getId()).orElse(subscription);
-        } else if (subscription.getStatus() != SubscriptionStatus.ACTIVE) {
+        } else if (subscription.getStatus() != SubscriptionStatus.ACTIVE
+                && subscription.getStatus() != SubscriptionStatus.TRIAL) {
             log.warn("[Subscription] activateAndProvision — subscription in unexpected status {}, aborting",
                     subscription.getStatus());
             return;
@@ -270,12 +285,16 @@ public class SubscriptionService {
                         AppErrorCode.SUBSCRIPTION_NOT_FOUND, 404, subscriptionId));
 
         // Payment must be confirmed first — a PENDING_PAYMENT shell has no right to
-        // infrastructure, and finalising it would provision for free.
+        // infrastructure, and finalising it would provision for free. TRIAL is
+        // allowed: a trial has a bound payment method and is exactly the state the
+        // free instance is for. Everything else (PAST_DUE, PENDING_CANCEL,
+        // CANCELLED) has no right to new resources.
         if (subscription.getStatus() == SubscriptionStatus.PENDING_PAYMENT) {
             throw new BusinessException(
                     AppErrorCode.SUBSCRIPTION_PENDING_PAYMENT, 400, subscriptionId);
         }
-        if (subscription.getStatus() != SubscriptionStatus.ACTIVE) {
+        if (subscription.getStatus() != SubscriptionStatus.ACTIVE
+                && subscription.getStatus() != SubscriptionStatus.TRIAL) {
             throw new BusinessException(
                     AppErrorCode.SUBSCRIPTION_NOT_ACTIVE, 400, subscriptionId);
         }
@@ -343,7 +362,8 @@ public class SubscriptionService {
                 || subscription.getStatus() == SubscriptionStatus.PENDING_CANCEL) {
             return subscription;
         }
-        if (subscription.getStatus() != SubscriptionStatus.ACTIVE) {
+        if (subscription.getStatus() != SubscriptionStatus.ACTIVE
+                && subscription.getStatus() != SubscriptionStatus.TRIAL) {
             throw new BusinessException(AppErrorCode.SUBSCRIPTION_CANNOT_CANCEL, 400,
                     "Cannot request cancel_at_period_end from status: " + subscription.getStatus());
         }

@@ -20,6 +20,7 @@ import java.util.EnumSet;
  * State model:
  * <pre>
  * CHECKOUT_CREATED ──→ PENDING_PAYMENT ──CHECKOUT_COMPLETED──→ ACTIVE
+ *                          │   └─CHECKOUT_COMPLETED_TRIAL──→ TRIAL ──PAYMENT_CONFIRMED──→ ACTIVE
  *                          │  (24h expired)                       │
  *                          └── PAYMENT_PENDING_EXPIRED → CANCELLED   CANCEL_AT_PERIOD_END_REQUESTED
  *                                                                 │
@@ -66,6 +67,13 @@ public class SubscriptionStateMachineConfig extends EnumStateMachineConfigurerAd
                 .event(SubscriptionEventType.CHECKOUT_COMPLETED)
                 .target(SubscriptionStatus.ACTIVE)
             .and()
+            // A trial spec binds the card without charging, so the subscription
+            // starts in TRIAL and bills from the first invoice after the trial.
+            .withExternal()
+                .source(SubscriptionStatus.PENDING_PAYMENT)
+                .event(SubscriptionEventType.CHECKOUT_COMPLETED_TRIAL)
+                .target(SubscriptionStatus.TRIAL)
+            .and()
             .withExternal()
                 .source(SubscriptionStatus.PENDING_PAYMENT)
                 .event(SubscriptionEventType.PAYMENT_PENDING_EXPIRED)
@@ -87,6 +95,13 @@ public class SubscriptionStateMachineConfig extends EnumStateMachineConfigurerAd
                 .source(SubscriptionStatus.TRIAL)
                 .event(SubscriptionEventType.CANCEL_REQUESTED)
                 .target(SubscriptionStatus.CANCELLED)
+            .and()
+            // Cancel during the trial keeps the instance to the end of the trial,
+            // exactly like cancelling a paid period.
+            .withExternal()
+                .source(SubscriptionStatus.TRIAL)
+                .event(SubscriptionEventType.CANCEL_AT_PERIOD_END_REQUESTED)
+                .target(SubscriptionStatus.PENDING_CANCEL)
             .and()
             .withExternal()
                 .source(SubscriptionStatus.TRIAL)

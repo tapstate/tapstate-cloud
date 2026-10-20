@@ -62,32 +62,7 @@ public class StripePaymentService implements PaymentGateway {
             String stripeCustomerId = customerService.getOrCreate(
                     request.orgId(), request.userEmail());
 
-            SessionCreateParams.LineItem lineItem = SessionCreateParams.LineItem.builder()
-                    .setPrice(request.stripePriceId())
-                    .setQuantity(1L)
-                    .build();
-
-            // Stripe Price already has billing configured (monthly USD recurring).
-            // We don't override it here — just pass through.
-            SessionCreateParams params = SessionCreateParams.builder()
-                    .setMode(SessionCreateParams.Mode.SUBSCRIPTION)
-                    .addLineItem(lineItem)
-                    .setCustomer(stripeCustomerId)
-                    .putMetadata("org_id", request.orgId())
-                    .putMetadata("spec_key", request.specConfig().getKey())
-                    .setClientReferenceId(request.orgId() + ":" + request.specConfig().getKey())
-                    .setSuccessUrl(buildSuccessUrl())
-                    .setCancelUrl(buildCancelUrl())
-                    .setAutomaticTax(SessionCreateParams.AutomaticTax.builder()
-                            .setEnabled(true).build())
-                    // Automatic tax requires a customer address; "auto" makes Checkout
-                    // save the billing address the customer enters back onto the Customer.
-                    .setCustomerUpdate(SessionCreateParams.CustomerUpdate.builder()
-                            .setAddress(SessionCreateParams.CustomerUpdate.Address.AUTO)
-                            .build())
-                    .build();
-
-            Session session = Session.create(params);
+            Session session = Session.create(buildSessionParams(request, stripeCustomerId));
             log.info("StripePaymentService: created Checkout session {} for org {} price {}",
                     session.getId(), request.orgId(), request.stripePriceId());
 
@@ -106,6 +81,49 @@ public class StripePaymentService implements PaymentGateway {
             log.error("StripePaymentService: Checkout session creation failed", e);
             throw new StripeIntegrationException("Checkout session creation failed: " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * Checkout Session parameters for one spec.
+     * <p>
+     * A spec that carries a trial gets {@code subscription_data.trial_period_days}:
+     * Stripe collects the payment method but issues no invoice until the trial
+     * ends, which is what makes "7 days free, card bound only" true rather than a
+     * promise the pricing page makes on its own. A spec without a trial starts
+     * billing on the first invoice.
+     */
+    public SessionCreateParams buildSessionParams(CreateSessionRequest request, String stripeCustomerId) {
+        SessionCreateParams.LineItem lineItem = SessionCreateParams.LineItem.builder()
+                .setPrice(request.stripePriceId())
+                .setQuantity(1L)
+                .build();
+
+        // Stripe Price already has billing configured (monthly USD recurring).
+        // We don't override it here — just pass through.
+        SessionCreateParams.Builder builder = SessionCreateParams.builder()
+                .setMode(SessionCreateParams.Mode.SUBSCRIPTION)
+                .addLineItem(lineItem)
+                .setCustomer(stripeCustomerId)
+                .putMetadata("org_id", request.orgId())
+                .putMetadata("spec_key", request.specConfig().getKey())
+                .setClientReferenceId(request.orgId() + ":" + request.specConfig().getKey())
+                .setSuccessUrl(buildSuccessUrl())
+                .setCancelUrl(buildCancelUrl())
+                .setAutomaticTax(SessionCreateParams.AutomaticTax.builder()
+                        .setEnabled(true).build())
+                // Automatic tax requires a customer address; "auto" makes Checkout
+                // save the billing address the customer enters back onto the Customer.
+                .setCustomerUpdate(SessionCreateParams.CustomerUpdate.builder()
+                        .setAddress(SessionCreateParams.CustomerUpdate.Address.AUTO)
+                        .build());
+
+        if (request.specConfig().hasTrial()) {
+            builder.setSubscriptionData(SessionCreateParams.SubscriptionData.builder()
+                    .setTrialPeriodDays((long) request.specConfig().getTrialDays())
+                    .build());
+        }
+
+        return builder.build();
     }
 
     // ---- Cancellation flows --------------------------------------------

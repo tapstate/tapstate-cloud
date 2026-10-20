@@ -18,6 +18,13 @@ public enum SubscriptionEventType {
     /** Stripe Checkout completed — payment confirmed, shell subscription activates */
     CHECKOUT_COMPLETED,
 
+    /**
+     * Stripe Checkout completed for a spec that carries a trial — the card is
+     * bound but nothing is charged until the trial ends, so the subscription
+     * enters TRIAL rather than ACTIVE.
+     */
+    CHECKOUT_COMPLETED_TRIAL,
+
     /** Trial converted to paid (legacy WEEK 2 scaffold path) */
     PAYMENT_CONFIRMED,
 
