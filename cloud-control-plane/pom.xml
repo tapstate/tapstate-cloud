@@ -180,15 +180,6 @@
       <scope>test</scope>
     </dependency>
 
-    <!-- WireMock — mock Stripe API endpoints for SubscriptionCreateIT / SubscriptionCancelIT.
-         Standalone variant embeds Jetty, no extra dep conflicts with Spring Boot. -->
-    <dependency>
-      <groupId>org.wiremock</groupId>
-      <artifactId>wiremock-jre8-standalone</artifactId>
-      <version>3.9.1</version>
-      <scope>test</scope>
-    </dependency>
-
     <!-- OpenAPI-generated SDK — used by IT tests to call real HTTP endpoints -->
     <dependency>
       <groupId>io.tapstate</groupId>

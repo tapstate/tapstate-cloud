@@ -20,9 +20,13 @@ import io.tapstate.cloud.sdk.BaseApi;
 import io.tapstate.cloud.sdk.Configuration;
 import io.tapstate.cloud.sdk.Pair;
 
+import io.tapstate.cloud.sdk.model.ApiResponseCheckoutResponse;
+import io.tapstate.cloud.sdk.model.ApiResponseListSpecWithPricingResponse;
 import io.tapstate.cloud.sdk.model.ApiResponseListSubscriptionResponse;
 import io.tapstate.cloud.sdk.model.ApiResponseSubscriptionResponse;
+import io.tapstate.cloud.sdk.model.CreateCheckoutRequest;
 import io.tapstate.cloud.sdk.model.CreateSubscriptionRequest;
+import io.tapstate.cloud.sdk.model.FinalizeProvisioningRequest;
 
 
 import java.util.ArrayList;
@@ -41,6 +45,172 @@ public class SubscriptionApi extends BaseApi {
 
   public SubscriptionApi(ApiClient apiClient) {
     super(apiClient);
+  }
+
+  /**
+   * Cancel at the end of the current billing period
+   * Sets &#x60;cancel_at_period_end&#x3D;true&#x60; on the payment channel&#39;s subscription and moves the Subscription to &#x60;PENDING_CANCEL&#x60;. Resources stay usable until the period ends; a scheduled reaper then transitions to &#x60;CANCELLED&#x60; and cascades Cluster termination.  Only valid from &#x60;ACTIVE&#x60;. Idempotent from &#x60;PENDING_CANCEL&#x60; / &#x60;CANCELLED&#x60;.
+   * @param orgId Organization UUID (required)
+   * @param subscriptionId Subscription UUID (required)
+   * @return ApiResponseSubscriptionResponse
+   * @throws ApiException if fails to make API call
+   */
+  public ApiResponseSubscriptionResponse cancelAtPeriodEnd(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull String subscriptionId) throws ApiException {
+    return this.cancelAtPeriodEnd(orgId, subscriptionId, Collections.emptyMap());
+  }
+
+
+  /**
+   * Cancel at the end of the current billing period
+   * Sets &#x60;cancel_at_period_end&#x3D;true&#x60; on the payment channel&#39;s subscription and moves the Subscription to &#x60;PENDING_CANCEL&#x60;. Resources stay usable until the period ends; a scheduled reaper then transitions to &#x60;CANCELLED&#x60; and cascades Cluster termination.  Only valid from &#x60;ACTIVE&#x60;. Idempotent from &#x60;PENDING_CANCEL&#x60; / &#x60;CANCELLED&#x60;.
+   * @param orgId Organization UUID (required)
+   * @param subscriptionId Subscription UUID (required)
+   * @param additionalHeaders additionalHeaders for this call
+   * @return ApiResponseSubscriptionResponse
+   * @throws ApiException if fails to make API call
+   */
+  public ApiResponseSubscriptionResponse cancelAtPeriodEnd(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull String subscriptionId, Map<String, String> additionalHeaders) throws ApiException {
+    Object localVarPostBody = null;
+    
+    // verify the required parameter 'orgId' is set
+    if (orgId == null) {
+      throw new ApiException(400, "Missing the required parameter 'orgId' when calling cancelAtPeriodEnd");
+    }
+    
+    // verify the required parameter 'subscriptionId' is set
+    if (subscriptionId == null) {
+      throw new ApiException(400, "Missing the required parameter 'subscriptionId' when calling cancelAtPeriodEnd");
+    }
+    
+    // create path and map variables
+    String localVarPath = "/v1/api/orgs/{orgId}/subscriptions/{subscriptionId}/cancel-at-period-end"
+      .replaceAll("\\{" + "orgId" + "\\}", apiClient.escapeString(apiClient.parameterToString(orgId)))
+      .replaceAll("\\{" + "subscriptionId" + "\\}", apiClient.escapeString(apiClient.parameterToString(subscriptionId)));
+
+    StringJoiner localVarQueryStringJoiner = new StringJoiner("&");
+    String localVarQueryParameterBaseName;
+    List<Pair> localVarQueryParams = new ArrayList<Pair>();
+    List<Pair> localVarCollectionQueryParams = new ArrayList<Pair>();
+    Map<String, String> localVarHeaderParams = new HashMap<String, String>();
+    Map<String, String> localVarCookieParams = new HashMap<String, String>();
+    Map<String, Object> localVarFormParams = new HashMap<String, Object>();
+
+    
+    localVarHeaderParams.putAll(additionalHeaders);
+
+    
+    
+    final String[] localVarAccepts = {
+      "*/*"
+    };
+    final String localVarAccept = apiClient.selectHeaderAccept(localVarAccepts);
+
+    final String[] localVarContentTypes = {
+      
+    };
+    final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
+
+    String[] localVarAuthNames = new String[] { "session-cookie" };
+
+    TypeReference<ApiResponseSubscriptionResponse> localVarReturnType = new TypeReference<ApiResponseSubscriptionResponse>() {};
+    return apiClient.invokeAPI(
+        localVarPath,
+        "POST",
+        localVarQueryParams,
+        localVarCollectionQueryParams,
+        localVarQueryStringJoiner.toString(),
+        localVarPostBody,
+        localVarHeaderParams,
+        localVarCookieParams,
+        localVarFormParams,
+        localVarAccept,
+        localVarContentType,
+        localVarAuthNames,
+        localVarReturnType
+    );
+  }
+
+  /**
+   * Cancel immediately, with no grace period
+   * Cancels the payment channel&#39;s subscription right away and moves the Subscription to &#x60;CANCELLED&#x60;, cascading Cluster termination and MdbAllocation reclaim. Unlike &#x60;/cancel-at-period-end&#x60; there is no remaining service period.
+   * @param orgId Organization UUID (required)
+   * @param subscriptionId Subscription UUID (required)
+   * @return ApiResponseSubscriptionResponse
+   * @throws ApiException if fails to make API call
+   */
+  public ApiResponseSubscriptionResponse cancelNow(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull String subscriptionId) throws ApiException {
+    return this.cancelNow(orgId, subscriptionId, Collections.emptyMap());
+  }
+
+
+  /**
+   * Cancel immediately, with no grace period
+   * Cancels the payment channel&#39;s subscription right away and moves the Subscription to &#x60;CANCELLED&#x60;, cascading Cluster termination and MdbAllocation reclaim. Unlike &#x60;/cancel-at-period-end&#x60; there is no remaining service period.
+   * @param orgId Organization UUID (required)
+   * @param subscriptionId Subscription UUID (required)
+   * @param additionalHeaders additionalHeaders for this call
+   * @return ApiResponseSubscriptionResponse
+   * @throws ApiException if fails to make API call
+   */
+  public ApiResponseSubscriptionResponse cancelNow(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull String subscriptionId, Map<String, String> additionalHeaders) throws ApiException {
+    Object localVarPostBody = null;
+    
+    // verify the required parameter 'orgId' is set
+    if (orgId == null) {
+      throw new ApiException(400, "Missing the required parameter 'orgId' when calling cancelNow");
+    }
+    
+    // verify the required parameter 'subscriptionId' is set
+    if (subscriptionId == null) {
+      throw new ApiException(400, "Missing the required parameter 'subscriptionId' when calling cancelNow");
+    }
+    
+    // create path and map variables
+    String localVarPath = "/v1/api/orgs/{orgId}/subscriptions/{subscriptionId}/cancel-now"
+      .replaceAll("\\{" + "orgId" + "\\}", apiClient.escapeString(apiClient.parameterToString(orgId)))
+      .replaceAll("\\{" + "subscriptionId" + "\\}", apiClient.escapeString(apiClient.parameterToString(subscriptionId)));
+
+    StringJoiner localVarQueryStringJoiner = new StringJoiner("&");
+    String localVarQueryParameterBaseName;
+    List<Pair> localVarQueryParams = new ArrayList<Pair>();
+    List<Pair> localVarCollectionQueryParams = new ArrayList<Pair>();
+    Map<String, String> localVarHeaderParams = new HashMap<String, String>();
+    Map<String, String> localVarCookieParams = new HashMap<String, String>();
+    Map<String, Object> localVarFormParams = new HashMap<String, Object>();
+
+    
+    localVarHeaderParams.putAll(additionalHeaders);
+
+    
+    
+    final String[] localVarAccepts = {
+      "*/*"
+    };
+    final String localVarAccept = apiClient.selectHeaderAccept(localVarAccepts);
+
+    final String[] localVarContentTypes = {
+      
+    };
+    final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
+
+    String[] localVarAuthNames = new String[] { "session-cookie" };
+
+    TypeReference<ApiResponseSubscriptionResponse> localVarReturnType = new TypeReference<ApiResponseSubscriptionResponse>() {};
+    return apiClient.invokeAPI(
+        localVarPath,
+        "POST",
+        localVarQueryParams,
+        localVarCollectionQueryParams,
+        localVarQueryStringJoiner.toString(),
+        localVarPostBody,
+        localVarHeaderParams,
+        localVarCookieParams,
+        localVarFormParams,
+        localVarAccept,
+        localVarContentType,
+        localVarAuthNames,
+        localVarReturnType
+    );
   }
 
   /**
@@ -127,6 +297,88 @@ public class SubscriptionApi extends BaseApi {
   }
 
   /**
+   * Start a Stripe Checkout session for a spec
+   * Validates the spec against the platform catalog and its payment-channel pricing, creates a Stripe Checkout Session, and persists a &#x60;PENDING_PAYMENT&#x60; Subscription shell.  No Cluster and no MdbAllocation are created here. Provisioning starts only after Stripe confirms payment via the &#x60;checkout.session.completed&#x60; webhook, which drives &#x60;PENDING_PAYMENT → ACTIVE&#x60; and sets &#x60;provisionInitiated&#x60;.
+   * @param orgId Organization UUID (required)
+   * @param createCheckoutRequest  (required)
+   * @return ApiResponseCheckoutResponse
+   * @throws ApiException if fails to make API call
+   */
+  public ApiResponseCheckoutResponse createCheckoutSession(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull CreateCheckoutRequest createCheckoutRequest) throws ApiException {
+    return this.createCheckoutSession(orgId, createCheckoutRequest, Collections.emptyMap());
+  }
+
+
+  /**
+   * Start a Stripe Checkout session for a spec
+   * Validates the spec against the platform catalog and its payment-channel pricing, creates a Stripe Checkout Session, and persists a &#x60;PENDING_PAYMENT&#x60; Subscription shell.  No Cluster and no MdbAllocation are created here. Provisioning starts only after Stripe confirms payment via the &#x60;checkout.session.completed&#x60; webhook, which drives &#x60;PENDING_PAYMENT → ACTIVE&#x60; and sets &#x60;provisionInitiated&#x60;.
+   * @param orgId Organization UUID (required)
+   * @param createCheckoutRequest  (required)
+   * @param additionalHeaders additionalHeaders for this call
+   * @return ApiResponseCheckoutResponse
+   * @throws ApiException if fails to make API call
+   */
+  public ApiResponseCheckoutResponse createCheckoutSession(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull CreateCheckoutRequest createCheckoutRequest, Map<String, String> additionalHeaders) throws ApiException {
+    Object localVarPostBody = createCheckoutRequest;
+    
+    // verify the required parameter 'orgId' is set
+    if (orgId == null) {
+      throw new ApiException(400, "Missing the required parameter 'orgId' when calling createCheckoutSession");
+    }
+    
+    // verify the required parameter 'createCheckoutRequest' is set
+    if (createCheckoutRequest == null) {
+      throw new ApiException(400, "Missing the required parameter 'createCheckoutRequest' when calling createCheckoutSession");
+    }
+    
+    // create path and map variables
+    String localVarPath = "/v1/api/orgs/{orgId}/subscriptions/checkout"
+      .replaceAll("\\{" + "orgId" + "\\}", apiClient.escapeString(apiClient.parameterToString(orgId)));
+
+    StringJoiner localVarQueryStringJoiner = new StringJoiner("&");
+    String localVarQueryParameterBaseName;
+    List<Pair> localVarQueryParams = new ArrayList<Pair>();
+    List<Pair> localVarCollectionQueryParams = new ArrayList<Pair>();
+    Map<String, String> localVarHeaderParams = new HashMap<String, String>();
+    Map<String, String> localVarCookieParams = new HashMap<String, String>();
+    Map<String, Object> localVarFormParams = new HashMap<String, Object>();
+
+    
+    localVarHeaderParams.putAll(additionalHeaders);
+
+    
+    
+    final String[] localVarAccepts = {
+      "*/*"
+    };
+    final String localVarAccept = apiClient.selectHeaderAccept(localVarAccepts);
+
+    final String[] localVarContentTypes = {
+      "application/json"
+    };
+    final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
+
+    String[] localVarAuthNames = new String[] { "session-cookie" };
+
+    TypeReference<ApiResponseCheckoutResponse> localVarReturnType = new TypeReference<ApiResponseCheckoutResponse>() {};
+    return apiClient.invokeAPI(
+        localVarPath,
+        "POST",
+        localVarQueryParams,
+        localVarCollectionQueryParams,
+        localVarQueryStringJoiner.toString(),
+        localVarPostBody,
+        localVarHeaderParams,
+        localVarCookieParams,
+        localVarFormParams,
+        localVarAccept,
+        localVarContentType,
+        localVarAuthNames,
+        localVarReturnType
+    );
+  }
+
+  /**
    * Create a subscription with one Cluster + one MDB allocation
    * Creates a new subscription (TRIAL, 30-day period) with the two default billable items, then synchronously provisions one Cluster record and one Atlas MDB allocation.  Async provisioning (fired by state machines):   - Cluster state machine: START_PROVISION → CloudFormation simulation → READY/PROVISIONING_FAILED   - MDB state machine: START_PROVISION → Atlas createDatabase + createDatabaseUser → READY/PROVISIONING_FAILED  Both flows run in parallel. Poll GET /subscriptions/{subscriptionId} to track progress.  An Organization may own many subscriptions; cluster names stay unique within org + region.
    * @param orgId Organization UUID (required)
@@ -164,6 +416,96 @@ public class SubscriptionApi extends BaseApi {
     // create path and map variables
     String localVarPath = "/v1/api/orgs/{orgId}/subscriptions"
       .replaceAll("\\{" + "orgId" + "\\}", apiClient.escapeString(apiClient.parameterToString(orgId)));
+
+    StringJoiner localVarQueryStringJoiner = new StringJoiner("&");
+    String localVarQueryParameterBaseName;
+    List<Pair> localVarQueryParams = new ArrayList<Pair>();
+    List<Pair> localVarCollectionQueryParams = new ArrayList<Pair>();
+    Map<String, String> localVarHeaderParams = new HashMap<String, String>();
+    Map<String, String> localVarCookieParams = new HashMap<String, String>();
+    Map<String, Object> localVarFormParams = new HashMap<String, Object>();
+
+    
+    localVarHeaderParams.putAll(additionalHeaders);
+
+    
+    
+    final String[] localVarAccepts = {
+      "*/*"
+    };
+    final String localVarAccept = apiClient.selectHeaderAccept(localVarAccepts);
+
+    final String[] localVarContentTypes = {
+      "application/json"
+    };
+    final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
+
+    String[] localVarAuthNames = new String[] { "session-cookie" };
+
+    TypeReference<ApiResponseSubscriptionResponse> localVarReturnType = new TypeReference<ApiResponseSubscriptionResponse>() {};
+    return apiClient.invokeAPI(
+        localVarPath,
+        "POST",
+        localVarQueryParams,
+        localVarCollectionQueryParams,
+        localVarQueryStringJoiner.toString(),
+        localVarPostBody,
+        localVarHeaderParams,
+        localVarCookieParams,
+        localVarFormParams,
+        localVarAccept,
+        localVarContentType,
+        localVarAuthNames,
+        localVarReturnType
+    );
+  }
+
+  /**
+   * Provision Cluster + MDB after a confirmed checkout
+   * Called by the Console once the user returns from Stripe Checkout. Requires a Subscription already activated by the webhook (&#x60;ACTIVE&#x60; + &#x60;provisionInitiated&#x60;). Creates the Cluster and MdbAllocation from the spec snapshot taken at checkout time and starts asynchronous provisioning.
+   * @param orgId Organization UUID (required)
+   * @param subscriptionId Subscription UUID (required)
+   * @param finalizeProvisioningRequest  (required)
+   * @return ApiResponseSubscriptionResponse
+   * @throws ApiException if fails to make API call
+   */
+  public ApiResponseSubscriptionResponse finalizeProvisioning(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull String subscriptionId, @jakarta.annotation.Nonnull FinalizeProvisioningRequest finalizeProvisioningRequest) throws ApiException {
+    return this.finalizeProvisioning(orgId, subscriptionId, finalizeProvisioningRequest, Collections.emptyMap());
+  }
+
+
+  /**
+   * Provision Cluster + MDB after a confirmed checkout
+   * Called by the Console once the user returns from Stripe Checkout. Requires a Subscription already activated by the webhook (&#x60;ACTIVE&#x60; + &#x60;provisionInitiated&#x60;). Creates the Cluster and MdbAllocation from the spec snapshot taken at checkout time and starts asynchronous provisioning.
+   * @param orgId Organization UUID (required)
+   * @param subscriptionId Subscription UUID (required)
+   * @param finalizeProvisioningRequest  (required)
+   * @param additionalHeaders additionalHeaders for this call
+   * @return ApiResponseSubscriptionResponse
+   * @throws ApiException if fails to make API call
+   */
+  public ApiResponseSubscriptionResponse finalizeProvisioning(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull String subscriptionId, @jakarta.annotation.Nonnull FinalizeProvisioningRequest finalizeProvisioningRequest, Map<String, String> additionalHeaders) throws ApiException {
+    Object localVarPostBody = finalizeProvisioningRequest;
+    
+    // verify the required parameter 'orgId' is set
+    if (orgId == null) {
+      throw new ApiException(400, "Missing the required parameter 'orgId' when calling finalizeProvisioning");
+    }
+    
+    // verify the required parameter 'subscriptionId' is set
+    if (subscriptionId == null) {
+      throw new ApiException(400, "Missing the required parameter 'subscriptionId' when calling finalizeProvisioning");
+    }
+    
+    // verify the required parameter 'finalizeProvisioningRequest' is set
+    if (finalizeProvisioningRequest == null) {
+      throw new ApiException(400, "Missing the required parameter 'finalizeProvisioningRequest' when calling finalizeProvisioning");
+    }
+    
+    // create path and map variables
+    String localVarPath = "/v1/api/orgs/{orgId}/subscriptions/{subscriptionId}/finalize-provisioning"
+      .replaceAll("\\{" + "orgId" + "\\}", apiClient.escapeString(apiClient.parameterToString(orgId)))
+      .replaceAll("\\{" + "subscriptionId" + "\\}", apiClient.escapeString(apiClient.parameterToString(subscriptionId)));
 
     StringJoiner localVarQueryStringJoiner = new StringJoiner("&");
     String localVarQueryParameterBaseName;
@@ -274,6 +616,73 @@ public class SubscriptionApi extends BaseApi {
     String[] localVarAuthNames = new String[] { "session-cookie" };
 
     TypeReference<ApiResponseSubscriptionResponse> localVarReturnType = new TypeReference<ApiResponseSubscriptionResponse>() {};
+    return apiClient.invokeAPI(
+        localVarPath,
+        "GET",
+        localVarQueryParams,
+        localVarCollectionQueryParams,
+        localVarQueryStringJoiner.toString(),
+        localVarPostBody,
+        localVarHeaderParams,
+        localVarCookieParams,
+        localVarFormParams,
+        localVarAccept,
+        localVarContentType,
+        localVarAuthNames,
+        localVarReturnType
+    );
+  }
+
+  /**
+   * List subscription specs with their payment-channel pricing
+   * Public catalog endpoint — no session required, because the Console renders pricing before the user signs in.  JOINs the platform spec catalog (&#x60;spec_config&#x60;, enabled only) with the active Stripe prices (&#x60;stripe_products&#x60;, enabled Product + enabled Price). A spec with no active price on any enabled Product is omitted: it cannot be purchased.
+   * @return ApiResponseListSpecWithPricingResponse
+   * @throws ApiException if fails to make API call
+   */
+  public ApiResponseListSpecWithPricingResponse listSpecs() throws ApiException {
+    return this.listSpecs(Collections.emptyMap());
+  }
+
+
+  /**
+   * List subscription specs with their payment-channel pricing
+   * Public catalog endpoint — no session required, because the Console renders pricing before the user signs in.  JOINs the platform spec catalog (&#x60;spec_config&#x60;, enabled only) with the active Stripe prices (&#x60;stripe_products&#x60;, enabled Product + enabled Price). A spec with no active price on any enabled Product is omitted: it cannot be purchased.
+   * @param additionalHeaders additionalHeaders for this call
+   * @return ApiResponseListSpecWithPricingResponse
+   * @throws ApiException if fails to make API call
+   */
+  public ApiResponseListSpecWithPricingResponse listSpecs(Map<String, String> additionalHeaders) throws ApiException {
+    Object localVarPostBody = null;
+    
+    // create path and map variables
+    String localVarPath = "/v1/api/specs";
+
+    StringJoiner localVarQueryStringJoiner = new StringJoiner("&");
+    String localVarQueryParameterBaseName;
+    List<Pair> localVarQueryParams = new ArrayList<Pair>();
+    List<Pair> localVarCollectionQueryParams = new ArrayList<Pair>();
+    Map<String, String> localVarHeaderParams = new HashMap<String, String>();
+    Map<String, String> localVarCookieParams = new HashMap<String, String>();
+    Map<String, Object> localVarFormParams = new HashMap<String, Object>();
+
+    
+    localVarHeaderParams.putAll(additionalHeaders);
+
+    
+    
+    final String[] localVarAccepts = {
+      "*/*"
+    };
+    final String localVarAccept = apiClient.selectHeaderAccept(localVarAccepts);
+
+    final String[] localVarContentTypes = {
+      
+    };
+    final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
+
+    String[] localVarAuthNames = new String[] {  };
+
+    TypeReference<ApiResponseListSpecWithPricingResponse> localVarReturnType = new TypeReference<ApiResponseListSpecWithPricingResponse>() {};
     return apiClient.invokeAPI(
         localVarPath,
         "GET",

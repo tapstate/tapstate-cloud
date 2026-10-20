@@ -269,6 +269,24 @@ public class SubscriptionService {
                 .orElseThrow(() -> new BusinessException(
                         AppErrorCode.SUBSCRIPTION_NOT_FOUND, 404, subscriptionId));
 
+        // Payment must be confirmed first — a PENDING_PAYMENT shell has no right to
+        // infrastructure, and finalising it would provision for free.
+        if (subscription.getStatus() == SubscriptionStatus.PENDING_PAYMENT) {
+            throw new BusinessException(
+                    AppErrorCode.SUBSCRIPTION_PENDING_PAYMENT, 400, subscriptionId);
+        }
+        if (subscription.getStatus() != SubscriptionStatus.ACTIVE) {
+            throw new BusinessException(
+                    AppErrorCode.SUBSCRIPTION_NOT_ACTIVE, 400, subscriptionId);
+        }
+
+        // Idempotent: resources already exist for this subscription.
+        if (subscription.getResourceState() != null) {
+            log.info("[Subscription] finalizeProvisioning — resources already requested (resourceState={}), "
+                    + "idempotent skip", subscription.getResourceState());
+            return subscription;
+        }
+
         SpecConfig specConfig = subscription.getSpecConfig();
         if (specConfig == null) {
             throw new BusinessException(AppErrorCode.SUBSCRIPTION_SPEC_NOT_FOUND, 400, subscriptionId);
