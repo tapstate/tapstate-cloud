@@ -2,31 +2,18 @@
 # ======================================================================
 # Stripe Product + Price catalog bootstrap for Tapstate Cloud Week 4
 #
-# Creates (or updates) the 3 platform specs in Stripe:
-#   prod_* — "Tapstate Cloud 2C8G Starter" / "4C16G Pro" / "8C32G Enterprise"
-#   price_* — monthly USD recurring, with metadata.spec_key pointing at
-#              tapstate-cloud's spec_config.key
+# Creates 3 platform specs via Stripe REST API (no CLI dependency — curl + jq).
+# Products and Prices are idempotently looked up by metadata before create.
 #
 # Usage:
-#   scripts/stripe-bootstrap-catalog.sh          # test mode (sk_ defaults)
-#   MODE=live scripts/stripe-bootstrap-catalog.sh  # prod mode — read live keys from env
-#   DRY_RUN=1 scripts/stripe-bootstrap-catalog.sh  # print commands, don't execute
+#   export STRIPE_SECRET_KEY=sk_test_xxx
+#   ./scripts/stripe-bootstrap-catalog.sh
+#   MODE=live ./scripts/stripe-bootstrap-catalog.sh   # aborts if key is test
+#   DRY_RUN=1 ./scripts/stripe-bootstrap-catalog.sh  # prints curl commands
 #
-# Prerequisites:
-#   Stripe CLI installed and authenticated:
-#     brew install stripe/stripe/stripe  (or https://stripe.com/docs/stripe-cli)
-#     stripe login                       (interactive)
-#   Alternatively, set STRIPE_SECRET_KEY env (sk_test_... for sandbox, sk_live_... for prod)
-#
-# Idempotency:
-#   Products already tagged metadata.catalog=tapstate are SKIPPED (not re-created).
-#   Prices are matched by (product + spec_key metadata) — if an active Price already
-#   exists, we just print it; if deprecated ones exist, they stay (we don't delete
-#   historical records; Tapstate refreshAll filters by active=true anyway).
-#
-# Metadata convention (critical — tapstate-cloud reads these at boot):
-#   Product:   { catalog: "tapstate", tapstate_env: "<mode>" }
-#   Price:     { catalog: "tapstate", spec_key: "<key>", tapstate_env: "<mode>" }
+# Metadata convention (tapstate-cloud reads these at boot):
+#   Product:  { catalog: "tapstate", tapstate_env: "<mode>", spec_key: "<key>" }
+#   Price:    { catalog: "tapstate", tapstate_env: "<mode>", spec_key: "<key>" }
 # ======================================================================
 set -euo pipefail
 IFS=$'\n\t'
@@ -34,209 +21,217 @@ IFS=$'\n\t'
 # ----------------------------------------------------------------------
 # Mode + env
 # ----------------------------------------------------------------------
-MODE="${MODE:-test}"      # test | live
+MODE="${MODE:-test}"
 DRY_RUN="${DRY_RUN:-0}"
+STRIPE_VERSION="2024-10-28"   # Stripe API version header
 
 case "$MODE" in
-  test)
-    ENV_TAG="test"
-    ;;
-  live)
-    ENV_TAG="prod"
-    ;;
-  *)
-    echo "ERROR: MODE must be 'test' or 'live', got '$MODE'" >&2; exit 1 ;;
+  test) ENV_TAG="test" ;;
+  live) ENV_TAG="prod" ;;
+  *)    echo "ERROR: MODE must be 'test' or 'live'" >&2; exit 1 ;;
 esac
 
-# Stripe API key — prefer explicit env var; fallback to `stripe config` (CLI login)
-if [ -n "${STRIPE_SECRET_KEY:-}" ]; then
-  export STRIPE_SECRET_KEY
-else
-  # Read from stripe CLI config (default profile)
-  CLI_KEY="$(stripe config --get api_key 2>/dev/null || true)"
-  if [ -z "$CLI_KEY" ]; then
-    echo "ERROR: No Stripe API key found. Set STRIPE_SECRET_KEY or run 'stripe login'." >&2
-    exit 1
-  fi
-  # Sanity: key prefix must match mode
-  local_prefix="${CLI_KEY%%_*}"   # sk_test or sk_live
-  if [ "$MODE" = "test" ] && [ "$local_prefix" != "sk" ]; then
-    :  # CLI prefix check isn't reliable; trust env var
-  fi
-  export STRIPE_SECRET_KEY="$CLI_KEY"
+STRIPE_SECRET_KEY="${STRIPE_SECRET_KEY:-}"
+if [ -z "$STRIPE_SECRET_KEY" ]; then
+  echo "ERROR: STRIPE_SECRET_KEY is not set." >&2; exit 1
 fi
+
+key_env="${STRIPE_SECRET_KEY#sk_}"; key_env="${key_env%%_*}"
+if [ "$MODE" = "live" ] && [ "$key_env" = "test" ]; then
+  echo "ERROR: MODE=live with a TEST key. Aborting." >&2; exit 1
+fi
+if [ "$MODE" = "test" ] && [ "$key_env" = "live" ]; then
+  echo "ERROR: MODE=test with a LIVE key. Aborting." >&2; exit 1
+fi
+
+require_cmd() { command -v "$1" >/dev/null 2>&1 || { echo "ERROR: $1 not installed" >&2; exit 1; }; }
+require_cmd curl
+require_cmd jq
 
 # ----------------------------------------------------------------------
 # Log helpers
 # ----------------------------------------------------------------------
-HEADER="\033[1;36m"
-OK="\033[1;32m"
-WARN="\033[1;33m"
-ERR="\033[1;31m"
-RESET="\033[0m"
-log()    { echo -e "${HEADER}[$(date +%H:%M:%S)]${RESET} $*"; }
-log_ok() { echo -e "${OK}[$(date +%H:%M:%S)] OK ${RESET}$*"; }
-log_warn(){ echo -e "${WARN}[$(date +%H:%M:%S)] WARN ${RESET}$*"; }
-log_err(){ echo -e "${ERR}[$(date +%H:%M:%S)] ERR ${RESET}$*"; }
+HEADER="\033[1;36m"; OK="\033[1;32m"; WARN="\033[1;33m"; ERR="\033[1;31m"; RESET="\033[0m"
+log()    { echo -e "${HEADER}[$(date +%H:%M:%S)]${RESET} $*" >&2; }
+log_ok() { echo -e "${OK}[$(date +%H:%M:%S)] OK ${RESET}$*" >&2; }
+log_warn(){ echo -e "${WARN}[$(date +%H:%M:%S)] WARN ${RESET}$*" >&2; }
+log_err(){ echo -e "${ERR}[$(date +%H:%M:%S)] ERR ${RESET}$*" >&2; }
 
-require_cmd() { command -v "$1" >/dev/null 2>&1 || { log_err "Missing: $1"; exit 1; }; }
-require_cmd stripe
+# ----------------------------------------------------------------------
+# Stripe API call — uses form-encoded body
+#   stripe_call METHOD PATH [data_key=value data_key2=value2 ...]
+#   Returns JSON body on stdout; exits 1 on HTTP error (message to stderr)
+# ----------------------------------------------------------------------
+stripe_call() {
+  local method="$1" path="$2"; shift 2
+  local url="https://api.stripe.com${path}"
+  local -a form_args=()
+  for pair in "$@"; do
+    form_args+=(--data-urlencode "$pair")
+  done
 
-run() {
+  local http_code body extra_args=()
   if [ "$DRY_RUN" = "1" ]; then
-    log "[dry-run] $*"
+    log "[dry-run] curl -X $method ${url}"
+    for pair in "$@"; do log "           ${pair}"; done
+    # Return shape-correct fake JSON so downstream jq parsing works
+    if [ "$method" = "GET" ]; then
+      case "$path" in
+        /account*) echo '{"id":"acct_dryrun"}' ;;
+        *)         echo '{"data":[],"has_more":false}' ;;
+      esac
+    else
+      case "$path" in
+        /products*) echo '{"id":"prod_dryrun","active":true}' ;;
+        /prices*)   echo '{"id":"price_dryrun","active":true}' ;;
+        *)          echo '{"id":"dryrun","active":true}' ;;
+      esac
+    fi
     return 0
   fi
-  log "  → $*"
-  eval "$@"
+
+  if [ ${#form_args[@]} -gt 0 ]; then
+    extra_args=("${form_args[@]}")
+  fi
+
+  http_code="$(curl -sS -o /tmp/stripe_body.$$ -w '%{http_code}' \
+    -X "$method" "$url" \
+    -H "Stripe-Version: ${STRIPE_VERSION}" \
+    -u "${STRIPE_SECRET_KEY}:" \
+    "${extra_args[@]+"${extra_args[@]}"}")"
+  body="$(cat /tmp/stripe_body.$$)"
+  rm -f /tmp/stripe_body.$$
+
+  if [ "$http_code" -ge 400 ]; then
+    log_err "Stripe HTTP $http_code → $method $path"
+    echo "$body" | jq -r '.error.message // .' 2>/dev/null || echo "$body"
+    return 1
+  fi
+  echo "$body"
 }
-
-# ----------------------------------------------------------------------
-# Pre-check: key prefix vs mode
-# ----------------------------------------------------------------------
-key_prefix="${STRIPE_SECRET_KEY%%_*}"
-key_suffix="${STRIPE_SECRET_KEY#*_}"   # strip sk_live_ or sk_test_
-key_env="${key_suffix%%_*}"            # live | test
-
-if [ "$MODE" = "live" ] && [ "$key_env" = "test" ]; then
-  log_warn "MODE=live but using test key ($STRIPE_SECRET_KEY). Re-run with live key."
-  exit 1
-elif [ "$MODE" = "test" ] && [ "$key_env" = "live" ]; then
-  log_warn "MODE=test but using live key ($STRIPE_SECRET_KEY). Aborting to protect prod data."
-  exit 1
-fi
-
-echo
-log "Mode:            $MODE"
-log "Key prefix:      $key_prefix"
-log "Stripe env tag:  $ENV_TAG"
-log "DRY_RUN:         $DRY_RUN"
-echo
 
 # ----------------------------------------------------------------------
 # Spec catalog (mirrors tapstate-cloud spec-config.json exactly)
 # ----------------------------------------------------------------------
-declare -a SPEC_KEYS=("2c8g"     "4c16g"      "8c32g")
+declare -a SPEC_KEYS=("2c8g"   "4c16g"    "8c32g")
 declare -a SPEC_NAMES=(
   "Tapstate Cloud 2C8G Starter"
   "Tapstate Cloud 4C16G Pro"
   "Tapstate Cloud 8C32G Enterprise"
 )
 declare -a SPEC_PRICE_CENTS=(2000   8000    24000)   # $20 / $80 / $240 monthly
-declare -a SPEC_TRIAL_DAYS=(7   0   0)
 
-log "Target catalog (${#SPEC_KEYS[@]} specs):"
-for i in "${!SPEC_KEYS[@]}"; do
-  printf "  %-8s → %-35s  \$%.2f/mo  trial=%sd\n" \
-    "${SPEC_KEYS[$i]}" "${SPEC_NAMES[$i]}" \
-    "$(echo "scale=2; ${SPEC_PRICE_CENTS[$i]} / 100" | bc)" \
-    "${SPEC_TRIAL_DAYS[$i]}"
-done
+echo
+log "Mode: $MODE  (key=$key_env, stripe_env_tag=$ENV_TAG)"
+log "API:  https://api.stripe.com  (version=$STRIPE_VERSION)"
+log "DRY:  $DRY_RUN"
 echo
 
 # ----------------------------------------------------------------------
-# Helper: check if a Product already exists with metadata.catalog=tapstate
+# Step 0a: verify the API key actually works (fail fast with a clear error)
 # ----------------------------------------------------------------------
-product_exists() {
-  local spec_key="$1"
-  # Search by metadata on Stripe CLI — filters locally
-  stripe products list \
-    --metadata "catalog=tapstate" \
-    2>/dev/null | grep -q "$spec_key"
+log "Verifying Stripe API key..."
+account_resp="$(stripe_call GET "/account")" || {
+  log_err "Stripe API key rejected — check STRIPE_SECRET_KEY ($key_env mode)"
+  exit 1
 }
+account_id="$(echo "$account_resp" | jq -r '.id // empty')"
+if [ -z "$account_id" ]; then
+  log_err "Stripe /account returned no id — response: $account_resp"
+  exit 1
+fi
+log_ok "Authenticated as $account_id"
 
-price_exists_for_spec() {
-  local product_id="$1"
-  local spec_key="$2"
-  stripe prices list \
-    --product "$product_id" \
-    --metadata "spec_key=$spec_key" \
-    2>/dev/null | grep -q "Active.*\$"
-}
+# ----------------------------------------------------------------------
+# Step 0b: fetch existing tapstate products
+# ----------------------------------------------------------------------
+log "Fetching existing products tagged catalog=tapstate..."
+products_resp="$(stripe_call GET "/products?limit=100&active=true")"
+existing_map="$(echo "$products_resp" | jq -r \
+  '[.data[] | select(.metadata.catalog=="tapstate") | {id, name, spec_key: (.metadata.spec_key // "")}] |
+    map({(.spec_key // .name): .id}) | add // {}')"
+log "  Found: $(echo "$existing_map" | jq 'keys | length') existing product(s)"
 
 # ----------------------------------------------------------------------
 # Main loop
 # ----------------------------------------------------------------------
-created_products=0
-created_prices=0
-skipped=0
+created_products=0; created_prices=0; skipped=0
 
 for i in "${!SPEC_KEYS[@]}"; do
   spec_key="${SPEC_KEYS[$i]}"
   spec_name="${SPEC_NAMES[$i]}"
   spec_price_cents="${SPEC_PRICE_CENTS[$i]}"
-  spec_trial_days="${SPEC_TRIAL_DAYS[$i]}"
 
   log "--- $spec_key — $spec_name ---"
 
-  # ---- 1. Product ----
-  product_id=""
-  if product_exists "$spec_key"; then
-    # Find the exact product for this spec — Stripe CLI output:
-    # product_xxx  Tapstate Cloud 2C8G Starter  active
-    product_id="$(stripe products list \
-      --metadata "catalog=tapstate" 2>/dev/null \
-      | awk -v n="$spec_name" '$0 ~ n && /active$/ {print $1; exit}')"
-    if [ -n "$product_id" ]; then
-      log_ok "Product exists: $product_id (SKIP create)"
-      skipped=$((skipped + 1))
-    fi
-  fi
+  # ---- 1. Ensure Product exists ----
+  product_id="$(echo "$existing_map" | jq -r --arg sk "$spec_key" '.[$sk] // empty')"
 
-  if [ -z "$product_id" ]; then
-    # Create Product with metadata
-    product_id="$(stripe products create \
-      --name "$spec_name" \
-      --description "$spec_key spec — Tapstate Cloud control plane" \
-      --metadata "catalog=tapstate" \
-      --metadata "tapstate_env=$ENV_TAG" \
-      2>/dev/null | grep '^prod_' | awk '{print $1}')"
-    if [ -z "$product_id" ]; then
-      log_err "Failed to create Product for $spec_key — stripe CLI returned empty"
-      exit 1
-    fi
+  if [ -n "$product_id" ]; then
+    log_ok "Product exists: $product_id"
+  else
+    log "  Creating Product '$spec_name'..."
+    product_resp="$(stripe_call POST "/products" \
+      "name=${spec_name}" \
+      "description=${spec_key} spec — Tapstate Cloud control plane" \
+      "metadata[catalog]=tapstate" \
+      "metadata[tapstate_env]=${ENV_TAG}" \
+      "metadata[spec_key]=${spec_key}")" || continue
+    product_id="$(echo "$product_resp" | jq -r '.id')"
     log_ok "Product created: $product_id"
     created_products=$((created_products + 1))
   fi
 
-  # ---- 2. Price (monthly USD recurring) ----
-  if price_exists_for_spec "$product_id" "$spec_key"; then
-    log_ok "Price exists for spec_key=$spec_key on product=$product_id (SKIP)"
+  # ---- 2. Find existing active price for this spec_key ----
+  prices_resp="$(stripe_call GET "/prices?product=${product_id}&limit=100")"
+  existing_price="$(echo "$prices_resp" | jq -r --arg sk "$spec_key" \
+    '.data[] | select(.active==true and .metadata.spec_key==$sk) | .id' | head -1)"
+
+  if [ -n "$existing_price" ]; then
+    price_amount="$(echo "$prices_resp" | jq -r --arg pid "$existing_price" \
+      '.data[] | select(.id==$pid) | .unit_amount')"
+    log_ok "Price exists: $existing_price (\$$((price_amount / 100))/mo, spec_key=$spec_key)"
     skipped=$((skipped + 1))
   else
-    stripe prices create \
-      --product "$product_id" \
-      --unit-amount "$spec_price_cents" \
-      --currency usd \
-      --recurring-interval month \
-      --metadata "catalog=tapstate" \
-      --metadata "spec_key=$spec_key" \
-      --metadata "tapstate_env=$ENV_TAG" \
-      2>/dev/null | sed 's/^/    /'
-    log_ok "Price created: $spec_price_cents cents/month USD (spec_key=$spec_key)"
+    log "  Creating Price: \$$((spec_price_cents / 100))/mo USD recurring monthly (spec_key=$spec_key)..."
+    price_resp="$(stripe_call POST "/prices" \
+      "product=${product_id}" \
+      "unit_amount=${spec_price_cents}" \
+      "currency=usd" \
+      "recurring[interval]=month" \
+      "metadata[catalog]=tapstate" \
+      "metadata[spec_key]=${spec_key}" \
+      "metadata[tapstate_env]=${ENV_TAG}")" || continue
+    price_id="$(echo "$price_resp" | jq -r '.id')"
+    log_ok "Price created: $price_id (\$$((spec_price_cents / 100))/mo, spec_key=$spec_key)"
     created_prices=$((created_prices + 1))
   fi
-
-  # ---- 3. Set default_price on Product (CLI doesn't expose this easily;
-  #        accept as-is — the catalog refreshAll() reads ALL prices and
-  #        matches by spec_key metadata, so default_price is informational only) ----
   echo
 done
 
 # ----------------------------------------------------------------------
-# Summary + next steps
+# Summary + final verification listing
 # ----------------------------------------------------------------------
 echo
-log_ok "=== Catalog bootstrap complete ==="
+log_ok "=== Bootstrap summary ==="
 log "  Products created:  $created_products"
 log "  Prices created:    $created_prices"
 log "  Skipped (exists):  $skipped"
 echo
 
-log "Next steps:"
-log "  1. Verify in Stripe Dashboard → products → filter by metadata.catalog=tapstate"
-log "  2. Copy a test webhook secret → k3s secret:"
-log "       export STRIPE_WEBHOOK_SECRET=whsec_xxx"
-log "       ./scripts/k3s-stripe-secrets.sh --namespace tapstate --env $MODE"
-log "  3. Deploy tapstate-cloud-control — it auto-calls StripeProductService.refreshAll() at boot"
+log "Final Stripe catalog (catalog=tapstate):"
+all_products="$(stripe_call GET "/products?limit=100&active=true" 2>/dev/null || echo '{"data":[]}')"
+all_prices="$(stripe_call GET "/prices?limit=100&active=true&type=recurring" 2>/dev/null || echo '{"data":[]}')"
+
+echo "$all_products" | jq -r '.data[] | select(.metadata.catalog=="tapstate") |
+  "\(.id)\t\(.name)\tspec_key=\(.metadata.spec_key // "none")\tenv=\(.metadata.tapstate_env // "?")"' 2>/dev/null |
+  sed 's/^/  /' | sort
+
+echo
+echo "$all_prices" | jq -r '.data[] | select(.metadata.catalog=="tapstate") |
+  "\(.id)\t\(.unit_amount)\(.currency)\tinterval=\(.recurring.interval)\tspec_key=\(.metadata.spec_key // "none")"' 2>/dev/null |
+  sed 's/^/  /' | sort
+
+echo
+log_ok "Done. Verify in Stripe Dashboard: https://dashboard.stripe.com/${key_env}/products"
 echo
