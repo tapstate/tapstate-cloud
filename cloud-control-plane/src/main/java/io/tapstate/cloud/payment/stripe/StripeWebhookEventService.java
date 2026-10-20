@@ -1,8 +1,6 @@
 package io.tapstate.cloud.payment.stripe;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.stripe.exception.SignatureVerificationException;
-import com.stripe.exception.StripeException;
 import com.stripe.model.Event;
 import com.stripe.net.Webhook;
 import io.tapstate.cloud.payment.PaymentGateway;
@@ -12,8 +10,11 @@ import io.tapstate.cloud.subscription.SubscriptionService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Instant;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -44,18 +45,16 @@ public class StripeWebhookEventService {
     private final StripeEventRepository eventRepository;
     private final SubscriptionRepository subscriptionRepository;
     private final SubscriptionService subscriptionService;
-    private final ObjectMapper objectMapper;
     private final StripeWebhookConfig config;
+    private final JsonMapper jsonMapper = JsonMapper.builder().build();
 
     public StripeWebhookEventService(StripeEventRepository eventRepository,
                                      SubscriptionRepository subscriptionRepository,
                                      @Lazy SubscriptionService subscriptionService,
-                                     ObjectMapper objectMapper,
                                      StripeWebhookConfig config) {
         this.eventRepository = eventRepository;
         this.subscriptionRepository = subscriptionRepository;
         this.subscriptionService = subscriptionService;
-        this.objectMapper = objectMapper;
         this.config = config;
     }
 
@@ -119,7 +118,7 @@ public class StripeWebhookEventService {
 
     // ---- per-type handlers -----------------------------------------------
 
-    private String handle(Event event) throws StripeException {
+    private String handle(Event event) {
         String type = event.getType();
 
         return switch (type) {
@@ -141,25 +140,45 @@ public class StripeWebhookEventService {
     }
 
     /**
+     * Read {@code data.object} as raw JSON instead of a typed Stripe model.
+     * <p>
+     * {@code EventDataObjectDeserializer#getObject()} returns empty whenever the
+     * event's {@code api_version} differs from the SDK's pinned version — which
+     * would silently skip every real webhook the moment Stripe's account version
+     * moves. The handler only needs a few id fields, so reading them structurally
+     * keeps the endpoint correct across API versions.
+     */
+    private Map<String, Object> dataObject(Event event) {
+        String raw = event.getDataObjectDeserializer().getRawJson();
+        if (raw == null || raw.isBlank()) {
+            return Map.of();
+        }
+        return jsonMapper.readValue(raw, new TypeReference<Map<String, Object>>() {});
+    }
+
+    private static String str(Map<String, Object> object, String key) {
+        Object value = object.get(key);
+        return value instanceof String s && !s.isBlank() ? s : null;
+    }
+
+    /**
      * Core activation path: Stripe confirmed payment.
      * Find the PENDING_PAYMENT Subscription by Checkout Session ID,
      * fill in the Stripe subscription/paymentMethod refs, and activate.
      */
-    private String handleCheckoutCompleted(Event event) throws StripeException {
-        com.stripe.model.checkout.Session checkoutSession =
-                event.getDataObjectDeserializer().getObject()
-                        .map(o -> (com.stripe.model.checkout.Session) o)
-                        .orElse(null);
-        if (checkoutSession == null) {
-            return "SKIPPED (could not deserialize checkout session)";
+    private String handleCheckoutCompleted(Event event) {
+        Map<String, Object> session = dataObject(event);
+        String checkoutSessionId = str(session, "id");
+        if (checkoutSessionId == null) {
+            return "SKIPPED (event carries no checkout session id)";
         }
 
         Subscription subscription = subscriptionRepository
-                .findByStripeCheckoutSessionId(checkoutSession.getId())
+                .findByStripeCheckoutSessionId(checkoutSessionId)
                 .orElse(null);
         if (subscription == null) {
             log.warn("checkout.session.completed: no Subscription found for checkoutSessionId={}",
-                    checkoutSession.getId());
+                    checkoutSessionId);
             return "SKIPPED (subscription not found)";
         }
 
@@ -167,9 +186,9 @@ public class StripeWebhookEventService {
         subscription.setStripe(subscription.getStripe() == null
                 ? new io.tapstate.cloud.subscription.StripeSubscriptionRef()
                 : subscription.getStripe());
-        subscription.getStripe().setSubscriptionId(checkoutSession.getSubscription());
-        subscription.getStripe().setCustomerId(checkoutSession.getCustomer());
-        subscription.getStripe().setCheckoutSessionId(checkoutSession.getId());
+        subscription.getStripe().setSubscriptionId(str(session, "subscription"));
+        subscription.getStripe().setCustomerId(str(session, "customer"));
+        subscription.getStripe().setCheckoutSessionId(checkoutSessionId);
         subscription.getStripe().setAutoRenewAuthorized(true);
         subscription.getStripe().setAutoRenewAuthorizedChangedAt(Instant.now());
         subscriptionRepository.save(subscription);
@@ -177,44 +196,37 @@ public class StripeWebhookEventService {
         // Hand off to SubscriptionService for FSM + Cluster provisioning
         subscriptionService.activateAndProvision(subscription.getId().toHexString());
 
-        return "PROCESSED — subscription activated + provisioning started";
+        return "PROCESSED — subscription activated";
     }
 
     private String handleCheckoutFailed(Event event) {
-        com.stripe.model.checkout.Session checkoutSession =
-                event.getDataObjectDeserializer().getObject()
-                        .map(o -> (com.stripe.model.checkout.Session) o)
-                        .orElse(null);
-        if (checkoutSession == null) {
-            return "SKIPPED (could not deserialize checkout session)";
+        Map<String, Object> session = dataObject(event);
+        String checkoutSessionId = str(session, "id");
+        if (checkoutSessionId == null) {
+            return "SKIPPED (event carries no checkout session id)";
         }
 
         Subscription subscription = subscriptionRepository
-                .findByStripeCheckoutSessionId(checkoutSession.getId())
+                .findByStripeCheckoutSessionId(checkoutSessionId)
                 .orElse(null);
         if (subscription == null) {
             return "SKIPPED (subscription not found)";
         }
 
-        // Mark the shell subscription as failed so UI can show "payment failed" state
-        log.warn("checkout.session.async_payment_failed: subscription {} — marking as CANCELLED",
+        log.warn("checkout.session.async_payment_failed: subscription {} — payment did not complete",
                 subscription.getId());
-        // SubscriptionService.activateAndProvision handles PENDING_PAYMENT→ACTIVE;
-        // failed payment cancels via IMMEDIATE_CANCEL path
-        return "PROCESSED — checkout failed, marking subscription";
+        return "PROCESSED — checkout failed, subscription left unactivated";
     }
 
-    private String handleSubscriptionDeleted(Event event) throws StripeException {
-        com.stripe.model.Subscription stripeSub =
-                event.getDataObjectDeserializer().getObject()
-                        .map(o -> (com.stripe.model.Subscription) o)
-                        .orElse(null);
-        if (stripeSub == null) {
-            return "SKIPPED (could not deserialize subscription)";
+    private String handleSubscriptionDeleted(Event event) {
+        Map<String, Object> stripeSubscription = dataObject(event);
+        String stripeSubscriptionId = str(stripeSubscription, "id");
+        if (stripeSubscriptionId == null) {
+            return "SKIPPED (event carries no subscription id)";
         }
 
         Subscription subscription = subscriptionRepository
-                .findByStripeSubscriptionId(stripeSub.getId())
+                .findByStripeSubscriptionId(stripeSubscriptionId)
                 .orElse(null);
         if (subscription == null) {
             return "SKIPPED (subscription not found in our DB)";

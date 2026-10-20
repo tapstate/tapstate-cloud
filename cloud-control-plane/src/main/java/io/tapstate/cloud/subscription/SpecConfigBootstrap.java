@@ -1,7 +1,5 @@
 package io.tapstate.cloud.subscription;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.bson.types.ObjectId;
 import org.springframework.boot.ApplicationArguments;
@@ -14,6 +12,8 @@ import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.stereotype.Component;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Instant;
 import java.util.HashSet;
@@ -54,11 +54,10 @@ public class SpecConfigBootstrap implements ApplicationRunner {
     private static final String SPEC_CONFIG_CLASSPATH = "classpath:spec-config.json";
 
     private final MongoTemplate mongoTemplate;
-    private final ObjectMapper objectMapper;
+    private final JsonMapper jsonMapper = JsonMapper.builder().build();
 
-    public SpecConfigBootstrap(MongoTemplate mongoTemplate, ObjectMapper objectMapper) {
+    public SpecConfigBootstrap(MongoTemplate mongoTemplate) {
         this.mongoTemplate = mongoTemplate;
-        this.objectMapper = objectMapper;
     }
 
     @Override
@@ -70,7 +69,7 @@ public class SpecConfigBootstrap implements ApplicationRunner {
             return;
         }
 
-        List<SpecConfig> configs = objectMapper.readValue(
+        List<SpecConfig> configs = jsonMapper.readValue(
                 resources[0].getInputStream(),
                 new TypeReference<List<SpecConfig>>() {});
 

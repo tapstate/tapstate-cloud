@@ -80,6 +80,11 @@ public class StripePaymentService implements PaymentGateway {
                     .setCancelUrl(buildCancelUrl())
                     .setAutomaticTax(SessionCreateParams.AutomaticTax.builder()
                             .setEnabled(true).build())
+                    // Automatic tax requires a customer address; "auto" makes Checkout
+                    // save the billing address the customer enters back onto the Customer.
+                    .setCustomerUpdate(SessionCreateParams.CustomerUpdate.builder()
+                            .setAddress(SessionCreateParams.CustomerUpdate.Address.AUTO)
+                            .build())
                     .build();
 
             Session session = Session.create(params);

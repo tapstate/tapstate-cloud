@@ -67,6 +67,9 @@ class SubscriptionCheckoutIT extends RealEnvIT {
 
     private static final String WEBHOOK_PATH = "/v1/api/internal/payment/stripe/webhook";
 
+    /** Resolved once per class — real environments cap one Organization per account. */
+    private static String cachedOrgId;
+
     private static final HttpClient HTTP = HttpClient.newBuilder()
         .connectTimeout(Duration.ofSeconds(10))
         .build();
@@ -113,7 +116,7 @@ class SubscriptionCheckoutIT extends RealEnvIT {
     @Order(1)
     void t1_checkout_rejectsUnknownSpec() throws Exception {
         loginAsConfiguredUser();
-        String orgId = resolveOrgId();
+        String orgId = orgId();
 
         ApiException bad = assertThrows(ApiException.class, () ->
             subscriptionApi.createCheckoutSession(orgId,
@@ -131,7 +134,7 @@ class SubscriptionCheckoutIT extends RealEnvIT {
     @Order(2)
     void t2_checkout_createsPendingPaymentShellWithStripeUrl() throws Exception {
         loginAsConfiguredUser();
-        String orgId = resolveOrgId();
+        String orgId = orgId();
 
         String specKey = pricedSpecKey();
 
@@ -168,7 +171,7 @@ class SubscriptionCheckoutIT extends RealEnvIT {
     void t3_signedWebhookCheckoutCompleted_activatesSubscription() throws Exception {
         String webhookSecret = webhookSecret();
         loginAsConfiguredUser();
-        String orgId = resolveOrgId();
+        String orgId = orgId();
 
         CheckoutResponse checkout = subscriptionApi.createCheckoutSession(orgId,
             new CreateCheckoutRequest()
@@ -219,7 +222,7 @@ class SubscriptionCheckoutIT extends RealEnvIT {
     void t5_cancelAtPeriodEnd_movesToPendingCancel() throws Exception {
         String webhookSecret = webhookSecret();
         loginAsConfiguredUser();
-        String orgId = resolveOrgId();
+        String orgId = orgId();
 
         CheckoutResponse checkout = subscriptionApi.createCheckoutSession(orgId,
             new CreateCheckoutRequest()
@@ -248,7 +251,7 @@ class SubscriptionCheckoutIT extends RealEnvIT {
     void t6_cancelNow_cancelsImmediately() throws Exception {
         String webhookSecret = webhookSecret();
         loginAsConfiguredUser();
-        String orgId = resolveOrgId();
+        String orgId = orgId();
 
         CheckoutResponse checkout = subscriptionApi.createCheckoutSession(orgId,
             new CreateCheckoutRequest()
@@ -278,7 +281,7 @@ class SubscriptionCheckoutIT extends RealEnvIT {
     @Order(7)
     void t7_finalizeProvisioning_rejectedWhilePendingPayment() throws Exception {
         loginAsConfiguredUser();
-        String orgId = resolveOrgId();
+        String orgId = orgId();
 
         CheckoutResponse checkout = subscriptionApi.createCheckoutSession(orgId,
             new CreateCheckoutRequest()
@@ -301,6 +304,32 @@ class SubscriptionCheckoutIT extends RealEnvIT {
     }
 
     // ========== Helpers ==========
+
+    /**
+     * Resolve the Organization used by every scenario, once per class.
+     * <p>
+     * Real environments commonly cap one Organization per account, so a
+     * per-test create would 409 on the second test. Prefer the account's
+     * existing Organization, and only create one when the account has none.
+     */
+    private String orgId() throws Exception {
+        if (cachedOrgId != null) {
+            return cachedOrgId;
+        }
+        if (ORG_ID != null && !ORG_ID.isBlank()) {
+            cachedOrgId = ORG_ID;
+            return cachedOrgId;
+        }
+        var existing = orgsApi.listMyOrganizations().getData();
+        if (existing != null && !existing.isEmpty()) {
+            cachedOrgId = existing.get(0).getId();
+            System.out.println("[real-env] reusing Organization " + cachedOrgId);
+            return cachedOrgId;
+        }
+        cachedOrgId = resolveOrgId();
+        System.out.println("[real-env] created Organization " + cachedOrgId);
+        return cachedOrgId;
+    }
 
     /** First spec the environment actually prices — keeps the IT independent of seed order. */
     private String pricedSpecKey() throws Exception {
