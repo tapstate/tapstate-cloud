@@ -2,15 +2,25 @@
 # ======================================================================
 # Stripe Product + Price catalog bootstrap for Tapstate Cloud Week 4
 #
-# Creates 3 platform specs via Stripe REST API (no CLI dependency — curl + jq).
-# Products and Prices are idempotently looked up by metadata before create.
+# Creates one Stripe Product ("Tapstate Cluster") with one Price per platform
+# spec, via Stripe REST API (no CLI dependency — curl + jq). Products and Prices
+# are idempotently looked up by metadata before create.
+#
+# Catalog shape:
+#   Tapstate Cluster (metadata.catalog=tapstate)
+#     ├── $199/mo  USD monthly  metadata.spec_key=2c8g
+#     ├── $399/mo  USD monthly  metadata.spec_key=4c16g
+#     └── $799/mo  USD monthly  metadata.spec_key=8c32g
 #
 # Price changes:
 #   Stripe Prices are immutable. When the target amount differs from the active
 #   Price, a NEW Price is created and the old one is archived (active=false) so
 #   the backend catalog still sees exactly one active Price per spec_key.
 #
-# Current pricing: 2c8g=$199/mo, 4c16g=$399/mo, 8c32g=$799/mo (USD, monthly)
+# Legacy cleanup:
+#   Any other active Product tagged catalog=tapstate (the old one-Product-per-spec
+#   layout) is retired (active=false) — otherwise the same spec_key would appear
+#   on two Products and the backend rejects that as an integrity violation.
 #
 # Usage:
 #   export STRIPE_SECRET_KEY=sk_test_xxx
@@ -19,7 +29,7 @@
 #   DRY_RUN=1 ./scripts/stripe-bootstrap-catalog.sh  # prints curl commands
 #
 # Metadata convention (tapstate-cloud reads these at boot):
-#   Product:  { catalog: "tapstate", tapstate_env: "<mode>", spec_key: "<key>" }
+#   Product:  { catalog: "tapstate", tapstate_env: "<mode>" }
 #   Price:    { catalog: "tapstate", tapstate_env: "<mode>", spec_key: "<key>" }
 # ======================================================================
 set -euo pipefail
@@ -121,20 +131,23 @@ stripe_call() {
 }
 
 # ----------------------------------------------------------------------
-# Spec catalog (mirrors tapstate-cloud spec-config.json exactly)
+# Spec catalog (spec keys mirror tapstate-cloud spec-config.json)
+#
+# Catalog shape: ONE Stripe Product ("Tapstate Cluster") carrying one Price
+# per platform spec. The backend's nested Product -> prices[] model reads
+# Product.metadata.catalog and each Price.metadata.spec_key, so a single
+# Product with N Prices is the intended layout.
 # ----------------------------------------------------------------------
+PRODUCT_NAME="Tapstate Cluster"
+
 declare -a SPEC_KEYS=("2c8g"   "4c16g"    "8c32g")
-declare -a SPEC_NAMES=(
-  "Tapstate Cloud 2C8G Starter"
-  "Tapstate Cloud 4C16G Pro"
-  "Tapstate Cloud 8C32G Enterprise"
-)
 declare -a SPEC_PRICE_CENTS=(19900  39900   79900)   # $199 / $399 / $799 monthly
 
 echo
-log "Mode: $MODE  (key=$key_env, stripe_env_tag=$ENV_TAG)"
-log "API:  ${STRIPE_API_BASE}  (version=$STRIPE_VERSION)"
-log "DRY:  $DRY_RUN"
+log "Mode:    $MODE  (key=$key_env, stripe_env_tag=$ENV_TAG)"
+log "API:     ${STRIPE_API_BASE}  (version=$STRIPE_VERSION)"
+log "DRY:     $DRY_RUN"
+log "Product: $PRODUCT_NAME  (${#SPEC_KEYS[@]} prices)"
 echo
 
 # ----------------------------------------------------------------------
@@ -153,47 +166,44 @@ fi
 log_ok "Authenticated as $account_id"
 
 # ----------------------------------------------------------------------
-# Step 0b: fetch existing tapstate products
+# Step 0b: ensure the single catalog Product exists
 # ----------------------------------------------------------------------
 log "Fetching existing products tagged catalog=tapstate..."
 products_resp="$(stripe_call GET "/products?limit=100&active=true")"
-existing_map="$(echo "$products_resp" | jq -r \
-  '[.data[] | select(.metadata.catalog=="tapstate") | {id, name, spec_key: (.metadata.spec_key // "")}] |
-    map({(.spec_key // .name): .id}) | add // {}')"
-log "  Found: $(echo "$existing_map" | jq 'keys | length') existing product(s)"
+
+product_id="$(echo "$products_resp" | jq -r --arg n "$PRODUCT_NAME" \
+  '[.data[] | select(.metadata.catalog=="tapstate" and .name==$n) | .id] | first // empty')"
+
+if [ -n "$product_id" ]; then
+  log_ok "Product exists: $product_id ($PRODUCT_NAME)"
+else
+  log "  Creating Product '$PRODUCT_NAME'..."
+  product_resp="$(stripe_call POST "/products" \
+    "name=${PRODUCT_NAME}" \
+    "description=Tapstate Cloud cluster — all instance specs" \
+    "metadata[catalog]=tapstate" \
+    "metadata[tapstate_env]=${ENV_TAG}")" || {
+    log_err "Product create failed — aborting"
+    exit 1
+  }
+  product_id="$(echo "$product_resp" | jq -r '.id')"
+  log_ok "Product created: $product_id ($PRODUCT_NAME)"
+fi
+echo
 
 # ----------------------------------------------------------------------
-# Main loop
+# Step 1: one Price per spec under the single Product
 # ----------------------------------------------------------------------
-created_products=0; created_prices=0; rotated_prices=0; skipped=0
+created_prices=0; rotated_prices=0; skipped=0
+
+prices_resp="$(stripe_call GET "/prices?product=${product_id}&limit=100")"
 
 for i in "${!SPEC_KEYS[@]}"; do
   spec_key="${SPEC_KEYS[$i]}"
-  spec_name="${SPEC_NAMES[$i]}"
   spec_price_cents="${SPEC_PRICE_CENTS[$i]}"
 
-  log "--- $spec_key — $spec_name ---"
+  log "--- $spec_key — \$$((spec_price_cents / 100))/mo ---"
 
-  # ---- 1. Ensure Product exists ----
-  product_id="$(echo "$existing_map" | jq -r --arg sk "$spec_key" '.[$sk] // empty')"
-
-  if [ -n "$product_id" ]; then
-    log_ok "Product exists: $product_id"
-  else
-    log "  Creating Product '$spec_name'..."
-    product_resp="$(stripe_call POST "/products" \
-      "name=${spec_name}" \
-      "description=${spec_key} spec — Tapstate Cloud control plane" \
-      "metadata[catalog]=tapstate" \
-      "metadata[tapstate_env]=${ENV_TAG}" \
-      "metadata[spec_key]=${spec_key}")" || continue
-    product_id="$(echo "$product_resp" | jq -r '.id')"
-    log_ok "Product created: $product_id"
-    created_products=$((created_products + 1))
-  fi
-
-  # ---- 2. Find existing active price for this spec_key ----
-  prices_resp="$(stripe_call GET "/prices?product=${product_id}&limit=100")"
   existing_price="$(echo "$prices_resp" | jq -r --arg sk "$spec_key" \
     '.data[] | select(.active==true and .metadata.spec_key==$sk) | .id' | head -1)"
 
@@ -204,14 +214,14 @@ for i in "${!SPEC_KEYS[@]}"; do
   fi
 
   if [ -n "$existing_price" ] && [ "$existing_amount" = "$spec_price_cents" ]; then
-    log_ok "Price up to date: $existing_price (\$$((existing_amount / 100))/mo, spec_key=$spec_key)"
+    log_ok "Price up to date: $existing_price (\$$((existing_amount / 100))/mo)"
     skipped=$((skipped + 1))
   else
     if [ -n "$existing_price" ]; then
       # Stripe Prices are immutable — an amount change requires a NEW Price.
       log "  Amount changed: \$$((existing_amount / 100)) → \$$((spec_price_cents / 100))/mo — rotating price"
     else
-      log "  Creating Price: \$$((spec_price_cents / 100))/mo USD recurring monthly (spec_key=$spec_key)..."
+      log "  Creating Price: \$$((spec_price_cents / 100))/mo USD recurring monthly..."
     fi
 
     price_resp="$(stripe_call POST "/prices" \
@@ -242,27 +252,55 @@ for i in "${!SPEC_KEYS[@]}"; do
 done
 
 # ----------------------------------------------------------------------
+# Step 2: retire any other tapstate Product (legacy per-spec layout).
+# Leaving them active would make the same spec_key appear on two Products,
+# which the backend rejects as an integrity violation.
+# ----------------------------------------------------------------------
+retired_products=0
+other_products="$(echo "$products_resp" | jq -r --arg id "$product_id" \
+  '.data[] | select(.metadata.catalog=="tapstate" and .id!=$id) | .id')"
+
+if [ -n "$other_products" ]; then
+  log "Retiring other tapstate products (legacy layout):"
+  while IFS= read -r old_id; do
+    [ -z "$old_id" ] && continue
+    stripe_call POST "/products/${old_id}" "active=false" >/dev/null || {
+      log_err "Failed to retire product $old_id — backend may hit a duplicate spec_key"
+      continue
+    }
+    log_ok "  retired: $old_id"
+    retired_products=$((retired_products + 1))
+  done <<< "$other_products"
+  echo
+fi
+
+# ----------------------------------------------------------------------
 # Summary + final verification listing
 # ----------------------------------------------------------------------
 echo
 log_ok "=== Bootstrap summary ==="
-log "  Products created:  $created_products"
-log "  Prices created:    $created_prices"
-log "  Prices rotated:    $rotated_prices"
-log "  Skipped (current): $skipped"
+log "  Product:            $PRODUCT_NAME ($product_id)"
+log "  Prices created:     $created_prices"
+log "  Prices rotated:     $rotated_prices"
+log "  Prices up to date:  $skipped"
+log "  Products retired:   $retired_products"
 echo
 
-log "Final Stripe catalog (catalog=tapstate):"
+log "Final Stripe catalog (catalog=tapstate, active only):"
 all_products="$(stripe_call GET "/products?limit=100&active=true" 2>/dev/null || echo '{"data":[]}')"
 all_prices="$(stripe_call GET "/prices?limit=100&active=true&type=recurring" 2>/dev/null || echo '{"data":[]}')"
 
 echo "$all_products" | jq -r '.data[] | select(.metadata.catalog=="tapstate") |
-  "\(.id)\t\(.name)\tspec_key=\(.metadata.spec_key // "none")\tenv=\(.metadata.tapstate_env // "?")"' 2>/dev/null |
+  "\(.id)\t\(.name)\tenv=\(.metadata.tapstate_env // "?")"' 2>/dev/null |
   sed 's/^/  /' | sort
 
 echo
-echo "$all_prices" | jq -r '.data[] | select(.metadata.catalog=="tapstate") |
-  "\(.id)\t\(.unit_amount)\(.currency)\tinterval=\(.recurring.interval)\tspec_key=\(.metadata.spec_key // "none")"' 2>/dev/null |
+# Only Prices that hang off an ACTIVE tapstate Product are reachable by the
+# backend — retired legacy Products keep their Prices but are never read.
+active_ids="$(echo "$all_products" | jq -c '[.data[] | select(.metadata.catalog=="tapstate") | .id]')"
+echo "$all_prices" | jq -r --argjson ids "$active_ids" '.data[]
+  | select(.metadata.catalog=="tapstate" and (.product as $p | $ids | index($p))) |
+  "\(.id)\t\(.unit_amount / 100) \(.currency)/\(.recurring.interval)\tspec_key=\(.metadata.spec_key // "none")"' 2>/dev/null |
   sed 's/^/  /' | sort
 
 echo
