@@ -213,6 +213,22 @@ spec:
             - name: JAVA_OPTS
               value: "-Xms256m -Xmx512m -XX:+UseContainerSupport"
 
+            # ========== Secrets from k3s Secret — STRIPE ==========
+            # Injected by scripts/k3s-stripe-secrets.sh. Absent = payment code
+            # stays functional but stripe.product catalog refresh logs a warning.
+            - name: TAPSTATE_CLOUD_STRIPE_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.stripe.name }}
+                  key: {{ .Values.secrets.stripe.secretKeyKey }}
+                  optional: true
+            - name: TAPSTATE_CLOUD_STRIPE_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.stripe.name }}
+                  key: {{ .Values.secrets.stripe.webhookSecretKey }}
+                  optional: true
+
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           {{- with .Values.securityContext }}
