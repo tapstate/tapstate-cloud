@@ -5,6 +5,13 @@
 # Creates 3 platform specs via Stripe REST API (no CLI dependency — curl + jq).
 # Products and Prices are idempotently looked up by metadata before create.
 #
+# Price changes:
+#   Stripe Prices are immutable. When the target amount differs from the active
+#   Price, a NEW Price is created and the old one is archived (active=false) so
+#   the backend catalog still sees exactly one active Price per spec_key.
+#
+# Current pricing: 2c8g=$199/mo, 4c16g=$399/mo, 8c32g=$799/mo (USD, monthly)
+#
 # Usage:
 #   export STRIPE_SECRET_KEY=sk_test_xxx
 #   ./scripts/stripe-bootstrap-catalog.sh
@@ -24,6 +31,9 @@ IFS=$'\n\t'
 MODE="${MODE:-test}"
 DRY_RUN="${DRY_RUN:-0}"
 STRIPE_VERSION="2024-10-28"   # Stripe API version header
+# Stripe API root INCLUDES the /v1 path segment. Overridable so the rotation
+# path can be exercised against a local mock.
+STRIPE_API_BASE="${STRIPE_API_BASE:-https://api.stripe.com/v1}"
 
 case "$MODE" in
   test) ENV_TAG="test" ;;
@@ -64,7 +74,7 @@ log_err(){ echo -e "${ERR}[$(date +%H:%M:%S)] ERR ${RESET}$*" >&2; }
 # ----------------------------------------------------------------------
 stripe_call() {
   local method="$1" path="$2"; shift 2
-  local url="https://api.stripe.com${path}"
+  local url="${STRIPE_API_BASE}${path}"
   local -a form_args=()
   for pair in "$@"; do
     form_args+=(--data-urlencode "$pair")
@@ -119,11 +129,11 @@ declare -a SPEC_NAMES=(
   "Tapstate Cloud 4C16G Pro"
   "Tapstate Cloud 8C32G Enterprise"
 )
-declare -a SPEC_PRICE_CENTS=(2000   8000    24000)   # $20 / $80 / $240 monthly
+declare -a SPEC_PRICE_CENTS=(19900  39900   79900)   # $199 / $399 / $799 monthly
 
 echo
 log "Mode: $MODE  (key=$key_env, stripe_env_tag=$ENV_TAG)"
-log "API:  https://api.stripe.com  (version=$STRIPE_VERSION)"
+log "API:  ${STRIPE_API_BASE}  (version=$STRIPE_VERSION)"
 log "DRY:  $DRY_RUN"
 echo
 
@@ -155,7 +165,7 @@ log "  Found: $(echo "$existing_map" | jq 'keys | length') existing product(s)"
 # ----------------------------------------------------------------------
 # Main loop
 # ----------------------------------------------------------------------
-created_products=0; created_prices=0; skipped=0
+created_products=0; created_prices=0; rotated_prices=0; skipped=0
 
 for i in "${!SPEC_KEYS[@]}"; do
   spec_key="${SPEC_KEYS[$i]}"
@@ -187,13 +197,23 @@ for i in "${!SPEC_KEYS[@]}"; do
   existing_price="$(echo "$prices_resp" | jq -r --arg sk "$spec_key" \
     '.data[] | select(.active==true and .metadata.spec_key==$sk) | .id' | head -1)"
 
+  existing_amount=""
   if [ -n "$existing_price" ]; then
-    price_amount="$(echo "$prices_resp" | jq -r --arg pid "$existing_price" \
+    existing_amount="$(echo "$prices_resp" | jq -r --arg pid "$existing_price" \
       '.data[] | select(.id==$pid) | .unit_amount')"
-    log_ok "Price exists: $existing_price (\$$((price_amount / 100))/mo, spec_key=$spec_key)"
+  fi
+
+  if [ -n "$existing_price" ] && [ "$existing_amount" = "$spec_price_cents" ]; then
+    log_ok "Price up to date: $existing_price (\$$((existing_amount / 100))/mo, spec_key=$spec_key)"
     skipped=$((skipped + 1))
   else
-    log "  Creating Price: \$$((spec_price_cents / 100))/mo USD recurring monthly (spec_key=$spec_key)..."
+    if [ -n "$existing_price" ]; then
+      # Stripe Prices are immutable — an amount change requires a NEW Price.
+      log "  Amount changed: \$$((existing_amount / 100)) → \$$((spec_price_cents / 100))/mo — rotating price"
+    else
+      log "  Creating Price: \$$((spec_price_cents / 100))/mo USD recurring monthly (spec_key=$spec_key)..."
+    fi
+
     price_resp="$(stripe_call POST "/prices" \
       "product=${product_id}" \
       "unit_amount=${spec_price_cents}" \
@@ -205,6 +225,18 @@ for i in "${!SPEC_KEYS[@]}"; do
     price_id="$(echo "$price_resp" | jq -r '.id')"
     log_ok "Price created: $price_id (\$$((spec_price_cents / 100))/mo, spec_key=$spec_key)"
     created_prices=$((created_prices + 1))
+
+    # Archive the superseded Price. The backend catalog requires exactly one
+    # active Price per spec_key, otherwise refreshAll() reports an integrity
+    # violation and refuses to sync.
+    if [ -n "$existing_price" ]; then
+      stripe_call POST "/prices/${existing_price}" "active=false" >/dev/null || {
+        log_err "Failed to archive old price $existing_price — backend will see two active prices for spec_key=$spec_key"
+        continue
+      }
+      log_ok "Old price archived: $existing_price"
+      rotated_prices=$((rotated_prices + 1))
+    fi
   fi
   echo
 done
@@ -216,7 +248,8 @@ echo
 log_ok "=== Bootstrap summary ==="
 log "  Products created:  $created_products"
 log "  Prices created:    $created_prices"
-log "  Skipped (exists):  $skipped"
+log "  Prices rotated:    $rotated_prices"
+log "  Skipped (current): $skipped"
 echo
 
 log "Final Stripe catalog (catalog=tapstate):"
