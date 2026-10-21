@@ -41,6 +41,7 @@ config:
   publicBaseUrl: https://dev.cloud.tapstate.com
   atlasMdbMock: "false"
   logLevelCloud: DEBUG
+  tawkPropertyId: 6ad811f9c0b97c34b365a428
 
 service:
   type: NodePort

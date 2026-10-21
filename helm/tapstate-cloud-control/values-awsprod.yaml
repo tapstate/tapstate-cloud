@@ -56,6 +56,7 @@ config:
   # API explorers are not exposed in production.
   swaggerUiEnabled: "false"
   knife4jEnabled: "false"
+  tawkPropertyId: 6ad81a2c88dd6c34b5979eb7
 
 # nginx edge on k3sm01 proxies 127.0.0.1:30180.
 service:

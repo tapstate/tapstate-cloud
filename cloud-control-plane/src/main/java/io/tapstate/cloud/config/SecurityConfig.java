@@ -88,6 +88,7 @@ public class SecurityConfig {
                     // service identity Secret (validated inside ExchangeController)
                     "/v1/api/auth/exchange",
                     "/v1/api/jwks.json",
+                    "/v1/api/webhooks/tawk",
 
                 // C2 status-report endpoints — runtime SDK authenticates with Bearer sdk-static-token
                     // (validated inside the controller, NOT via Spring Session)
