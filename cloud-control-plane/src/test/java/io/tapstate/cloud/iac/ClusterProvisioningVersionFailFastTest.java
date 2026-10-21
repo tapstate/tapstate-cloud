@@ -10,6 +10,7 @@ import io.tapstate.cloud.iac.crypto.SshKeyCrypto;
 import io.tapstate.cloud.iac.ssh.SshClient;
 import io.tapstate.cloud.iac.ssh.SshKeyPairGenerator;
 import io.tapstate.cloud.progress.DeploymentStepRecorder;
+import io.tapstate.cloud.subscription.SpecConfigService;
 import io.tapstate.cloud.tls.TlsCertificateService;
 import io.tapstate.cloud.tls.TlsNodeInstaller;
 import io.tapstate.cloud.version.ClusterVersion;
@@ -83,7 +84,8 @@ class ClusterProvisioningVersionFailFastTest {
             tlsInstaller,
             clusterVersionService,
             imageResolver,
-            mongo);
+            mongo,
+            org.mockito.Mockito.mock(SpecConfigService.class));
     }
 
     @Test

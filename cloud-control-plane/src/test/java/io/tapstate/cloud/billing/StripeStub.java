@@ -66,6 +66,32 @@ final class StripeStub {
                 """.formatted(SUBSCRIPTION_ID, cancelAtPeriodEnd, SUBSCRIPTION_ID);
     }
 
+    /**
+     * Subscription and customer retrieve for the trial-end decision. The
+     * subscription carries {@code defaultPaymentMethod} when given; otherwise the
+     * customer is the only place a card could be, and it carries the same value.
+     */
+    static void trialSubscription(WireMockExtension server, String defaultPaymentMethod) {
+        String card = defaultPaymentMethod == null ? "null" : "\"" + defaultPaymentMethod + "\"";
+        server.stubFor(get(urlPathEqualTo("/v1/subscriptions/" + SUBSCRIPTION_ID))
+                .willReturn(okJson("""
+                        {"id":"%s","object":"subscription","status":"trialing",
+                         "default_payment_method":%s,"customer":"%s",
+                         "current_period_start":1792486269,"current_period_end":1795078269,
+                         "items":{"object":"list","url":"/v1/subscription_items?subscription=%s",
+                                  "has_more":false,"data":[]}}
+                        """.formatted(SUBSCRIPTION_ID, card, CUSTOMER_ID, SUBSCRIPTION_ID))));
+        server.stubFor(post(urlPathEqualTo("/v1/subscriptions/" + SUBSCRIPTION_ID))
+                .willReturn(okJson("""
+                        {"id":"%s","object":"subscription","status":"trialing",
+                         "cancel_at_period_end":true}
+                        """.formatted(SUBSCRIPTION_ID))));
+        server.stubFor(get(urlPathEqualTo("/v1/customers/" + CUSTOMER_ID))
+                .willReturn(okJson("""
+                        {"id":"%s","object":"customer","invoice_settings":{"default_payment_method":%s}}
+                        """.formatted(CUSTOMER_ID, card))));
+    }
+
     /** Envelope for one webhook event; {@code dataObject} is the raw {@code data.object}. */
     static String event(String type, String dataObject) {
         long now = Instant.now().getEpochSecond();
@@ -82,6 +108,13 @@ final class StripeStub {
                 {"id":"%s","object":"event","api_version":"2024-10-28","created":%d,
                  "livemode":false,"type":"%s","data":{"object":%s}}
                 """.formatted(eventId, now, type, dataObject);
+    }
+
+    /** Stripe's three-days-before-trial-end notice. */
+    static String trialWillEnd(String eventId) {
+        return event(eventId, "customer.subscription.trial_will_end", """
+                {"id":"%s","object":"subscription","status":"trialing","customer":"%s"}
+                """.formatted(SUBSCRIPTION_ID, CUSTOMER_ID));
     }
 
     static String checkoutCompleted(String checkoutSessionId) {
