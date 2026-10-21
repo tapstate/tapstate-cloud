@@ -125,6 +125,30 @@ spec:
               value: {{ .Values.config.logLevelCloud | quote }}
             - name: LOG_LEVEL_SECURITY
               value: {{ .Values.config.logLevelSecurity | quote }}
+            - name: TAPSTATE_CLOUD_TAWK_PROPERTY_ID
+              value: {{ .Values.config.tawkPropertyId | quote }}
+            - name: TAPSTATE_CLOUD_TAWK_RETRY_INTERVAL_MS
+              value: {{ .Values.config.tawkRetryIntervalMs | quote }}
+
+            # ========== Secrets from k3s Secret — Tawk and Feishu ==========
+            - name: TAWK_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.tawkWebhook.name }}
+                  key: {{ .Values.secrets.tawkWebhook.secretKey }}
+                  optional: true
+            - name: FEISHU_BOT_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.feishuBot.name }}
+                  key: {{ .Values.secrets.feishuBot.webhookUrlKey }}
+                  optional: true
+            - name: FEISHU_BOT_SIGNING_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.feishuBot.name }}
+                  key: {{ .Values.secrets.feishuBot.signingSecretKey }}
+                  optional: true
 
             # ========== Secrets from k3s Secret — MONGODB ==========
             # SPRING_DATA_MONGODB_URI maps to spring.data.mongodb.uri via relaxed binding

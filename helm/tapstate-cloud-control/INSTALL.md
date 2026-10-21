@@ -60,6 +60,34 @@ kubectl create secret generic tapstate-cloud-control-cluster-version \
   -n tapstate-cloud-control \
   --from-literal=release-token="$(openssl rand -hex 32)"
 
+# ---- Optional: Tawk to Feishu feedback notifications ----
+# Create one Tawk webhook in each environment's existing Property. Use the
+# environment's HTTPS callback URL and select Chat Start and New Ticket. Enable
+# signature verification on the Feishu custom bot. Keep both env files outside
+# Git with owner-only permissions; never put their values in shell history.
+# tawk-webhook.env contains webhook-secret=<Tawk webhook signing secret>.
+# feishu-bot.env contains webhook-url=<bot webhook URL> and
+# signing-secret=<bot signing secret>.
+kubectl create secret generic tapstate-cloud-control-tawk-webhook \
+  -n tapstate-cloud-control \
+  --from-env-file=/secure/path/tawk-webhook.env
+kubectl create secret generic tapstate-cloud-control-feishu-bot \
+  -n tapstate-cloud-control \
+  --from-env-file=/secure/path/feishu-bot.env
+
+# For awsdev, create the same Secrets in the tapstate namespace instead.
+# The expected Tawk Property ID is selected by values-awsdev.yaml / values-awsprod.yaml.
+# The Feishu URL is environment configuration, not a code constant. Each custom
+# bot is bound to its group. To change the destination later, create a custom
+# bot in the new group, update webhook-url and signing-secret in this
+# environment's feishu-bot.env, then reapply the same Secret:
+kubectl create secret generic tapstate-cloud-control-feishu-bot \
+  -n tapstate-cloud-control \
+  --from-env-file=/secure/path/feishu-bot.env \
+  --dry-run=client -o yaml | kubectl apply -f -
+# For awsdev, use namespace tapstate and its own feishu-bot.env. Restart the
+# Control Plane after the update so the environment-backed Secret values reload.
+
 # ---- Shared sample database password ----
 # Keep this file outside the repository with owner-only permissions.
 # The Secret must be in the same namespace as the Control Plane release.

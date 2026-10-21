@@ -123,6 +123,13 @@ tapstate:
     # publish/delist endpoints; a blank value disables those endpoints (fail closed).
     cluster-version:
       release-token: ${CLOUD_CLUSTER_VERSION_RELEASE_TOKEN:}
+    tawk:
+      property-id: ${TAPSTATE_CLOUD_TAWK_PROPERTY_ID:}
+      webhook-secret: ${TAWK_WEBHOOK_SECRET:}
+      retry-interval-ms: ${TAPSTATE_CLOUD_TAWK_RETRY_INTERVAL_MS:30000}
+      feishu:
+        webhook-url: ${FEISHU_BOT_WEBHOOK_URL:}
+        signing-secret: ${FEISHU_BOT_SIGNING_SECRET:}
     # Atlas MDB allocation engine.
     # mock=true skips every real Atlas Admin API call (local dev / fast IT).
     # Real deployments set TAPSTATE_CLOUD_MDB_ATLAS_MOCK=false and provide the

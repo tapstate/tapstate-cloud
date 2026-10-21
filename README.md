@@ -72,6 +72,15 @@ docker run -p 8080:8080 \
 - `POST /api/orgs/{orgId}/clusters` — create cluster (async auto-provisioning)
 - `GET /api/jwks.json` — JWKS public key set
 - `POST /api/sdk/status` — SDK C2 status receiver
+- `POST /v1/api/webhooks/tawk` — signature-verified Tawk event receiver
+
+The Tawk receiver stores only event IDs and notification routing metadata. It
+does not persist chat transcripts, message text, visitor names, or email
+addresses. It sends `chat:start`, `ticket:create`, and metadata-only
+offline-form callback alerts to the configured Feishu custom bot and retries
+failed delivery from MongoDB. Configure the Tawk webhook secret and Feishu bot
+credentials through the optional k3s Secrets documented in
+`helm/tapstate-cloud-control/INSTALL.md`.
 
 OpenAPI docs: `http://localhost:8080/swagger-ui.html`
 
