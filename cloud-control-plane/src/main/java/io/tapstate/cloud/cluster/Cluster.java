@@ -98,6 +98,11 @@ public class Cluster {
     @Schema(description = "Per-Cluster SDK static token — runtime uses this for C2 status-report Bearer auth")
     private String sdkStaticToken;
 
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    @lombok.ToString.Exclude
+    @Schema(hidden = true)
+    private ClusterConfigurationInitialization configurationInitialization;
+
     // ========== AWS resources ==========
     @Schema(description = "EC2 instance ID")
     private String ec2InstanceId;

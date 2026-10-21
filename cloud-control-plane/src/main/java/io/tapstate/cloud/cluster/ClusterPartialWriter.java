@@ -54,6 +54,8 @@ public class ClusterPartialWriter {
         // Never move the key itself, and leave the stored type hint untouched.
         written.remove("_id");
         written.remove("_class");
+        // This facet has its own single-document CAS. A stale lifecycle snapshot cannot reset it.
+        written.remove(ClusterConfigurationInitialization.FIELD);
 
         Instant now = Instant.now();
         cluster.setUpdatedAt(now);
@@ -65,7 +67,7 @@ public class ClusterPartialWriter {
         Document cleared = new Document();
         for (MongoPersistentProperty property : converter.getMappingContext()
             .getPersistentEntity(Cluster.class)) {
-            if (property.isIdProperty()) {
+            if (property.isIdProperty() || property.getFieldName().equals(ClusterConfigurationInitialization.FIELD)) {
                 continue;
             }
             if (!written.containsKey(property.getFieldName())) {
