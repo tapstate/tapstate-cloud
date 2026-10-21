@@ -57,6 +57,8 @@ tags:
   description: Available AWS regions for Cluster provisioning
 - name: Deployment Progress
   description: Subscription deployment/reclamation progress
+- name: Support tickets
+  description: Cloud session-owned Jira Service Management requests
 - name: Health
   description: Health check endpoints
 paths:
@@ -1108,6 +1110,127 @@ paths:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseLoginResult"
+  /v1/api/tickets:
+    get:
+      tags:
+      - Support tickets
+      summary: List the current user's support tickets
+      operationId: listMyTickets
+      parameters:
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+      - name: size
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      responses:
+        "200":
+          description: Page of the caller's tickets with live Jira status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseTicketPage"
+        "401":
+          description: Not authenticated
+        "503":
+          description: Jira Service Management is not configured
+        "502":
+          description: Jira Service Management is unavailable
+    post:
+      tags:
+      - Support tickets
+      summary: Create a support request for the current Cloud user
+      operationId: createMyTicket
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTicketRequest"
+      responses:
+        "201":
+          description: Jira request created and linked to the current Cloud user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseTicket"
+        "400":
+          description: Request title or description is invalid or rejected by Jira
+        "401":
+          description: Not authenticated
+        "409":
+          description: Current Cloud email is not a unique Jira customer
+        "502":
+          description: Jira Service Management is unavailable
+        "503":
+          description: Jira configuration is missing or submission result is uncertain
+  /v1/api/tickets/{cloudTicketId}:
+    get:
+      tags:
+      - Support tickets
+      summary: Read one of the current user's support tickets
+      operationId: getMyTicket
+      parameters:
+      - name: cloudTicketId
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: "^[0-9a-fA-F]{24}$"
+      responses:
+        "200":
+          description: Ticket details with live Jira status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseTicket"
+        "401":
+          description: Not authenticated
+        "404":
+          description: Ticket does not exist or is not owned by the caller
+        "503":
+          description: Jira Service Management is not configured
+        "502":
+          description: Jira Service Management is unavailable
+  /v1/api/tickets/{cloudTicketId}/close:
+    post:
+      tags:
+      - Support tickets
+      summary: Close one of the current user's tickets when the Jira workflow permits it
+      operationId: closeMyTicket
+      parameters:
+      - name: cloudTicketId
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: "^[0-9a-fA-F]{24}$"
+      responses:
+        "200":
+          description: Ticket closed and Jira status re-read
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseTicket"
+        "401":
+          description: Not authenticated
+        "404":
+          description: Ticket does not exist or is not owned by the caller
+        "409":
+          description: Configured close transition is not available
+        "502":
+          description: Jira Service Management is unavailable
+        "503":
+          description: Jira Service Management is not configured
   /health:
     get:
       tags:
@@ -1671,6 +1794,102 @@ components:
         data:
           $ref: "#/components/schemas/LoginResult"
           description: "Response payload — object or array, null on void responses"
+
+    ApiResponseTicket:
+      type: object
+      description: Global API response envelope
+      properties:
+        opId:
+          type: string
+        code:
+          type: string
+        msg:
+          type: string
+        data:
+          $ref: "#/components/schemas/TicketResponse"
+    ApiResponseTicketPage:
+      type: object
+      description: Global API response envelope
+      properties:
+        opId:
+          type: string
+        code:
+          type: string
+        msg:
+          type: string
+        data:
+          $ref: "#/components/schemas/TicketPageResponse"
+    CreateTicketRequest:
+      type: object
+      required:
+      - summary
+      - description
+      properties:
+        summary:
+          type: string
+          minLength: 1
+          maxLength: 255
+        description:
+          type: string
+          minLength: 1
+          maxLength: 10000
+    TicketPageResponse:
+      type: object
+      required:
+      - items
+      - page
+      - size
+      - totalItems
+      - totalPages
+      - hasNext
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/TicketResponse"
+        page:
+          type: integer
+        size:
+          type: integer
+        totalItems:
+          type: integer
+          format: int64
+        totalPages:
+          type: integer
+        hasNext:
+          type: boolean
+    TicketResponse:
+      type: object
+      required:
+      - id
+      - jiraKey
+      - summary
+      - description
+      - status
+      - statusCategory
+      - createdAt
+      - canClose
+      properties:
+        id:
+          type: string
+          description: Cloud ticket ID used for subsequent requests
+        jiraKey:
+          type: string
+          description: Jira Service Management request key
+        summary:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+        statusCategory:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        canClose:
+          type: boolean
+          description: Whether the current Jira workflow allows the caller to close this ticket
     LoginResult:
       type: object
       properties:

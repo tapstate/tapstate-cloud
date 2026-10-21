@@ -79,6 +79,10 @@ secrets:
     name: tapstate-cloud-control-secrets
     secretKeyKey: stripe.secret-key
     webhookSecretKey: stripe.webhook-secret
+  jira:
+    name: tapstate-cloud-control-jira
+    apiEmailKey: api-email
+    apiTokenKey: api-token
 
 # ========== ConfigMap (non-sensitive config) ==========
 config:
@@ -91,6 +95,14 @@ config:
   awsRegion: ap-southeast-1
   corsAllowedOrigins: "https://cloud.tapstate.io,https://*.cloud.tapstate.io"
   sampleSourcesHost: "47.238.126.103"
+
+  # ----- Jira Service Management (non-sensitive routing configuration) -----
+  jiraBaseUrl: ""
+  jiraServiceDeskId: ""
+  jiraRequestTypeId: ""
+  jiraCloseTransitionName: "Close Request"
+  jiraConnectTimeoutSeconds: "3"
+  jiraRequestTimeoutSeconds: "10"
 
   # ----- API docs -----
   swaggerUiEnabled: "true"

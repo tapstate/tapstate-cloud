@@ -123,6 +123,17 @@ tapstate:
     # publish/delist endpoints; a blank value disables those endpoints (fail closed).
     cluster-version:
       release-token: ${CLOUD_CLUSTER_VERSION_RELEASE_TOKEN:}
+    # Jira Service Management integration. The API email and token are secrets;
+    # an unset value leaves support ticket endpoints fail-closed.
+    jira:
+      base-url: ${TAPSTATE_CLOUD_JIRA_BASE_URL:}
+      service-desk-id: ${TAPSTATE_CLOUD_JIRA_SERVICE_DESK_ID:}
+      request-type-id: ${TAPSTATE_CLOUD_JIRA_REQUEST_TYPE_ID:}
+      api-email: ${TAPSTATE_CLOUD_JIRA_API_EMAIL:}
+      api-token: ${TAPSTATE_CLOUD_JIRA_API_TOKEN:}
+      close-transition-name: ${TAPSTATE_CLOUD_JIRA_CLOSE_TRANSITION_NAME:Close Request}
+      connect-timeout-seconds: ${TAPSTATE_CLOUD_JIRA_CONNECT_TIMEOUT_SECONDS:3}
+      request-timeout-seconds: ${TAPSTATE_CLOUD_JIRA_REQUEST_TIMEOUT_SECONDS:10}
     # Atlas MDB allocation engine.
     # mock=true skips every real Atlas Admin API call (local dev / fast IT).
     # Real deployments set TAPSTATE_CLOUD_MDB_ATLAS_MOCK=false and provide the
