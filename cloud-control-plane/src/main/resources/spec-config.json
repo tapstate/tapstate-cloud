@@ -1,0 +1,32 @@
+[
+  {
+    "key": "2c8g",
+    "displayName": "2C8G Starter",
+    "cpuCores": 2,
+    "memoryGb": 8,
+    "awsEc2Spec": "t2.large",
+    "trialDays": 7,
+    "mdbSizeGb": 10,
+    "enabled": true
+  },
+  {
+    "key": "4c16g",
+    "displayName": "4C16G Pro",
+    "cpuCores": 4,
+    "memoryGb": 16,
+    "awsEc2Spec": "t2.xlarge",
+    "trialDays": 0,
+    "mdbSizeGb": 20,
+    "enabled": true
+  },
+  {
+    "key": "8c32g",
+    "displayName": "8C32G Enterprise",
+    "cpuCores": 8,
+    "memoryGb": 32,
+    "awsEc2Spec": "t2.2xlarge",
+    "trialDays": 0,
+    "mdbSizeGb": 50,
+    "enabled": true
+  }
+]

@@ -1,6 +1,4 @@
 package io.tapstate.cloud.it;
-
-import io.tapstate.cloud.sdk.model.CreateSubscriptionRequest;
 import io.tapstate.cloud.sdk.model.DeploymentProgressResponse;
 import io.tapstate.cloud.sdk.model.SubscriptionResponse;
 import org.junit.jupiter.api.DisplayName;
@@ -30,11 +28,8 @@ class SubscriptionDeploymentProgressIT extends BaseIT {
     void installProgressReachesOneHundred() throws Exception {
         String orgId = signupWithOrg("Install Progress");
 
-        SubscriptionResponse sub = subscriptionApi.createSubscription(orgId,
-            new CreateSubscriptionRequest()
-                .region("ap-southeast-1")
-                .clusterName("install-progress-" + System.nanoTime())
-                .specKey("basic")).getData();
+        SubscriptionResponse sub = seedProvisionedSubscription(orgId, "2c8g", "ap-southeast-1",
+            "install-progress-" + System.nanoTime());
 
         DeploymentProgressResponse progress = await()
             .atMost(Duration.ofMinutes(2))

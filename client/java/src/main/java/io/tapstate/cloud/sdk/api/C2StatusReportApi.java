@@ -1,6 +1,6 @@
 /*
  * Tapstate Cloud — Global Control Plane API
- * Global Control Plane backend API for Tapstate Cloud.  ## Authentication  Three authentication contexts (ADR-0122 D2): - **Session Cookie** — Cloud Console users (type ①) - **Static Token** — SDK status sender (type ②, `/api/sdk/_*`) - **Resolve JWT** — issued by this service for Cluster Console access  ## Regions  Week 2: only `ap-southeast-1` (Singapore) available. Production regions to be added post-W4.  ## Clusters  Clusters are auto-provisioned via CloudFormation + EC2 + Docker. Lifecycle state machine has 6 states in Week 2.
+ * Global Control Plane backend API for Tapstate Cloud.  ## Authentication  Three authentication contexts (ADR-0122 D2): - **Session Cookie** — Cloud Console users (type ①) - **Static Token** — SDK status sender (type ②, `/api/sdk/_*`) - **Resolve JWT** — issued by this service for Cluster Console access  ## Regions  Week 2: only `ap-southeast-1` (Singapore) available. Production regions to be added post-W4.  ## Clusters  Clusters are auto-provisioned via CloudFormation + EC2 + Docker. Lifecycle state machine has 6 states in Week 2. 
  *
  * The version of the OpenAPI document: v1
  * Contact: cloud@tapstate.io
@@ -67,17 +67,17 @@ public class C2StatusReportApi extends BaseApi {
    */
   public CurrentEgressAddress200Response currentEgressAddress(@jakarta.annotation.Nonnull String clusterId, @jakarta.annotation.Nonnull String authorization, Map<String, String> additionalHeaders) throws ApiException {
     Object localVarPostBody = null;
-
+    
     // verify the required parameter 'clusterId' is set
     if (clusterId == null) {
       throw new ApiException(400, "Missing the required parameter 'clusterId' when calling currentEgressAddress");
     }
-
+    
     // verify the required parameter 'authorization' is set
     if (authorization == null) {
       throw new ApiException(400, "Missing the required parameter 'authorization' when calling currentEgressAddress");
     }
-
+    
     // create path and map variables
     String localVarPath = "/v1/api/clusters/{clusterId}/egress-address"
       .replaceAll("\\{" + "clusterId" + "\\}", apiClient.escapeString(apiClient.parameterToString(clusterId)));
@@ -95,15 +95,15 @@ public class C2StatusReportApi extends BaseApi {
 
     localVarHeaderParams.putAll(additionalHeaders);
 
-
-
+    
+    
     final String[] localVarAccepts = {
       "application/json"
     };
     final String localVarAccept = apiClient.selectHeaderAccept(localVarAccepts);
 
     final String[] localVarContentTypes = {
-
+      
     };
     final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
 
@@ -153,17 +153,17 @@ public class C2StatusReportApi extends BaseApi {
    */
   public ApiResponseStatusReportResponse report(@jakarta.annotation.Nonnull String clusterId, @jakarta.annotation.Nonnull StatusReportRequest statusReportRequest, @jakarta.annotation.Nullable String authorization, Map<String, String> additionalHeaders) throws ApiException {
     Object localVarPostBody = statusReportRequest;
-
+    
     // verify the required parameter 'clusterId' is set
     if (clusterId == null) {
       throw new ApiException(400, "Missing the required parameter 'clusterId' when calling report");
     }
-
+    
     // verify the required parameter 'statusReportRequest' is set
     if (statusReportRequest == null) {
       throw new ApiException(400, "Missing the required parameter 'statusReportRequest' when calling report");
     }
-
+    
     // create path and map variables
     String localVarPath = "/v1/api/clusters/{clusterId}/status-report"
       .replaceAll("\\{" + "clusterId" + "\\}", apiClient.escapeString(apiClient.parameterToString(clusterId)));
@@ -181,8 +181,8 @@ public class C2StatusReportApi extends BaseApi {
 
     localVarHeaderParams.putAll(additionalHeaders);
 
-
-
+    
+    
     final String[] localVarAccepts = {
       "*/*"
     };

@@ -8,7 +8,6 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import io.tapstate.cloud.common.api.ApiResponse;
 import io.tapstate.cloud.common.api.AppErrorCode;
 import io.tapstate.cloud.common.api.BaseController;
-import io.tapstate.cloud.common.api.BusinessException;
 import io.tapstate.cloud.common.CurrentUser;
 import io.tapstate.cloud.org.OrganizationService;
 import io.tapstate.cloud.progress.DeploymentOpType;
@@ -31,12 +30,14 @@ import java.util.Map;
  * Subscription endpoints — an Organization owns many subscriptions; each
  * subscription owns one Cluster and one MdbAllocation.
  * <p>
- * Creation flow (POST /subscriptions): creates Subscription (TRIAL state) →
- * sync creates its Cluster record → sync creates its MdbAllocation record →
- * both state machines run async provisioning in parallel. Poll
- * GET /subscriptions/{subscriptionId} to track progress.
+ * The only way to obtain a subscription is the paid flow: create a Stripe
+ * Checkout session, let the webhook activate it, then finalize provisioning.
+ * There is deliberately no endpoint that creates a subscription, or moves one
+ * into a provisionable state, without the payment channel confirming it.
  * <p>
- * Payment callbacks and invoice list are Week 3+ features (not implemented here).
+ * Read endpoints stay open to every member of the Organization; cancelling is
+ * self-serve at period end. Poll GET /subscriptions/{subscriptionId} to track
+ * async provisioning.
  */
 @RestController
 @RequestMapping("/v1/api/orgs/{orgId}")
@@ -87,42 +88,6 @@ public class SubscriptionController extends BaseController {
         return ok(responses);
     }
 
-    @PostMapping("/subscriptions")
-    @Operation(
-        summary = "Create a subscription with one Cluster + one MDB allocation",
-        description = "Creates a new subscription (TRIAL, 30-day period) with the two default billable items, " +
-                      "then synchronously provisions one Cluster record and one Atlas MDB allocation.\n\n" +
-                      "Async provisioning (fired by state machines):\n" +
-                      "  - Cluster state machine: START_PROVISION → CloudFormation simulation → READY/PROVISIONING_FAILED\n" +
-                      "  - MDB state machine: START_PROVISION → Atlas createDatabase + createDatabaseUser → READY/PROVISIONING_FAILED\n\n" +
-                      "Both flows run in parallel. Poll GET /subscriptions/{subscriptionId} to track progress.\n\n" +
-                      "An Organization may own many subscriptions; cluster names stay unique within org + region."
-    )
-    @ApiResponses(value = {
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "Subscription created, Cluster + MDB allocation provisioning pending"),
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Invalid input (missing region/name/spec)"),
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "Not authenticated"),
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "Not a member of this Organization"),
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "Duplicate cluster name in org + region"),
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "503", description = "No Atlas capacity for the requested region")
-    })
-    public ResponseEntity<ApiResponse<SubscriptionResponse>> createSubscription(
-            @Parameter(description = "Organization UUID") @PathVariable String orgId,
-            @Valid @RequestBody CreateSubscriptionRequest request) {
-        String userEmail = CurrentUser.getEmail();
-        if (userEmail == null) {
-            return fail(AppErrorCode.UNAUTHORIZED, HttpStatus.UNAUTHORIZED);
-        }
-        if (!organizationService.isMember(orgId, userEmail)) {
-            return fail(AppErrorCode.ORG_NOT_MEMBER, HttpStatus.FORBIDDEN, orgId);
-        }
-
-        Subscription subscription = subscriptionService.createSubscription(
-            orgId, request.region(), request.clusterName(), request.specKey(), userEmail, request.version());
-
-        return okCreated(toResponse(subscription));
-    }
-
     @GetMapping("/subscriptions/{subscriptionId}")
     @Operation(
         summary = "Get one subscription",
@@ -151,24 +116,26 @@ public class SubscriptionController extends BaseController {
         return ok(toResponse(subscription));
     }
 
-    @PostMapping("/subscriptions/{subscriptionId}/status")
+    // ========== Checkout + period-end cancel + finalize ==============
+
+    @PostMapping("/subscriptions/checkout")
     @Operation(
-        summary = "Update subscription status (admin/internal)",
-        description = "Internal admin endpoint for subscription state transition.\n\n" +
-                      "Used in Week 2 to simulate PAST_DUE / CANCELLED states for testing. " +
-                      "Production version (Week 12) will be driven by Marketplace billing callbacks.\n\n" +
-                      "Accepted status values: TRIAL / ACTIVE / PAST_DUE / CANCELLED."
+        summary = "Create a Stripe Checkout Session + PENDING_PAYMENT subscription shell",
+        description = "Validates the spec exists (platform spec_config.enabled=true) and has Stripe pricing configured, " +
+                      "then creates a hosted Stripe Checkout Session. Returns the redirect URL and a PENDING_PAYMENT " +
+                      "Subscription shell. Cluster provisioning does NOT start until the Checkout Session completes " +
+                      "(webhook-driven PENDING_PAYMENT→ACTIVE transition + activateAndProvision)."
     )
     @ApiResponses(value = {
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Status updated"),
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Invalid status value or missing field"),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "Checkout session created — shell subscription + redirect URL"),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Invalid specKey or spec deprecated"),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "Not authenticated"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "Not a member of this Organization"),
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Subscription not found")
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "Duplicate subscription (clientRequestId already used)")
     })
-    public ResponseEntity<ApiResponse<SubscriptionResponse>> transitionStatus(
+    public ResponseEntity<ApiResponse<CheckoutResponse>> createCheckout(
             @Parameter(description = "Organization UUID") @PathVariable String orgId,
-            @Parameter(description = "Subscription UUID") @PathVariable String subscriptionId,
-            @RequestBody Map<String, String> body) {
+            @Valid @RequestBody CreateCheckoutRequest request) {
         String userEmail = CurrentUser.getEmail();
         if (userEmail == null) {
             return fail(AppErrorCode.UNAUTHORIZED, HttpStatus.UNAUTHORIZED);
@@ -177,67 +144,72 @@ public class SubscriptionController extends BaseController {
             return fail(AppErrorCode.ORG_NOT_MEMBER, HttpStatus.FORBIDDEN, orgId);
         }
 
-        String statusStr = body.get("status");
-        if (statusStr == null) {
-            return fail(AppErrorCode.BAD_REQUEST, HttpStatus.BAD_REQUEST, "status is required");
-        }
-        SubscriptionStatus target;
-        try {
-            target = SubscriptionStatus.valueOf(statusStr.toUpperCase());
-        } catch (IllegalArgumentException e) {
-            throw new BusinessException(
-                AppErrorCode.BAD_REQUEST, 400, "Invalid subscription status: " + statusStr);
-        }
+        SubscriptionService.CheckoutResult result = subscriptionService.createCheckoutSession(
+                orgId, request.specKey(), userEmail, request.clientRequestId());
 
-        Subscription updated = subscriptionService.transitionStatus(subscriptionId, orgId, target);
+        CheckoutResponse resp = new CheckoutResponse(
+                result.subscription().getId().toHexString(),
+                result.subscription().getStatus().name(),
+                result.sessionUrl());
+        return okCreated(resp);
+    }
+
+    @PostMapping("/subscriptions/{subscriptionId}/cancel-at-period-end")
+    @Operation(
+        summary = "Cancel subscription at the next billing period end",
+        description = "Stripe subscription is marked cancel_at_period_end=true. The subscription stays ACTIVE " +
+                      "(PENDING_CANCEL) until the billing cycle expires, then auto-terminates via the " +
+                      "PERIOD_END_REAPED scheduled reaper. No immediate Cluster termination."
+    )
+    public ResponseEntity<ApiResponse<SubscriptionResponse>> cancelAtPeriodEnd(
+            @PathVariable String orgId, @PathVariable String subscriptionId) {
+        String userEmail = CurrentUser.getEmail();
+        if (userEmail == null) return fail(AppErrorCode.UNAUTHORIZED, HttpStatus.UNAUTHORIZED);
+        if (!organizationService.isMember(orgId, userEmail))
+            return fail(AppErrorCode.ORG_NOT_MEMBER, HttpStatus.FORBIDDEN, orgId);
+
+        Subscription updated = subscriptionService.cancelAtPeriodEnd(subscriptionId, orgId, "gc:" + userEmail);
         return ok(toResponse(updated));
     }
 
-    @PostMapping("/subscriptions/{subscriptionId}/cancel")
+    @PostMapping("/subscriptions/{subscriptionId}/cancel-now")
     @Operation(
-        summary = "Cancel one subscription — terminate its Cluster + reclaim its MDB",
-        description = "Cancels this subscription (state → CANCELLED) and triggers cascade termination of " +
-                      "its Cluster and reclaim of its MdbAllocation. Other subscriptions of the same " +
-                      "Organization are unaffected.\n\n" +
-                      "Cascade runs asynchronously via the Cluster state-machine INITIATE_TERMINATION event and " +
-                      "MDB state-machine INITIATE_RECLAIM event. This endpoint returns immediately.\n\n" +
-                      "Safe to call on an already-cancelled subscription (idempotent)."
+        summary = "Immediate subscription cancellation — no grace period",
+        description = "Cancels the Stripe subscription immediately and transitions to CANCELLED, triggering " +
+                      "cascade termination of the Cluster + reclaim of MdbAllocation."
     )
-    @ApiResponses(value = {
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Subscription cancelled, cascade termination scheduled"),
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "Not authenticated"),
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "Not a member of this Organization"),
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Subscription not found")
-    })
-    public ResponseEntity<ApiResponse<SubscriptionResponse>> cancelSubscription(
-            @Parameter(description = "Organization UUID") @PathVariable String orgId,
-            @Parameter(description = "Subscription UUID") @PathVariable String subscriptionId) {
+    public ResponseEntity<ApiResponse<SubscriptionResponse>> cancelNow(
+            @PathVariable String orgId, @PathVariable String subscriptionId) {
         String userEmail = CurrentUser.getEmail();
-        if (userEmail == null) {
-            return fail(AppErrorCode.UNAUTHORIZED, HttpStatus.UNAUTHORIZED);
-        }
-        if (!organizationService.isMember(orgId, userEmail)) {
+        if (userEmail == null) return fail(AppErrorCode.UNAUTHORIZED, HttpStatus.UNAUTHORIZED);
+        if (!organizationService.isMember(orgId, userEmail))
             return fail(AppErrorCode.ORG_NOT_MEMBER, HttpStatus.FORBIDDEN, orgId);
-        }
 
-        Subscription cancelled = subscriptionService.cancelSubscription(subscriptionId, orgId, "gc:" + userEmail);
-        return ok(toResponse(cancelled));
+        Subscription updated = subscriptionService.cancelNow(subscriptionId, orgId, "gc:" + userEmail);
+        return ok(toResponse(updated));
     }
 
-    // ========== Request DTO ==========
+    @PostMapping("/subscriptions/{subscriptionId}/finalize-provisioning")
+    @Operation(
+        summary = "Finalize Cluster + MDB provisioning after Checkout confirmation",
+        description = "Called by the Console after the user confirms on the Checkout success page. " +
+                      "Requires a paid state (ACTIVE, or TRIAL when the spec carries a trial). " +
+                      "Creates Cluster + MdbAllocation and kicks off async provisioning. " +
+                      "An optional version pins the Cluster version; omitted resolves the latest ACTIVE version."
+    )
+    public ResponseEntity<ApiResponse<SubscriptionResponse>> finalizeProvisioning(
+            @PathVariable String orgId,
+            @PathVariable String subscriptionId,
+            @Valid @RequestBody FinalizeProvisioningRequest request) {
+        String userEmail = CurrentUser.getEmail();
+        if (userEmail == null) return fail(AppErrorCode.UNAUTHORIZED, HttpStatus.UNAUTHORIZED);
+        if (!organizationService.isMember(orgId, userEmail))
+            return fail(AppErrorCode.ORG_NOT_MEMBER, HttpStatus.FORBIDDEN, orgId);
 
-    public record CreateSubscriptionRequest(
-        @NotBlank @Parameter(description = "AWS Region code", example = "ap-southeast-1")
-        String region,
-        @NotBlank @Size(min = 1, max = 100)
-        @Parameter(description = "Cluster display name (unique within org + region); normalized into the public subdomain label, which must be globally unique among active clusters and contain at least one letter or digit", example = "Production Pipeline")
-        String clusterName,
-        @Size(max = 50) @Parameter(description = "Provisioning spec_key (Week 2: 'basic' only)", example = "basic")
-        String specKey,
-        @Size(max = 100)
-        @Parameter(description = "Cluster version to deploy; omit/blank to use the latest ACTIVE version", example = "1.4.0")
-        String version
-    ) {}
+        Subscription updated = subscriptionService.finalizeProvisioning(
+                subscriptionId, request.region(), request.clusterName(), userEmail, request.version());
+        return okCreated(toResponse(updated));
+    }
 
     // ========== Response DTOs ==========
 
@@ -319,4 +291,34 @@ public class SubscriptionController extends BaseController {
                 item.getMetadata());
         }
     }
+
+    // ========== Checkout DTOs ==========
+
+    public record CreateCheckoutRequest(
+            @NotBlank @Size(max = 50)
+            @Parameter(description = "Platform spec key", example = "2c8g")
+            String specKey,
+            @Size(max = 100)
+            @Parameter(description = "Idempotency key — prevents double-checkout on retry")
+            String clientRequestId
+    ) {}
+
+    public record FinalizeProvisioningRequest(
+            @NotBlank @Size(max = 100)
+            @Parameter(description = "AWS Region code", example = "ap-southeast-1")
+            String region,
+            @NotBlank @Size(min = 1, max = 100)
+            @Parameter(description = "Cluster display name", example = "Production Pipeline")
+            String clusterName,
+            @Size(max = 100)
+            @Parameter(description = "Cluster version to deploy; omit/blank to use the latest ACTIVE version",
+                       example = "1.4.0")
+            String version
+    ) {}
+
+    public record CheckoutResponse(
+            @Schema(description = "PENDING_PAYMENT Subscription UUID") String subscriptionId,
+            @Schema(description = "Subscription status (PENDING_PAYMENT)") String status,
+            @Schema(description = "Stripe-hosted Checkout redirect URL — Console redirects the user here") String checkoutUrl
+    ) {}
 }

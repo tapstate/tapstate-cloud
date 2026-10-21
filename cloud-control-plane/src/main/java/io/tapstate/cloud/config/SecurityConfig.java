@@ -100,6 +100,15 @@ public class SecurityConfig {
                 // Regions — public (user sees before login)
                 .requestMatchers(HttpMethod.GET, "/v1/api/regions").permitAll()
 
+                // Subscription spec catalog — public: the Console renders pricing
+                // on the landing page, before the user signs in.
+                .requestMatchers(HttpMethod.GET, "/v1/api/specs").permitAll()
+
+                // Payment-channel webhooks — the caller is the payment provider, not a
+                // session user. Authenticity is the signature header, verified inside the
+                // controller before any state changes.
+                .requestMatchers(HttpMethod.POST, "/v1/api/internal/payment/*/webhook").permitAll()
+
                 // Cluster version publish / delist — operator automation authenticates
                 // with a static Bearer token inside the controller; the console GET list
                 // of /v1/api/cluster-versions stays session-authenticated.

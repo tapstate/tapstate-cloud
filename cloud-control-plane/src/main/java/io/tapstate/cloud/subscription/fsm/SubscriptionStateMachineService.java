@@ -64,10 +64,15 @@ public class SubscriptionStateMachineService {
 
             // Apply side-effects
             if (newStatus == SubscriptionStatus.ACTIVE) {
-                // Reset billing period on activation (from TRIAL / PAST_DUE)
+                // The billing event that drives the transition already wrote the
+                // period Stripe billed for (a trial end or a renewal window), so
+                // only fall back to a default when no future period exists.
                 Instant now = Instant.now();
-                subscription.setCurrentPeriodStart(now);
-                subscription.setCurrentPeriodEnd(now.plus(30, ChronoUnit.DAYS));
+                Instant currentEnd = subscription.getCurrentPeriodEnd();
+                if (currentEnd == null || !currentEnd.isAfter(now)) {
+                    subscription.setCurrentPeriodStart(now);
+                    subscription.setCurrentPeriodEnd(now.plus(30, ChronoUnit.DAYS));
+                }
             }
 
             subscriptionRepository.save(subscription);

@@ -145,10 +145,8 @@ class SubscriptionClusterLifecycleIT extends BaseIT {
         assertEquals(0, clusterCount(), "No Cluster should exist before subscribing");
 
         // ---------- 3. User creates a subscription with a Cluster ----------
-        io.tapstate.cloud.sdk.model.SubscriptionResponse created = subscriptionApi.createSubscription(orgId,
-            new CreateSubscriptionRequest()
-                .region("ap-southeast-1").clusterName("Lifecycle-Cluster").specKey("basic"))
-            .getData();
+        io.tapstate.cloud.sdk.model.SubscriptionResponse created =
+            seedProvisionedSubscription(orgId, "2c8g", "ap-southeast-1", "Lifecycle-Cluster");
         String subscriptionId = created.getId();
         String clusterId = created.getClusterId();
         assertNotNull(clusterId, "create response must carry the provisioned Cluster id");
@@ -190,7 +188,7 @@ class SubscriptionClusterLifecycleIT extends BaseIT {
             "Cluster must be linked to its owning subscription");
         assertEquals("ap-southeast-1", cluster.path("region").asText());
         assertEquals("Lifecycle-Cluster", cluster.path("name").asText());
-        assertEquals("basic", cluster.path("specKey").asText());
+        assertEquals("2c8g", cluster.path("specKey").asText());
         assertTrue(
             "PROVISIONING".equals(cluster.path("state").asText())
                 || "READY".equals(cluster.path("state").asText()),
@@ -304,7 +302,7 @@ class SubscriptionClusterLifecycleIT extends BaseIT {
         assertEquals("READY", subscriptionDto(subscriptionId).path("resourceState").asText());
 
         // ---------- 5. Cancel → terminal states and resource release ----------
-        subscriptionApi.cancelSubscription(orgId, subscriptionId);
+        subscriptionApi.cancelNow(orgId, subscriptionId);
 
         boolean terminated = false;
         boolean mdbReclaimed = false;
@@ -346,7 +344,7 @@ class SubscriptionClusterLifecycleIT extends BaseIT {
         assertEquals("CANCELLED", cancelled.path("status").asText());
 
         // ---------- 6. Repeated cancel is idempotent ----------
-        subscriptionApi.cancelSubscription(orgId, subscriptionId);
+        subscriptionApi.cancelNow(orgId, subscriptionId);
         assertEquals("CANCELLED", rawSubscription(subscriptionId).path("status").asText());
         assertEquals("TERMINATED", rawCluster(clusterId).path("state").asText());
         assertEquals("DELETED", rawAllocation(clusterId).path("status").asText());
