@@ -19,6 +19,8 @@ import io.tapstate.cloud.iac.ssh.SshKeyPairGenerator;
 import io.tapstate.cloud.iac.ssh.SshSession;
 import io.tapstate.cloud.progress.DeploymentOperation;
 import io.tapstate.cloud.progress.DeploymentStepRecorder;
+import io.tapstate.cloud.subscription.SpecConfig;
+import io.tapstate.cloud.subscription.SpecConfigService;
 import io.tapstate.cloud.tls.TlsCertificate;
 import io.tapstate.cloud.tls.TlsCertificateService;
 import io.tapstate.cloud.tls.TlsNodeInstaller;
@@ -75,6 +77,7 @@ public class ClusterProvisioningService {
     private final ClusterVersionService clusterVersionService;
     private final ClusterImageResolver imageResolver;
     private final MongoTemplate mongoTemplate;
+    private final SpecConfigService specConfigService;
 
     // ---- Timing budget ----
     private static final Duration STACK_TIMEOUT = Duration.ofMinutes(15);
@@ -104,7 +107,8 @@ public class ClusterProvisioningService {
         TlsNodeInstaller tlsInstaller,
         ClusterVersionService clusterVersionService,
         ClusterImageResolver imageResolver,
-        MongoTemplate mongoTemplate) {
+        MongoTemplate mongoTemplate,
+        SpecConfigService specConfigService) {
         this.clusterRepository = clusterRepository;
         this.properties = properties;
         this.clusterDomainName = clusterDomainName;
@@ -120,6 +124,7 @@ public class ClusterProvisioningService {
         this.clusterVersionService = clusterVersionService;
         this.imageResolver = imageResolver;
         this.mongoTemplate = mongoTemplate;
+        this.specConfigService = specConfigService;
 
         CloudProvider provider = CloudProvider.fromId(properties.getProvider());
         ComputeInfrastructure selected = computeBeans.values().stream()
@@ -208,7 +213,7 @@ public class ClusterProvisioningService {
                     NodeSpec spec = new NodeSpec(
                         clusterId,
                         cluster.getRegion(),
-                        properties.getAws().getInstanceType(),
+                        instanceTypeFor(cluster),
                         properties.getAws().getDiskSizeGb(),
                         generated.openSshPublicKey(),
                         List.of(
@@ -860,6 +865,30 @@ public class ClusterProvisioningService {
         mongoTemplate.updateFirst(provisioningQuery(cluster),
             new Update().set("provisionErrorCode", code).set("provisionErrorDetail", detail), Cluster.class);
         return ProvisionResult.failed(code, detail);
+    }
+
+    /**
+     * EC2 type for this Cluster.
+     * <p>
+     * The spec the customer bought decides it, so a 4C16G subscription is
+     * provisioned on a 4-vCPU machine instead of whatever the environment default
+     * happens to be. The configured default only covers Clusters whose spec
+     * predates the catalogue carrying a provider type.
+     */
+    String instanceTypeFor(Cluster cluster) {
+        String specKey = cluster.getSpecKey();
+        if (specKey != null && !specKey.isBlank()) {
+            String fromSpec = specConfigService.findByKey(specKey)
+                .map(SpecConfig::getAwsEc2Spec)
+                .filter(type -> type != null && !type.isBlank())
+                .orElse(null);
+            if (fromSpec != null) {
+                return fromSpec;
+            }
+        }
+        log.warn("[IaC] spec '{}' carries no awsEc2Spec (cluster={}) — using the environment default {}",
+            specKey, cluster.getId(), properties.getAws().getInstanceType());
+        return properties.getAws().getInstanceType();
     }
 
     private void persist(Cluster cluster, Update update) {

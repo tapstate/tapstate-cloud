@@ -70,7 +70,8 @@ class ClusterProvisioningCancellationTest {
             mock(ClusterDnsRecordCoordinator.class), mock(SshClient.class), mock(SshKeyPairGenerator.class),
             mock(SshKeyCrypto.class), mock(ClusterRuntimeConfigs.class), mock(RuntimeAtlasUriResolver.class),
             mock(DeploymentStepRecorder.class), mock(TlsCertificateService.class), mock(TlsNodeInstaller.class),
-            versions, mock(ClusterImageResolver.class), mongo);
+            versions, mock(ClusterImageResolver.class), mongo,
+            mock(io.tapstate.cloud.subscription.SpecConfigService.class));
     }
 
     @Test

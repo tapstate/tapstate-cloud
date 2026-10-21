@@ -86,6 +86,7 @@ public class SpecConfigBootstrap implements ApplicationRunner {
                     .set("displayName", sc.getDisplayName())
                     .set("cpuCores", sc.getCpuCores())
                     .set("memoryGb", sc.getMemoryGb())
+                    .set("awsEc2Spec", sc.getAwsEc2Spec())
                     .set("trialDays", sc.getTrialDays())
                     .set("mdbSizeGb", sc.getMdbSizeGb())
                     .set("enabled", sc.isEnabled())
