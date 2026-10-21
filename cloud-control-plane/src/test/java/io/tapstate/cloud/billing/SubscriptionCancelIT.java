@@ -124,7 +124,7 @@ class SubscriptionCancelIT {
                 clusterVersionService, specConfigService, stripeProductService, stripePaymentService);
         webhookEventService = new StripeWebhookEventService(
                 stripeEventRepository, subscriptionRepository, subscriptionService,
-                subscriptionStateMachineService, config);
+                subscriptionStateMachineService, stripePaymentService, config);
 
         StripeStub.checkout(stripe);
         StripeStub.cancelAtPeriodEnd(stripe);

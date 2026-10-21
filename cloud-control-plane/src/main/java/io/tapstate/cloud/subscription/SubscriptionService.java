@@ -291,9 +291,10 @@ public class SubscriptionService {
 
         // Payment must be confirmed first — a PENDING_PAYMENT shell has no right to
         // infrastructure, and finalising it would provision for free. TRIAL is
-        // allowed: a trial has a bound payment method and is exactly the state the
-        // free instance is for. Everything else (PAST_DUE, PENDING_CANCEL,
-        // CANCELLED) has no right to new resources.
+        // allowed: a trial is a real subscription whether or not it collected a
+        // card, and one that ends without a card is cancelled instead of converting.
+        // Everything else (PAST_DUE, PENDING_CANCEL, CANCELLED) has no right to
+        // new resources.
         if (subscription.getStatus() == SubscriptionStatus.PENDING_PAYMENT) {
             throw new BusinessException(
                     AppErrorCode.SUBSCRIPTION_PENDING_PAYMENT, 400, subscriptionId);
