@@ -178,8 +178,7 @@ class AwsAtlasFullLifecycleIT extends BaseIT {
         tlsFixture.seed(MONGO_URI);
 
         clusterName = "aws-atlas-" + Long.toHexString(System.nanoTime());
-        var created = subscriptionApi.createSubscription(orgId, new CreateSubscriptionRequest()
-            .region(REGION).clusterName(clusterName).specKey("basic")).getData();
+        var created = seedProvisionedSubscription(orgId, "2c8g", REGION, clusterName);
         subscriptionId = created.getId();
 
         clusterId = created.getClusterId();
@@ -230,7 +229,7 @@ class AwsAtlasFullLifecycleIT extends BaseIT {
             "allocation dbUser must authenticate against Atlas with the runtime URI");
 
         // ---------- 4. Cancel cascades to AWS and Atlas ----------
-        subscriptionApi.cancelSubscription(orgId, subscriptionId);
+        subscriptionApi.cancelNow(orgId, subscriptionId);
         waitForClusterState(orgId, clusterId, "TERMINATED",
             TERMINATED_ATTEMPTS, TERMINATED_POLL_MS);
         assertEquals("DELETED", waitForAllocationState("DELETED").path("status").asText());
@@ -250,7 +249,7 @@ class AwsAtlasFullLifecycleIT extends BaseIT {
     @org.junit.jupiter.api.AfterEach
     void emergencyCleanup() {
         try {
-            subscriptionApi.cancelSubscription(orgId, subscriptionId);
+            subscriptionApi.cancelNow(orgId, subscriptionId);
         } catch (Exception ignored) {
             // Subscription may already be cancelled.
         }

@@ -42,9 +42,7 @@ class ProvisioningStallRecoveryIT extends BaseIT {
 
     private SubscriptionResponse createReadyCluster(String clusterName) throws Exception {
         orgId = signupWithOrg(clusterName);
-        SubscriptionResponse sub = subscriptionApi.createSubscription(orgId,
-            new CreateSubscriptionRequest().region("ap-southeast-1")
-                .clusterName(clusterName).specKey("basic")).getData();
+        SubscriptionResponse sub = seedProvisionedSubscription(orgId, "2c8g", "ap-southeast-1", clusterName);
         assertNotNull(sub.getClusterId(), "Subscription should carry its Cluster id");
         waitForReady(orgId, sub.getClusterId());
         return sub;

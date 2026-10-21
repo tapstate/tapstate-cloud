@@ -37,9 +37,7 @@ class CancelCascadeIT extends BaseIT {
 
     /** Create a subscription (its Cluster id comes back on the response). */
     private SubscriptionResponse createWithCluster(String clusterName) throws Exception {
-        return subscriptionApi.createSubscription(orgId,
-            new CreateSubscriptionRequest().region("ap-southeast-1").clusterName(clusterName).specKey("basic"))
-            .getData();
+        return seedProvisionedSubscription(orgId, "2c8g", "ap-southeast-1", clusterName);
     }
 
     private void waitForCluster(String clusterId, String targetState) {
@@ -55,7 +53,7 @@ class CancelCascadeIT extends BaseIT {
         String clusterId = sub.getClusterId();
         waitForCluster(clusterId, "READY");
 
-        subscriptionApi.cancelSubscription(orgId, sub.getId());
+        subscriptionApi.cancelNow(orgId, sub.getId());
 
         waitForCluster(clusterId, "TERMINATED");
         assertEquals("CANCELLED",
@@ -71,7 +69,7 @@ class CancelCascadeIT extends BaseIT {
         waitForCluster(second.getClusterId(), "READY");
 
         // Cancel only the FIRST subscription.
-        subscriptionApi.cancelSubscription(orgId, first.getId());
+        subscriptionApi.cancelNow(orgId, first.getId());
 
         // The first subscription's cluster terminates.
         waitForCluster(first.getClusterId(), "TERMINATED");
@@ -96,7 +94,7 @@ class CancelCascadeIT extends BaseIT {
             .findFirst().orElse(null));
 
         // Cancelling the sibling now terminates its own cluster too.
-        subscriptionApi.cancelSubscription(orgId, second.getId());
+        subscriptionApi.cancelNow(orgId, second.getId());
         waitForCluster(second.getClusterId(), "TERMINATED");
     }
 
@@ -104,11 +102,11 @@ class CancelCascadeIT extends BaseIT {
     @DisplayName("T3 — Cancel already CANCELLED → idempotent")
     void cancelAlreadyCancelled_isIdempotent() throws Exception {
         SubscriptionResponse sub = createWithCluster("Idem");
-        subscriptionApi.cancelSubscription(orgId, sub.getId());
+        subscriptionApi.cancelNow(orgId, sub.getId());
         SubscriptionResponse first = subscriptionApi.getSubscription(orgId, sub.getId()).getData();
         assertEquals("CANCELLED", first.getStatus());
 
-        subscriptionApi.cancelSubscription(orgId, sub.getId());
+        subscriptionApi.cancelNow(orgId, sub.getId());
         SubscriptionResponse second = subscriptionApi.getSubscription(orgId, sub.getId()).getData();
         assertEquals("CANCELLED", second.getStatus());
     }
@@ -117,7 +115,7 @@ class CancelCascadeIT extends BaseIT {
     @DisplayName("T4 — Unknown subscription id → 404")
     void cancelUnknownSubscription_is404() {
         var ex = assertThrows(io.tapstate.cloud.sdk.ApiException.class,
-            () -> subscriptionApi.cancelSubscription(orgId, "507f1f77bcf86cd799439011"));
+            () -> subscriptionApi.cancelNow(orgId, "507f1f77bcf86cd799439011"));
         assertEquals(404, ex.getCode());
     }
 }

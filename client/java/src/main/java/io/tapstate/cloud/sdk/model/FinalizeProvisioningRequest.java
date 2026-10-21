@@ -31,7 +31,8 @@ import java.util.StringJoiner;
  */
 @JsonPropertyOrder({
   FinalizeProvisioningRequest.JSON_PROPERTY_REGION,
-  FinalizeProvisioningRequest.JSON_PROPERTY_CLUSTER_NAME
+  FinalizeProvisioningRequest.JSON_PROPERTY_CLUSTER_NAME,
+  FinalizeProvisioningRequest.JSON_PROPERTY_VERSION
 })
 @jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", comments = "Generator version: 7.25.0")
 public class FinalizeProvisioningRequest {
@@ -42,6 +43,10 @@ public class FinalizeProvisioningRequest {
   public static final String JSON_PROPERTY_CLUSTER_NAME = "clusterName";
   @jakarta.annotation.Nonnull
   private String clusterName;
+
+  public static final String JSON_PROPERTY_VERSION = "version";
+  @jakarta.annotation.Nullable
+  private String version;
 
   public FinalizeProvisioningRequest() {
   }
@@ -96,6 +101,31 @@ public class FinalizeProvisioningRequest {
     this.clusterName = clusterName;
   }
 
+  public FinalizeProvisioningRequest version(@jakarta.annotation.Nullable String version) {
+    
+    this.version = version;
+    return this;
+  }
+
+  /**
+   * Cluster version to deploy; omit/blank to use the latest ACTIVE version
+   * @return version
+   */
+  @jakarta.annotation.Nullable
+  @JsonProperty(value = JSON_PROPERTY_VERSION, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+
+  public String getVersion() {
+    return version;
+  }
+
+
+  @JsonProperty(value = JSON_PROPERTY_VERSION, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+  public void setVersion(@jakarta.annotation.Nullable String version) {
+    this.version = version;
+  }
+
 
   @Override
   public boolean equals(Object o) {
@@ -107,12 +137,13 @@ public class FinalizeProvisioningRequest {
     }
     FinalizeProvisioningRequest finalizeProvisioningRequest = (FinalizeProvisioningRequest) o;
     return Objects.equals(this.region, finalizeProvisioningRequest.region) &&
-        Objects.equals(this.clusterName, finalizeProvisioningRequest.clusterName);
+        Objects.equals(this.clusterName, finalizeProvisioningRequest.clusterName) &&
+        Objects.equals(this.version, finalizeProvisioningRequest.version);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(region, clusterName);
+    return Objects.hash(region, clusterName, version);
   }
 
   @Override
@@ -121,6 +152,7 @@ public class FinalizeProvisioningRequest {
     sb.append("class FinalizeProvisioningRequest {\n");
     sb.append("    region: ").append(toIndentedString(region)).append("\n");
     sb.append("    clusterName: ").append(toIndentedString(clusterName)).append("\n");
+    sb.append("    version: ").append(toIndentedString(version)).append("\n");
     sb.append("}");
     return sb.toString();
   }
@@ -179,6 +211,16 @@ public class FinalizeProvisioningRequest {
     if (getClusterName() != null) {
       try {
         joiner.add(String.format(java.util.Locale.ROOT, "%sclusterName%s=%s", prefix, suffix, URLEncoder.encode(String.valueOf(getClusterName()), "UTF-8").replaceAll("\\+", "%20")));
+      } catch (UnsupportedEncodingException e) {
+        // Should never happen, UTF-8 is always supported
+        throw new RuntimeException(e);
+      }
+    }
+
+    // add `version` to the URL query string
+    if (getVersion() != null) {
+      try {
+        joiner.add(String.format(java.util.Locale.ROOT, "%sversion%s=%s", prefix, suffix, URLEncoder.encode(String.valueOf(getVersion()), "UTF-8").replaceAll("\\+", "%20")));
       } catch (UnsupportedEncodingException e) {
         // Should never happen, UTF-8 is always supported
         throw new RuntimeException(e);

@@ -1,6 +1,4 @@
 package io.tapstate.cloud.it;
-
-import io.tapstate.cloud.sdk.model.CreateSubscriptionRequest;
 import io.tapstate.cloud.sdk.model.DeploymentProgressResponse;
 import io.tapstate.cloud.sdk.model.SubscriptionResponse;
 import org.junit.jupiter.api.DisplayName;
@@ -27,11 +25,8 @@ class SubscriptionUninstallProgressIT extends BaseIT {
     void uninstallProgressReachesOneHundred() throws Exception {
         String orgId = signupWithOrg("Uninstall Progress");
 
-        SubscriptionResponse sub = subscriptionApi.createSubscription(orgId,
-            new CreateSubscriptionRequest()
-                .region("ap-southeast-1")
-                .clusterName("uninstall-progress-" + System.nanoTime())
-                .specKey("basic")).getData();
+        SubscriptionResponse sub = seedProvisionedSubscription(orgId, "2c8g", "ap-southeast-1",
+            "uninstall-progress-" + System.nanoTime());
         String clusterId = sub.getClusterId();
 
         // Only cancel after the initial deployment completed.
@@ -39,7 +34,7 @@ class SubscriptionUninstallProgressIT extends BaseIT {
             () -> progressApi.getProgress(orgId, sub.getId(), "INSTALL").getData(),
             p -> "SUCCEEDED".equals(p.getOverallStatus()));
 
-        subscriptionApi.cancelSubscription(orgId, sub.getId());
+        subscriptionApi.cancelNow(orgId, sub.getId());
 
         DeploymentProgressResponse progress = await()
             .atMost(Duration.ofMinutes(2))

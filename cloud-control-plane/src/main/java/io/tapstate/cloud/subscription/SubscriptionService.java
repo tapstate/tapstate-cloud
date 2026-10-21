@@ -35,15 +35,12 @@ import java.util.Map;
  * items, provision the one Cluster + one MdbAllocation every subscription owns,
  * and enforce subscription validity at resource-provisioning gates.
  * <p>
- * Three creation paths are supported:
- * <ol>
- *   <li>{@link #createCheckoutSession} (new) — Stripe Checkout: shell Subscription
- *       (PENDING_PAYMENT) + hosted-payment URL, actual provisioning happens only
- *       after {@code checkout.session.completed} webhook fires
- *       (see {@link #activateAndProvision}).</li>
- *   <li>{@link #createSubscription} (legacy scaffold) — direct TRIAL subscription,
- *       provision immediately — retained for backward compatibility.</li>
- * </ol>
+ * There is one creation path: {@link #createCheckoutSession} — Stripe Checkout
+ * creates a shell Subscription (PENDING_PAYMENT) plus a hosted-payment URL, and
+ * provisioning happens only after the {@code checkout.session.completed} webhook
+ * fires (see {@link #activateAndProvision}). No API can create a subscription, or
+ * move one into a provisionable state, without a channel confirming payment.
+ * <p>
  * All status transitions (PENDING_PAYMENT / TRIAL / ACTIVE / PAST_DUE / PENDING_CANCEL / CANCELLED)
  * go through {@link SubscriptionStateMachineService}. This enforces validated
  * transition paths — rejected transitions return the current status unchanged.
@@ -69,10 +66,7 @@ public class SubscriptionService {
     private final StripeProductService stripeProductService;
     private final PaymentGateway paymentGateway;
 
-    /** Default trial period — 30 days. */
-    private static final int TRIAL_DAYS = 30;
-
-    // ========== NEW — Stripe Checkout flow ================
+    // ========== Stripe Checkout flow ================
 
     /**
      * Create a Checkout Session + PENDING_PAYMENT shell Subscription.
@@ -280,6 +274,17 @@ public class SubscriptionService {
     @Transactional
     public Subscription finalizeProvisioning(String subscriptionId, String region,
                                               String clusterName, String creatorEmail) {
+        return finalizeProvisioning(subscriptionId, region, clusterName, creatorEmail, null);
+    }
+
+    /**
+     * @param version Cluster version to deploy; blank/null resolves the latest ACTIVE
+     *                version, an explicit value is pinned for this Cluster
+     */
+    @Transactional
+    public Subscription finalizeProvisioning(String subscriptionId, String region,
+                                              String clusterName, String creatorEmail,
+                                              String version) {
         Subscription subscription = subscriptionRepository.findById(new ObjectId(subscriptionId))
                 .orElseThrow(() -> new BusinessException(
                         AppErrorCode.SUBSCRIPTION_NOT_FOUND, 404, subscriptionId));
@@ -311,7 +316,10 @@ public class SubscriptionService {
             throw new BusinessException(AppErrorCode.SUBSCRIPTION_SPEC_NOT_FOUND, 400, subscriptionId);
         }
 
-        String clusterVersion = clusterVersionService.findClusterLastVersion().getVersion();
+        String requestedVersion = version == null ? null : version.trim();
+        String clusterVersion = (requestedVersion == null || requestedVersion.isEmpty())
+                ? clusterVersionService.findClusterLastVersion().getVersion()
+                : clusterVersionService.findActiveByVersion(requestedVersion).getVersion();
         ObjectId subscriptionOid = subscription.getId();
         ObjectId orgOid = subscription.getOrgId();
         String orgId = orgOid.toHexString();
@@ -415,55 +423,6 @@ public class SubscriptionService {
         return performCancel(subscription, null, operator, false);
     }
 
-    // ========== Legacy TRIAL path (Week 2 scaffold — still valid) ==========
-
-    /**
-     * Create a new subscription (TRIAL, 30-day period) with its two default
-     * billable items, then provision its one Cluster and one Atlas MdbAllocation.
-     * <p>
-     * This is the Week 2 scaffold path — retained for backward compatibility.
-     * New users should go through {@link #createCheckoutSession}.
-     */
-    @Transactional
-    public Subscription createSubscription(String orgId, String region, String clusterName,
-                                           String specKey, String creatorEmail, String version) {
-        String requestedVersion = version == null ? null : version.trim();
-        ClusterVersion clusterVersion = (requestedVersion == null || requestedVersion.isEmpty())
-            ? clusterVersionService.findClusterLastVersion()
-            : clusterVersionService.findActiveByVersion(requestedVersion);
-        String resolvedVersion = clusterVersion.getVersion();
-
-        Subscription subscription = createSubscriptionShell(orgId);
-        ObjectId subscriptionId = subscription.getId();
-
-        deploymentStepRecorder.seed(new ObjectId(orgId), subscriptionId, DeploymentOpType.INSTALL);
-
-        Cluster cluster = clusterService.createCluster(
-            orgId, subscriptionId, region, clusterName, specKey, creatorEmail, resolvedVersion);
-        log.info("[Subscription] Cluster created: clusterId={}, subscriptionId={}",
-            cluster.getId().toHexString(), subscriptionId.toHexString());
-
-        MdbAllocation allocation = mdbAllocationService.allocateMdb(
-            orgId, cluster.getId().toHexString(), region, subscriptionId.toHexString());
-
-        cluster.setMdbAllocationId(allocation.getId());
-        clusterService.updateMdbAllocationId(cluster.getId(), allocation.getId());
-
-        linkItemResource(subscriptionId, SubscriptionItemType.CLUSTER_PIPELINE_RUNTIME,
-            cluster.getId(), null);
-        linkItemResource(subscriptionId, SubscriptionItemType.ATLAS_DATABASE_STORAGE,
-            null, allocation.getId());
-
-        clusterService.startProvisioning(cluster.getId(),
-            "subscription:" + creatorEmail);
-
-        subscription.setResourceState(ResourceState.PROVISIONING);
-        subscription.setUpdatedAt(Instant.now());
-        subscriptionRepository.save(subscription);
-
-        return subscriptionRepository.findById(subscriptionId).orElse(subscription);
-    }
-
     // ========== Read ==========
 
     public List<Subscription> listByOrgId(String orgId) {
@@ -478,44 +437,6 @@ public class SubscriptionService {
 
     public List<SubscriptionItem> getItems(ObjectId subscriptionId) {
         return itemRepository.findBySubscriptionId(subscriptionId);
-    }
-
-    // ========== Legacy direct-cancel (kept for backward compat) ==========
-
-    @Transactional
-    public Subscription cancelSubscription(String subscriptionId, String orgId, String operator) {
-        Subscription subscription = getByIdAndOrgId(subscriptionId, orgId);
-        return performCancel(subscription, SubscriptionEventType.CANCEL_REQUESTED, operator, true);
-    }
-
-    // ========== Status transition (admin/internal endpoint) ==========
-
-    /**
-     * Transition subscription status — delegates to Spring Statemachine.
-     * Maps target status → the correct event type; the state machine validates
-     * that the transition is allowed from the current state. Rejected
-     * transitions return the current subscription unchanged.
-     */
-    @Transactional
-    public Subscription transitionStatus(String subscriptionId, String orgId, SubscriptionStatus target) {
-        Subscription subscription = getByIdAndOrgId(subscriptionId, orgId);
-        SubscriptionStatus from = subscription.getStatus();
-        SubscriptionEventType event = mapToEvent(from, target);
-
-        if (event == null) {
-            log.warn("Subscription {} transition {} → {} has no state-machine edge — ignoring request",
-                subscriptionId, from, target);
-            return subscription;
-        }
-
-        log.info("Subscription {} status transition request: {} → {} (event={})", subscriptionId, from, target, event);
-        var result = subscriptionStateMachineService.transition(subscription.getId(), event, "api:transitionStatus");
-
-        if (!result.accepted()) {
-            log.warn("Subscription {} transition {} rejected by state machine", subscriptionId, event);
-            return subscriptionRepository.findById(subscription.getId()).orElse(subscription);
-        }
-        return subscriptionRepository.findById(subscription.getId()).orElse(subscription);
     }
 
     // ========== Private helpers ==========
@@ -583,61 +504,6 @@ public class SubscriptionService {
                 },
                 () -> log.warn("[Subscription] {} item missing for subscription {} — resource link not recorded",
                     itemType, subscriptionId.toHexString()));
-    }
-
-    private Subscription createSubscriptionShell(String orgId) {
-        Instant now = Instant.now();
-        Subscription subscription = Subscription.builder()
-            .orgId(new ObjectId(orgId))
-            .status(SubscriptionStatus.TRIAL)
-            .currentPeriodStart(now)
-            .currentPeriodEnd(now.plus(TRIAL_DAYS, ChronoUnit.DAYS))
-            .build();
-        subscription = subscriptionRepository.save(subscription);
-
-        SubscriptionItem runtimeItem = SubscriptionItem.builder()
-            .subscriptionId(subscription.getId())
-            .orgId(new ObjectId(orgId))
-            .itemType(SubscriptionItemType.CLUSTER_PIPELINE_RUNTIME)
-            .includedQuantity(0)
-            .unitPriceCents(0L)
-            .metadata(Map.of("plan_tier", "trial", "unlimited", "true"))
-            .build();
-
-        SubscriptionItem storageItem = SubscriptionItem.builder()
-            .subscriptionId(subscription.getId())
-            .orgId(new ObjectId(orgId))
-            .itemType(SubscriptionItemType.ATLAS_DATABASE_STORAGE)
-            .includedQuantity(0)
-            .unitPriceCents(0L)
-            .metadata(Map.of("plan_tier", "trial", "unlimited", "true"))
-            .build();
-
-        itemRepository.saveAll(List.of(runtimeItem, storageItem));
-
-        log.info("Subscription created: org={}, subscriptionId={}", orgId, subscription.getId().toHexString());
-        return subscription;
-    }
-
-    /** FSM event mapping (retained for backward compat with transitionStatus). */
-    private SubscriptionEventType mapToEvent(SubscriptionStatus from, SubscriptionStatus to) {
-        if (from == SubscriptionStatus.TRIAL && to == SubscriptionStatus.ACTIVE) {
-            return SubscriptionEventType.PAYMENT_CONFIRMED;
-        }
-        if (from == SubscriptionStatus.ACTIVE && to == SubscriptionStatus.PAST_DUE) {
-            return SubscriptionEventType.PAYMENT_FAILED;
-        }
-        if (from == SubscriptionStatus.PAST_DUE && to == SubscriptionStatus.ACTIVE) {
-            return SubscriptionEventType.PAYMENT_RECEIVED;
-        }
-        if ((from == SubscriptionStatus.TRIAL || from == SubscriptionStatus.ACTIVE || from == SubscriptionStatus.PAST_DUE)
-            && to == SubscriptionStatus.CANCELLED) {
-            return SubscriptionEventType.CANCEL_REQUESTED;
-        }
-        if (from == SubscriptionStatus.CANCELLED && to == SubscriptionStatus.TRIAL) {
-            return SubscriptionEventType.ADMIN_RESTORE;
-        }
-        return null;
     }
 
     /** Result type returned by {@link #createCheckoutSession}. */

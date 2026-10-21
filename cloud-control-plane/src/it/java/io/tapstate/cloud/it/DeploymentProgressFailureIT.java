@@ -35,11 +35,8 @@ class DeploymentProgressFailureIT extends BaseIT {
             + "consumed: false,"
             + "createdAt: new Date()})");
 
-        SubscriptionResponse sub = subscriptionApi.createSubscription(orgId,
-            new CreateSubscriptionRequest()
-                .region("ap-southeast-1")
-                .clusterName("failure-progress-" + System.nanoTime())
-                .specKey("basic")).getData();
+        SubscriptionResponse sub = seedProvisionedSubscription(orgId, "2c8g", "ap-southeast-1",
+            "failure-progress-" + System.nanoTime());
         String clusterId = sub.getClusterId();
 
         DeploymentProgressResponse failedProgress = await()

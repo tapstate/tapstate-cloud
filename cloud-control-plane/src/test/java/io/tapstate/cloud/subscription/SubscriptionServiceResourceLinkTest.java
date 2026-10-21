@@ -17,6 +17,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -31,8 +33,8 @@ import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for the resource links written onto billable items by
- * {@link SubscriptionService#createSubscription}. The runtime billable item must
- * carry the Cluster ID and the storage item the MdbAllocation ID, and each
+ * {@link SubscriptionService#finalizeProvisioning}. The runtime billable item
+ * must carry the Cluster ID and the storage item the MdbAllocation ID, and each
  * subscription's links must stay scoped to its own items.
  */
 @ExtendWith(MockitoExtension.class)
@@ -68,6 +70,9 @@ class SubscriptionServiceResourceLinkTest {
     private final ObjectId clusterId = new ObjectId();
     private final ObjectId allocationId = new ObjectId();
 
+    /** Subscriptions by id, so a finalize on either one resolves its own document. */
+    private final Map<ObjectId, Subscription> stored = new HashMap<>();
+
     private SubscriptionItem runtimeItem;
     private SubscriptionItem storageItem;
 
@@ -78,19 +83,11 @@ class SubscriptionServiceResourceLinkTest {
             eventPublisher, clusterService, mdbAllocationService, deploymentStepRecorder,
             clusterVersionService, specConfigService, stripeProductService, paymentGateway);
 
-        // Every call creates a new subscription; the repository assigns the id
-        // and the final PROVISIONING save returns the same entity. Lenient
-        // because the two-subscription test installs its own sequential-id stub.
-        lenient().when(subscriptionRepository.save(any(Subscription.class))).thenAnswer(inv -> {
-            Subscription s = inv.getArgument(0);
-            if (s.getId() == null) {
-                s.setId(subscriptionId);
-            }
-            return s;
-        });
-        when(subscriptionRepository.findById(subscriptionId)).thenAnswer(inv ->
-            Optional.of(Subscription.builder().id(subscriptionId).orgId(orgId)
-                .status(SubscriptionStatus.TRIAL).resourceState(ResourceState.PROVISIONING).build()));
+        stored.put(subscriptionId, subscription(subscriptionId));
+        lenient().when(subscriptionRepository.findById(any(ObjectId.class))).thenAnswer(inv ->
+            Optional.ofNullable(stored.get(inv.getArgument(0))));
+        lenient().when(subscriptionRepository.save(any(Subscription.class)))
+            .thenAnswer(inv -> inv.getArgument(0));
 
         when(clusterVersionService.findClusterLastVersion())
             .thenReturn(ClusterVersion.builder().version("0.6.0").build());
@@ -123,12 +120,21 @@ class SubscriptionServiceResourceLinkTest {
             SubscriptionItemType.ATLAS_DATABASE_STORAGE)).thenReturn(Optional.of(storageItem));
     }
 
-    @Test
-    void createSubscriptionStampsResourceIdsOnBillableItems() {
-        Subscription created = subscriptionService.createSubscription(orgId.toHexString(), "ap-southeast-1",
-            "qa-cluster", "basic", "leon.li@tapdata.io", null);
+    private Subscription subscription(ObjectId id) {
+        return Subscription.builder()
+            .id(id)
+            .orgId(orgId)
+            .status(SubscriptionStatus.TRIAL)
+            .specConfig(SpecConfig.builder().key("2c8g").trialDays(7).enabled(true).build())
+            .build();
+    }
 
-        assertThat(created.getId()).isEqualTo(subscriptionId);
+    @Test
+    void finalizeStampsResourceIdsOnBillableItems() {
+        Subscription finalized = subscriptionService.finalizeProvisioning(
+            subscriptionId.toHexString(), "ap-southeast-1", "qa-cluster", "leon.li@tapdata.io");
+
+        assertThat(finalized.getId()).isEqualTo(subscriptionId);
         assertThat(runtimeItem.getClusterId()).isEqualTo(clusterId);
         assertThat(runtimeItem.getMdbAllocationId()).isNull();
         assertThat(storageItem.getMdbAllocationId()).isEqualTo(allocationId);
@@ -139,8 +145,8 @@ class SubscriptionServiceResourceLinkTest {
 
     @Test
     void provisioningStartsOnlyAfterAllocationLinkAndItemsAreDurable() {
-        subscriptionService.createSubscription(orgId.toHexString(), "ap-southeast-1",
-            "qa-cluster", "basic", "leon.li@tapdata.io", null);
+        subscriptionService.finalizeProvisioning(
+            subscriptionId.toHexString(), "ap-southeast-1", "qa-cluster", "leon.li@tapdata.io");
 
         // START_PROVISION must fire only after the allocation link is saved, so
         // the async provisioning run can never observe the Cluster unlinked.
@@ -157,8 +163,8 @@ class SubscriptionServiceResourceLinkTest {
         when(itemRepository.findBySubscriptionIdAndItemType(subscriptionId,
             SubscriptionItemType.CLUSTER_PIPELINE_RUNTIME)).thenReturn(Optional.empty());
 
-        subscriptionService.createSubscription(orgId.toHexString(), "ap-southeast-1",
-            "qa-cluster", "basic", "leon.li@tapdata.io", null);
+        subscriptionService.finalizeProvisioning(
+            subscriptionId.toHexString(), "ap-southeast-1", "qa-cluster", "leon.li@tapdata.io");
 
         assertThat(storageItem.getMdbAllocationId()).isEqualTo(allocationId);
         verify(itemRepository).save(storageItem);
@@ -173,20 +179,7 @@ class SubscriptionServiceResourceLinkTest {
         ObjectId secondSubscriptionId = new ObjectId();
         ObjectId secondClusterId = new ObjectId();
         ObjectId secondAllocationId = new ObjectId();
-
-        // Shell saves arrive in creation order: first call = this test's
-        // subscriptionId, second call = secondSubscriptionId.
-        java.util.concurrent.atomic.AtomicInteger shellSaves = new java.util.concurrent.atomic.AtomicInteger();
-        when(subscriptionRepository.save(any(Subscription.class))).thenAnswer(inv -> {
-            Subscription s = inv.getArgument(0);
-            if (s.getId() == null) {
-                s.setId(shellSaves.incrementAndGet() == 1 ? subscriptionId : secondSubscriptionId);
-            }
-            return s;
-        });
-        when(subscriptionRepository.findById(secondSubscriptionId)).thenAnswer(inv ->
-            Optional.of(Subscription.builder().id(secondSubscriptionId).orgId(orgId)
-                .status(SubscriptionStatus.TRIAL).resourceState(ResourceState.PROVISIONING).build()));
+        stored.put(secondSubscriptionId, subscription(secondSubscriptionId));
 
         SubscriptionItem secondRuntimeItem = SubscriptionItem.builder()
             .id(new ObjectId()).subscriptionId(secondSubscriptionId).orgId(orgId)
@@ -207,12 +200,10 @@ class SubscriptionServiceResourceLinkTest {
             anyString(), eq(secondSubscriptionId.toHexString())))
             .thenReturn(MdbAllocation.builder().id(secondAllocationId).build());
 
-        // First subscription.
-        subscriptionService.createSubscription(orgId.toHexString(), "ap-southeast-1",
-            "qa-cluster-a", "basic", "leon.li@tapdata.io", null);
-        // Second subscription — different cluster name, independent shell + items.
-        subscriptionService.createSubscription(orgId.toHexString(), "ap-southeast-1",
-            "qa-cluster-b", "basic", "leon.li@tapdata.io", null);
+        subscriptionService.finalizeProvisioning(
+            subscriptionId.toHexString(), "ap-southeast-1", "qa-cluster-a", "leon.li@tapdata.io");
+        subscriptionService.finalizeProvisioning(
+            secondSubscriptionId.toHexString(), "ap-southeast-1", "qa-cluster-b", "leon.li@tapdata.io");
 
         // First subscription's items keep pointing at the first resource pair.
         assertThat(runtimeItem.getClusterId()).isEqualTo(clusterId);
@@ -225,7 +216,7 @@ class SubscriptionServiceResourceLinkTest {
         // The second cluster is created against the second subscription, and the
         // first subscription's items are never written again.
         verify(clusterService).createCluster(orgId.toHexString(), secondSubscriptionId,
-            "ap-southeast-1", "qa-cluster-b", "basic", "leon.li@tapdata.io", "0.6.0");
+            "ap-southeast-1", "qa-cluster-b", "2c8g", "leon.li@tapdata.io", "0.6.0");
         verify(itemRepository, org.mockito.Mockito.times(1)).save(runtimeItem);
         verify(itemRepository, org.mockito.Mockito.times(1)).save(storageItem);
         verify(itemRepository).save(secondRuntimeItem);

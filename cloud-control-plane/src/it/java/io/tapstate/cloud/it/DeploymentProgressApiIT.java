@@ -27,11 +27,8 @@ class DeploymentProgressApiIT extends BaseIT {
     void endpointValidationAndScoping() throws Exception {
         String orgId = signupWithOrg("Progress API");
 
-        SubscriptionResponse sub = subscriptionApi.createSubscription(orgId,
-            new CreateSubscriptionRequest()
-                .region("ap-southeast-1")
-                .clusterName("progress-api-" + System.nanoTime())
-                .specKey("basic")).getData();
+        SubscriptionResponse sub = seedProvisionedSubscription(orgId, "2c8g", "ap-southeast-1",
+            "progress-api-" + System.nanoTime());
 
         // Wait for the initial deployment so summary assertions are stable.
         await().atMost(Duration.ofMinutes(2)).until(
@@ -73,11 +70,8 @@ class DeploymentProgressApiIT extends BaseIT {
     void subscriptionResponseCarriesSummaries() throws Exception {
         String orgId = signupWithOrg("Progress Summaries");
 
-        SubscriptionResponse sub = subscriptionApi.createSubscription(orgId,
-            new CreateSubscriptionRequest()
-                .region("ap-southeast-1")
-                .clusterName("summaries-" + System.nanoTime())
-                .specKey("basic")).getData();
+        SubscriptionResponse sub = seedProvisionedSubscription(orgId, "2c8g", "ap-southeast-1",
+            "summaries-" + System.nanoTime());
 
         await().atMost(Duration.ofMinutes(2)).untilAsserted(() -> {
             SubscriptionResponse fetched =

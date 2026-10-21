@@ -59,9 +59,7 @@ class ClusterFieldPreservationIT extends BaseIT {
 
     /** Create a subscription and wait until its Cluster reaches READY. */
     private SubscriptionResponse createReadyCluster(String clusterName) throws Exception {
-        SubscriptionResponse sub = subscriptionApi.createSubscription(orgId,
-            new CreateSubscriptionRequest().region("ap-southeast-1")
-                .clusterName(clusterName).specKey("basic")).getData();
+        SubscriptionResponse sub = seedProvisionedSubscription(orgId, "2c8g", "ap-southeast-1", clusterName);
         assertNotNull(sub.getClusterId(), "Subscription should carry its Cluster id");
         waitForReady(orgId, sub.getClusterId());
         return sub;
@@ -143,7 +141,7 @@ class ClusterFieldPreservationIT extends BaseIT {
         String clusterId = sub.getClusterId();
         seedProbeField(clusterId);
 
-        subscriptionApi.cancelSubscription(orgId, sub.getId());
+        subscriptionApi.cancelNow(orgId, sub.getId());
         waitForClusterState(orgId, clusterId, "TERMINATED", 60, 1000);
 
         assertEquals(PROBE_VALUE, readProbeField(clusterId),
