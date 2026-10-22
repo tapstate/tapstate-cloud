@@ -34,6 +34,8 @@ public enum AppErrorCode implements ErrorCode {
     CLUSTER_ORG_MISMATCH("cluster.org-mismatch", "Cluster {0} does not belong to organization {1}"),
     CLUSTER_CANCEL_NOT_ALLOWED("cluster.cancel-not-allowed", "Cluster cannot be cancelled while in state {0}"),
     CLUSTER_PROVISION_FAILED("cluster.provision-failed", "Cluster provisioning {0}"),
+    CLUSTER_CONFIGURATION_INITIALIZATION_REFUSED("cluster.configuration-initialization-refused", "The original Cluster configuration initialization conditions are not satisfied"),
+    CLUSTER_CONFIGURATION_INITIALIZATION_UNAVAILABLE("cluster.configuration-initialization-unavailable", "Cluster configuration initialization is temporarily unavailable"),
 
     // ---------- Cluster versions ----------
     CLUSTER_VERSION_UNAVAILABLE("cluster.version-unavailable", "No active Cluster version is available"),

@@ -98,6 +98,10 @@ public class SecurityConfig {
                 ).permitAll()
 
                 // Regions — public (user sees before login)
+                // These two back-channel operations verify the per-Cluster service identity themselves.
+                .requestMatchers(HttpMethod.POST, "/v1/api/clusters/*/configuration-initialization/claim",
+                    "/v1/api/clusters/*/configuration-initialization/complete").permitAll()
+
                 .requestMatchers(HttpMethod.GET, "/v1/api/regions").permitAll()
 
                 // Subscription spec catalog — public: the Console renders pricing
