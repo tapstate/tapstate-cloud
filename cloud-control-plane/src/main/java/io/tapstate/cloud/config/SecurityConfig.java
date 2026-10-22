@@ -89,6 +89,9 @@ public class SecurityConfig {
                     "/v1/api/auth/exchange",
                     "/v1/api/jwks.json",
                     "/v1/api/webhooks/tawk",
+                    // External event ingestion — authenticated by a deployment token
+                    // inside the controller, not by a user session.
+                    "/v1/api/internal/events",
 
                 // C2 status-report endpoints — runtime SDK authenticates with Bearer sdk-static-token
                     // (validated inside the controller, NOT via Spring Session)

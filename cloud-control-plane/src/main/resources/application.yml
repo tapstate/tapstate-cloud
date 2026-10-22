@@ -130,6 +130,21 @@ tapstate:
       feishu:
         webhook-url: ${FEISHU_BOT_WEBHOOK_URL:}
         signing-secret: ${FEISHU_BOT_SIGNING_SECRET:}
+    # Event center — collection, retention and the generic external ingest entry.
+    events:
+      # Blank disables /v1/api/internal/events (fail closed).
+      ingest-token: ${CLOUD_EVENT_INGEST_TOKEN:}
+      retention-days: ${CLOUD_EVENT_RETENTION_DAYS:30}
+      max-page-size: ${CLOUD_EVENT_MAX_PAGE_SIZE:100}
+    # Notification delivery — durable outbox and the EMAIL channel.
+    notifications:
+      max-attempts: ${CLOUD_NOTIFICATION_MAX_ATTEMPTS:5}
+      retry-base-seconds: ${CLOUD_NOTIFICATION_RETRY_BASE_SECONDS:30}
+      lease-seconds: ${CLOUD_NOTIFICATION_LEASE_SECONDS:60}
+      poll-interval-ms: ${CLOUD_NOTIFICATION_POLL_INTERVAL_MS:5000}
+      email:
+        enabled: ${CLOUD_NOTIFICATION_EMAIL_ENABLED:false}
+        from: ${CLOUD_NOTIFICATION_EMAIL_FROM:no-reply@tapstate.com}
     # Atlas MDB allocation engine.
     # mock=true skips every real Atlas Admin API call (local dev / fast IT).
     # Real deployments set TAPSTATE_CLOUD_MDB_ATLAS_MOCK=false and provide the

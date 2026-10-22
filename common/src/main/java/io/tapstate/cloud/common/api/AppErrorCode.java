@@ -91,6 +91,18 @@ public enum AppErrorCode implements ErrorCode {
     // ---------- Deployment progress ----------
     DEPLOYMENT_OP_TYPE_INVALID("deployment.op-type-invalid", "Invalid deployment opType {0}"),
 
+    // ---------- Event center / notifications ----------
+    EVENT_NOT_FOUND("event.not-found", "Event {0} not found"),
+    EVENT_INVALID("event.invalid", "Invalid event: {0}"),
+    EVENT_INGEST_DISABLED("event.ingest-disabled", "External event ingestion is not configured"),
+    EVENT_INGEST_TOKEN_INVALID("event.ingest-token-invalid", "External event ingestion token is invalid"),
+    ALERT_POLICY_NOT_FOUND("alert.policy-not-found", "Alert policy {0} not found"),
+    ALERT_POLICY_INVALID("alert.policy-invalid", "Invalid alert policy: {0}"),
+    ALERT_POLICY_LIMIT_REACHED("alert.policy-limit-reached", "Organization {0} already has the maximum number of alert policies"),
+    ALERT_NOT_FOUND("alert.not-found", "Alert {0} not found"),
+    NOTIFICATION_NOT_FOUND("notification.not-found", "Notification delivery {0} not found"),
+    ORG_ADMIN_REQUIRED("org.admin-required", "Organization administrator role is required"),
+
     // ---------- Generic ----------
     BAD_REQUEST("bad_request", "Invalid request: {0}"),
     SYSTEM_ERROR("system_error", "Internal server error");
