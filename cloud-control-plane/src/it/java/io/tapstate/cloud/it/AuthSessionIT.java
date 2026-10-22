@@ -95,6 +95,17 @@ class AuthSessionIT extends BaseIT {
     }
 
     @Test
+    @DisplayName("Registration policy is available before sign-in")
+    void registrationPolicy_withoutSession_isPublic() throws ApiException {
+        AuthApi anonymousApi = createAnonymousAuthApi();
+
+        var response = anonymousApi.registrationPolicy();
+
+        assertNotNull(response.getData());
+        assertNotNull(response.getData().isTrialCodeRequired());
+    }
+
+    @Test
     @DisplayName("T7 — Password too short → 400 validation error")
     void register_shortPassword_returns400() {
         ApiException ex = assertThrows(ApiException.class,

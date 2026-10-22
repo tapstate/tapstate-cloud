@@ -1,6 +1,6 @@
 /*
  * Tapstate Cloud — Global Control Plane API
- * Global Control Plane backend API for Tapstate Cloud.  ## Authentication  Three authentication contexts (ADR-0122 D2): - **Session Cookie** — Cloud Console users (type ①) - **Static Token** — SDK status sender (type ②, `/api/sdk/_*`) - **Resolve JWT** — issued by this service for Cluster Console access  ## Regions  Week 2: only `ap-southeast-1` (Singapore) available. Production regions to be added post-W4.  ## Clusters  Clusters are auto-provisioned via CloudFormation + EC2 + Docker. Lifecycle state machine has 6 states in Week 2.
+ * Global Control Plane backend API for Tapstate Cloud.  ## Authentication  Three authentication contexts (ADR-0122 D2): - **Session Cookie** — Cloud Console users (type ①) - **Static Token** — SDK status sender (type ②, `/api/sdk/_*`) - **Resolve JWT** — issued by this service for Cluster Console access  ## Regions  Week 2: only `ap-southeast-1` (Singapore) available. Production regions to be added post-W4.  ## Clusters  Clusters are auto-provisioned via CloudFormation + EC2 + Docker. Lifecycle state machine has 6 states in Week 2. 
  *
  * The version of the OpenAPI document: v1
  * Contact: cloud@tapstate.io
@@ -44,7 +44,7 @@ public class EmailRegistrationRequest {
   private String email;
 
   public static final String JSON_PROPERTY_INVITATION_TOKEN = "invitationToken";
-  @jakarta.annotation.Nonnull
+  @jakarta.annotation.Nullable
   private String invitationToken;
 
   public static final String JSON_PROPERTY_CODE = "code";
@@ -67,7 +67,7 @@ public class EmailRegistrationRequest {
   }
 
   public EmailRegistrationRequest email(@jakarta.annotation.Nonnull String email) {
-
+    
     this.email = email;
     return this;
   }
@@ -91,8 +91,8 @@ public class EmailRegistrationRequest {
     this.email = email;
   }
 
-  public EmailRegistrationRequest invitationToken(@jakarta.annotation.Nonnull String invitationToken) {
-
+  public EmailRegistrationRequest invitationToken(@jakarta.annotation.Nullable String invitationToken) {
+    
     this.invitationToken = invitationToken;
     return this;
   }
@@ -101,23 +101,23 @@ public class EmailRegistrationRequest {
    * Get invitationToken
    * @return invitationToken
    */
-  @jakarta.annotation.Nonnull
-  @JsonProperty(value = JSON_PROPERTY_INVITATION_TOKEN, required = true)
-  @JsonInclude(value = JsonInclude.Include.ALWAYS)
+  @jakarta.annotation.Nullable
+  @JsonProperty(value = JSON_PROPERTY_INVITATION_TOKEN, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
 
   public String getInvitationToken() {
     return invitationToken;
   }
 
 
-  @JsonProperty(value = JSON_PROPERTY_INVITATION_TOKEN, required = true)
-  @JsonInclude(value = JsonInclude.Include.ALWAYS)
-  public void setInvitationToken(@jakarta.annotation.Nonnull String invitationToken) {
+  @JsonProperty(value = JSON_PROPERTY_INVITATION_TOKEN, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+  public void setInvitationToken(@jakarta.annotation.Nullable String invitationToken) {
     this.invitationToken = invitationToken;
   }
 
   public EmailRegistrationRequest code(@jakarta.annotation.Nonnull String code) {
-
+    
     this.code = code;
     return this;
   }
@@ -142,7 +142,7 @@ public class EmailRegistrationRequest {
   }
 
   public EmailRegistrationRequest password(@jakarta.annotation.Nonnull String password) {
-
+    
     this.password = password;
     return this;
   }
@@ -167,7 +167,7 @@ public class EmailRegistrationRequest {
   }
 
   public EmailRegistrationRequest displayName(@jakarta.annotation.Nullable String displayName) {
-
+    
     this.displayName = displayName;
     return this;
   }
@@ -192,7 +192,7 @@ public class EmailRegistrationRequest {
   }
 
   public EmailRegistrationRequest organizationName(@jakarta.annotation.Nullable String organizationName) {
-
+    
     this.organizationName = organizationName;
     return this;
   }
@@ -357,3 +357,4 @@ public class EmailRegistrationRequest {
   }
 
 }
+

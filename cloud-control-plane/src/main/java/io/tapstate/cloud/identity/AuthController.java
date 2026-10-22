@@ -60,6 +60,7 @@ public class AuthController extends BaseController {
     private final UserRepository userRepository;
     private final EmailVerificationService emailVerificationService;
     private final InvitationService invitationService;
+    private final TrialCodePolicy trialCodePolicy;
     private final AuthenticationManager authenticationManager;
     private final JtiRecordRepository jtiRecordRepo;
     private final CallbackSignService callbackSignService;
@@ -72,6 +73,14 @@ public class AuthController extends BaseController {
 
     // Session attribute key — also used by Security context recovery
     static final String SESSION_USER_EMAIL = "TAPSTATE_USER_EMAIL";
+
+    @GetMapping("/registration-policy")
+    @Operation(summary = "Get public registration policy", security = {})
+    public ResponseEntity<ApiResponse<RegistrationPolicy>> registrationPolicy() {
+        return ok(new RegistrationPolicy(trialCodePolicy.isRequired()));
+    }
+
+    public record RegistrationPolicy(boolean trialCodeRequired) {}
 
     // ========== Register ==========
 
@@ -89,7 +98,7 @@ public class AuthController extends BaseController {
     }
 
     @PostMapping("/email/code")
-    @Operation(summary = "Send an email verification code", description = "Requests an email code for a valid, unexpired organization invitation.")
+    @Operation(summary = "Send an email verification code", description = "Requests an email code for a valid invitation, or for open self-registration when trial codes are not required.")
     @ApiResponses(value = {
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "202", description = "Request accepted"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Invalid request or invitation token"),
@@ -114,7 +123,7 @@ public class AuthController extends BaseController {
     public record AccessType(String type) {}
 
     @PostMapping("/email/register")
-    @Operation(summary = "Complete invited email registration", description = "Verifies the one-time code and atomically consumes the invitation while creating the account and membership.")
+    @Operation(summary = "Complete email registration", description = "Verifies the one-time code and creates the account and organization membership. A valid invitation is required while trial-code registration is enabled.")
     @ApiResponses(value = {
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "Account created and signed in"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Invalid or unusable verification code"),
@@ -166,6 +175,11 @@ public class AuthController extends BaseController {
         if (!("login".equals(flow) || "signup".equals(flow) || "link".equals(flow))) {
             return fail(AppErrorCode.BAD_REQUEST, HttpStatus.BAD_REQUEST);
         }
+        String invitationTokenHash = null;
+        if (invitationToken != null && !invitationToken.isBlank()) {
+            invitationService.requireUsable(invitationToken, null);
+            invitationTokenHash = InvitationService.hash(invitationToken);
+        }
         var session = request.getSession(true);
         if ("link".equals(flow)) {
             String email = CurrentUser.getEmail();
@@ -185,10 +199,10 @@ public class AuthController extends BaseController {
         }
         OAuthSessionSupport.snapshotCurrentUser(session);
         session.setAttribute("TAPSTATE_OAUTH_FLOW", flow);
-        if (invitationToken == null || invitationToken.isBlank()) {
+        if (invitationTokenHash == null) {
             session.removeAttribute("TAPSTATE_OAUTH_INVITATION_TOKEN");
         } else {
-            session.setAttribute("TAPSTATE_OAUTH_INVITATION_TOKEN", InvitationService.hash(invitationToken));
+            session.setAttribute("TAPSTATE_OAUTH_INVITATION_TOKEN", invitationTokenHash);
         }
         if (oauthRequest.organizationName() == null || oauthRequest.organizationName().isBlank()) {
             session.removeAttribute("TAPSTATE_OAUTH_ORGANIZATION_NAME");
@@ -399,12 +413,12 @@ public class AuthController extends BaseController {
 
     public record EmailCodeRequest(
         @NotBlank @Email String email,
-        @NotBlank String invitationToken
+        String invitationToken
     ) {}
 
     public record EmailRegistrationRequest(
         @NotBlank @Email String email,
-        @NotBlank String invitationToken,
+        String invitationToken,
         @NotBlank @Size(min = 6, max = 6) String code,
         @NotBlank @Size(min = 8, max = 128) String password,
         @Size(max = 100) String displayName,

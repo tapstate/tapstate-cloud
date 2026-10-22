@@ -31,7 +31,71 @@ import static org.junit.jupiter.api.Assertions.*;
 @DisplayName("InvitationRegistrationIT — invited account creation and organization admission")
 class InvitationRegistrationIT extends BaseIT {
 
+    private static final String TRIAL_ISSUER_EMAIL = "trial-issuer@tapstate.io";
     private final ObjectMapper mapper = new ObjectMapper();
+
+    @Test
+    @DisplayName("Trial-code email registration creates a new organization and owner atomically")
+    void trialCodeRegistrationCreatesOrganizationOwner() throws Exception {
+        register(TRIAL_ISSUER_EMAIL, "StrongPass123!");
+        login(TRIAL_ISSUER_EMAIL, "StrongPass123!");
+
+        HttpResponse<String> issued = post("/v1/api/trial-codes", "{}", ownerCookie());
+        assertEquals(201, issued.statusCode(), issued.body());
+        JsonNode trialCode = mapper.readTree(issued.body()).path("data");
+        String token = trialCode.path("code").asText();
+        assertFalse(token.isBlank());
+        assertTrue(trialCode.path("url").asText().endsWith("/auth#invite=" + token));
+        JsonNode access = mapper.readTree(post("/v1/api/auth/access",
+            mapper.writeValueAsString(Map.of("code", token)), Map.of()).body()).path("data");
+        assertEquals("trial", access.path("type").asText());
+
+        String email = "trial-" + System.nanoTime() + "@tapstate.io";
+        assertEquals(202, requestCode(token, email).statusCode());
+        String code = latestTestCode(email);
+        assertEquals(6, code.length());
+        assertNotEquals(code, challengeHmac(email));
+
+        String organizationName = "Trial Workspace " + System.nanoTime();
+        HttpResponse<String> registered = completeTrialRegistration(token, email, code, organizationName);
+        assertEquals(201, registered.statusCode(), registered.body());
+        String newSession = cookieValue(registered, "TAPSTATE_CLOUD_SESSION");
+        assertNotNull(newSession);
+
+        HttpResponse<String> me = get("/v1/api/auth/me", Map.of("Cookie", "TAPSTATE_CLOUD_SESSION=" + newSession));
+        assertEquals(200, me.statusCode());
+        assertEquals(email, mapper.readTree(me.body()).path("data").path("email").asText());
+        JsonNode organizations = mapper.readTree(get("/v1/api/orgs",
+            Map.of("Cookie", "TAPSTATE_CLOUD_SESSION=" + newSession)).body()).path("data");
+        assertEquals(1, organizations.size());
+        String organizationId = organizations.get(0).path("id").asText();
+        assertEquals(organizationName, organizations.get(0).path("name").asText());
+        assertEquals(1, countUsers(email));
+        assertEquals(1, countMembers(email));
+
+        try (MongoClient mongo = MongoClients.create(MONGO_URI)) {
+            var database = mongo.getDatabase(MONGO_DB);
+            Document membership = database.getCollection("org_members")
+                .find(new Document("orgId", new ObjectId(organizationId)).append("userEmail", email)).first();
+            assertNotNull(membership);
+            assertEquals("owner", membership.getString("role"));
+            Document organization = database.getCollection("organizations")
+                .find(new Document("_id", new ObjectId(organizationId))).first();
+            assertNotNull(organization);
+            assertEquals(email, organization.getString("ownerEmail"));
+            assertEquals(1, database.getCollection("organization_invitations")
+                .countDocuments(new Document("tokenHash", invitationDigest(token))
+                    .append("purpose", "trial").append("consumedByEmail", email)));
+            assertEquals(0, database.getCollection("organization_invitations")
+                .countDocuments(new Document("tokenHash", token)));
+            assertEquals(1, database.getCollection("email_verification_challenges")
+                .countDocuments(new Document("email", email).append("consumedAt", new Document("$ne", null))));
+        }
+
+        assertEquals(409, requestCode(token, email).statusCode());
+        assertEquals(1, countUsers(email));
+        assertEquals(1, countMembers(email));
+    }
 
     @Test
     @DisplayName("Email registration consumes one invitation and creates membership only in its organization")
@@ -169,7 +233,9 @@ class InvitationRegistrationIT extends BaseIT {
     @Test
     @DisplayName("OAuth start stores signup intent server-side and validates state on provider cancellation")
     void oauthStartKeepsInvitationOutOfTheBrowserAuthorizationUrl() throws Exception {
-        String invitationToken = "invite-secret-" + System.nanoTime();
+        String orgId = signupWithOrg("OAuth Invitation Workspace");
+        String email = "oauth-invite-" + System.nanoTime() + "@tapstate.io";
+        String invitationToken = createInvitation(orgId, email).token();
         HttpResponse<String> start = post("/v1/api/auth/oauth/google/start",
             mapper.writeValueAsString(Map.of("flow", "signup", "invitationToken", invitationToken)), Map.of());
         assertEquals(200, start.statusCode(), start.body());
@@ -194,7 +260,7 @@ class InvitationRegistrationIT extends BaseIT {
                 + parameters.get("state"), Map.of("Cookie", "TAPSTATE_CLOUD_SESSION=" + session));
         assertEquals(302, callback.statusCode());
         assertTrue(callback.headers().firstValue("Location").orElseThrow()
-            .endsWith("/auth?oauth=cancelled"));
+            .endsWith("/auth?oauth=cancelled&mode=register"));
     }
 
     @Test
@@ -257,6 +323,17 @@ class InvitationRegistrationIT extends BaseIT {
             + "\",\"password\":\"StrongPass123!\",\"displayName\":\"Invited User\"}", Map.of());
     }
 
+    private HttpResponse<String> completeTrialRegistration(String token, String email, String code,
+                                                           String organizationName) throws Exception {
+        return post("/v1/api/auth/email/register", mapper.writeValueAsString(Map.of(
+            "email", email,
+            "invitationToken", token,
+            "code", code,
+            "password", "StrongPass123!",
+            "displayName", "Trial User",
+            "organizationName", organizationName)), Map.of());
+    }
+
     private Map<String, String> ownerCookie() {
         return Map.of("Cookie", "TAPSTATE_CLOUD_SESSION=" + sessionCookieValue);
     }
@@ -299,13 +376,17 @@ class InvitationRegistrationIT extends BaseIT {
     }
 
     private void assertInvitationStoredAsDigest(String token) throws Exception {
-        String digest = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
-            .digest(token.getBytes(StandardCharsets.UTF_8)));
+        String digest = invitationDigest(token);
         try (MongoClient mongo = MongoClients.create(MONGO_URI)) {
             var invitations = mongo.getDatabase(MONGO_DB).getCollection("organization_invitations");
             assertEquals(1, invitations.countDocuments(new Document("tokenHash", digest)));
             assertEquals(0, invitations.countDocuments(new Document("tokenHash", token)));
         }
+    }
+
+    private String invitationDigest(String token) throws Exception {
+        return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+            .digest(token.getBytes(StandardCharsets.UTF_8)));
     }
 
     private String cookieValue(HttpResponse<String> response, String name) {

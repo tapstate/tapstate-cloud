@@ -107,6 +107,7 @@ config:
   authOtpCooldownSeconds: "60"
   authOtpLifetimeMinutes: "10"
   authMailFrom: no-reply@tapstate.com
+  authTrialCodeRequired: "true"
   trialIssuerEmail: ""
   oauthCallbackBaseUrl: https://dev.cloud.tapstate.com
   cloudConsoleUrl: https://dev.cloud.tapstate.com

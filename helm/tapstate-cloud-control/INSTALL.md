@@ -94,6 +94,8 @@ kubectl create secret generic tapstate-cloud-control-smtp \
 # Set config.trialIssuerEmail to an existing Cloud account's exact email in
 # each environment's Helm values, or pass --set-string config.trialIssuerEmail=<email>
 # to helm upgrade. The value is an account identifier, not an OAuth secret.
+# Set config.authTrialCodeRequired=false later to allow email-verified signup
+# without a trial code. New users still create their own Organization.
 # With an empty value, trial-code issuance is disabled. Production needs its
 # own issuer setting and its own Google/GitHub callbacks and SMTP configuration.
 # Sign in to that environment's Cloud Console as the issuer, then issue one code

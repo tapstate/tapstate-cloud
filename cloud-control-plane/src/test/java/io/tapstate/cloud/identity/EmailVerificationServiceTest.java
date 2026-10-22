@@ -41,8 +41,74 @@ class EmailVerificationServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new EmailVerificationService(invitations, challenges, registrationCommitService, mongoTemplate, mailer);
+        service = new EmailVerificationService(invitations, new TrialCodePolicy(true), challenges,
+            registrationCommitService, mongoTemplate, mailer);
         ReflectionTestUtils.setField(service, "hmacKey", HMAC_KEY);
+    }
+
+    @Test
+    void missingTrialCodeIsRejectedWhileTheGateIsEnabled() {
+        BusinessException exception = assertThrows(BusinessException.class,
+            () -> service.requestCode(null, "guest@example.com", "127.0.0.1"));
+
+        assertEquals(AppErrorCode.INVITATION_REQUIRED, exception.getErrorCode());
+        verifyNoInteractions(invitations, mailer, mongoTemplate);
+    }
+
+    @Test
+    void verifiedEmailCanRegisterWithoutInvitationWhenTheGateIsDisabled() throws Exception {
+        String email = "guest@example.com";
+        String key = InvitationService.hash("open:" + email);
+        EmailVerificationChallenge challenge = EmailVerificationChallenge.builder()
+            .id(new ObjectId()).key(key).codeHmac(codeHmac(key, "123456"))
+            .expiresAt(Instant.now().plusSeconds(600)).attempts(1).build();
+        User registered = User.builder().email(email).displayName("Guest").status("active").build();
+        when(mongoTemplate.findAndModify(any(Query.class), any(Update.class), any(FindAndModifyOptions.class),
+            eq(EmailVerificationChallenge.class))).thenReturn(challenge);
+        when(registrationCommitService.complete(isNull(), eq(challenge), eq(email), eq("password-123"),
+            eq("Guest"), eq("Guest Workspace"), any(Instant.class))).thenReturn(registered);
+        EmailVerificationService openService = new EmailVerificationService(invitations, new TrialCodePolicy(false),
+            challenges, registrationCommitService, mongoTemplate, mailer);
+        ReflectionTestUtils.setField(openService, "hmacKey", HMAC_KEY);
+        ReflectionTestUtils.setField(openService, "maxHourlySends", 5);
+
+        User result = openService.verifyAndRegister(null, email, "123456", "password-123", "Guest",
+            "Guest Workspace");
+
+        assertSame(registered, result);
+        verify(invitations, never()).requireUsable(any(), any());
+        verify(registrationCommitService).complete(isNull(), eq(challenge), eq(email), eq("password-123"),
+            eq("Guest"), eq("Guest Workspace"), any(Instant.class));
+    }
+
+    @Test
+    void consumedOpenRegistrationChallengeDoesNotRevealRecentSignup() {
+        Instant now = Instant.now();
+        String registeredEmail = "registered@example.com";
+        String registeredKey = InvitationService.hash("open:" + registeredEmail);
+        EmailVerificationChallenge consumed = EmailVerificationChallenge.builder()
+            .id(new ObjectId()).key(registeredKey).email(registeredEmail).codeHmac("consumed-hmac")
+            .issuedAt(now.minusSeconds(120)).lastSentAt(now.minusSeconds(120))
+            .expiresAt(now.plusSeconds(480)).consumedAt(now.minusSeconds(1)).attempts(1).build();
+        String unusedEmail = "unused@example.com";
+        String unusedKey = InvitationService.hash("open:" + unusedEmail);
+        when(challenges.findByKey(registeredKey)).thenReturn(Optional.of(consumed));
+        when(challenges.findByKey(unusedKey)).thenReturn(Optional.empty());
+        when(challenges.save(any(EmailVerificationChallenge.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(mongoTemplate.findAndModify(any(Query.class), any(Update.class), any(FindAndModifyOptions.class),
+            eq(AuthRateLimitWindow.class))).thenAnswer(invocation -> new AuthRateLimitWindow(
+                "email-window", 1, now.plusSeconds(7200)));
+
+        EmailVerificationService openService = new EmailVerificationService(invitations, new TrialCodePolicy(false),
+            challenges, registrationCommitService, mongoTemplate, mailer);
+        ReflectionTestUtils.setField(openService, "hmacKey", HMAC_KEY);
+        ReflectionTestUtils.setField(openService, "maxHourlySends", 5);
+
+        assertDoesNotThrow(() -> openService.requestCode(null, unusedEmail, "127.0.0.1"));
+        assertDoesNotThrow(() -> openService.requestCode(null, registeredEmail, "127.0.0.1"));
+
+        verify(mailer).send(eq(unusedEmail), anyString());
+        verify(mailer, never()).send(eq(registeredEmail), anyString());
     }
 
     @Test

@@ -21,10 +21,12 @@ public class OAuthAuthenticationFailureHandler implements AuthenticationFailureH
     public void onAuthenticationFailure(HttpServletRequest request, HttpServletResponse response,
                                         AuthenticationException exception) throws IOException, ServletException {
         var session = request.getSession(false);
+        String flow = session == null ? null : (String) session.getAttribute("TAPSTATE_OAUTH_FLOW");
         OAuthSessionSupport.reject(session);
         String error = exception instanceof OAuth2AuthenticationException oauth
             ? oauth.getError().getErrorCode() : null;
         String outcome = "access_denied".equals(error) ? "cancelled" : "provider-error";
-        response.sendRedirect(consoleUrl.replaceAll("/$", "") + "/auth?oauth=" + outcome);
+        String redirect = consoleUrl.replaceAll("/$", "") + "/auth?oauth=" + outcome;
+        response.sendRedirect("signup".equals(flow) ? redirect + "&mode=register" : redirect);
     }
 }

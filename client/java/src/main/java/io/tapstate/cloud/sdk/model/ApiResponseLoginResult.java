@@ -139,7 +139,7 @@ public class ApiResponseLoginResult {
   }
 
   /**
-   * Response payload — object or array, null on void responses
+   * Get data
    * @return data
    */
   @jakarta.annotation.Nullable

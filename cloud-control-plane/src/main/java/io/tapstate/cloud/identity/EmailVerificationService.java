@@ -1,6 +1,7 @@
 package io.tapstate.cloud.identity;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.bson.Document;
 import org.bson.types.ObjectId;
 import org.springframework.beans.factory.annotation.Value;
@@ -24,12 +25,15 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.HexFormat;
 import java.util.Locale;
+import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class EmailVerificationService {
 
     private final InvitationService invitationService;
+    private final TrialCodePolicy trialCodePolicy;
     private final EmailVerificationChallengeRepository challenges;
     private final RegistrationCommitService registrationCommitService;
     private final MongoTemplate mongoTemplate;
@@ -53,7 +57,7 @@ public class EmailVerificationService {
 
     public void requestCode(String token, String suppliedEmail, String sourceAddress) {
         String email = InvitationService.normalizeEmail(suppliedEmail);
-        OrganizationInvitation invitation = invitationService.requireUsable(token, email);
+        OrganizationInvitation invitation = resolveInvitation(token, email);
         requireHmacKey();
 
         Instant now = Instant.now();
@@ -64,14 +68,25 @@ public class EmailVerificationService {
             throw new BusinessException(AppErrorCode.EMAIL_CODE_RATE_LIMITED, HttpStatus.TOO_MANY_REQUESTS.value());
         }
 
-        String key = challengeKey(invitation.getId(), email);
+        String key = challengeKey(invitation == null ? null : invitation.getId(), email);
         String code = String.format(Locale.ROOT, "%06d", secureRandom.nextInt(1_000_000));
-        EmailVerificationChallenge challenge = reserveChallenge(key, invitation.getId(), email, codeHmac(key, code), now);
+        Optional<EmailVerificationChallenge> reservation = reserveChallenge(key,
+            invitation == null ? null : invitation.getId(), email, codeHmac(key, code), now);
+        if (reservation.isEmpty()) {
+            return;
+        }
+        EmailVerificationChallenge challenge = reservation.get();
         try {
             mailer.send(email, code);
         } catch (RuntimeException exception) {
             challenge.setExpiresAt(now);
             challenges.save(challenge);
+            Throwable cause = exception;
+            while (cause.getCause() != null && cause.getCause() != cause) {
+                cause = cause.getCause();
+            }
+            log.warn("Verification code delivery failed (mailer={}, cause={})",
+                mailer.getClass().getName(), cause.getClass().getSimpleName());
             throw new BusinessException(AppErrorCode.EMAIL_DELIVERY_UNAVAILABLE,
                 HttpStatus.SERVICE_UNAVAILABLE.value());
         }
@@ -81,8 +96,8 @@ public class EmailVerificationService {
                                   String displayName, String organizationName) {
         String email = InvitationService.normalizeEmail(suppliedEmail);
         requireHmacKey();
-        OrganizationInvitation invitation = invitationService.requireUsable(token, email);
-        String key = challengeKey(invitation.getId(), email);
+        OrganizationInvitation invitation = resolveInvitation(token, email);
+        String key = challengeKey(invitation == null ? null : invitation.getId(), email);
         Instant now = Instant.now();
         EmailVerificationChallenge challenge = incrementAttempt(key, now);
         if (!MessageDigest.isEqual(challenge.getCodeHmac().getBytes(StandardCharsets.US_ASCII),
@@ -97,21 +112,21 @@ public class EmailVerificationService {
         return verifyAndRegister(token, suppliedEmail, code, password, displayName, null);
     }
 
-    private EmailVerificationChallenge reserveChallenge(String key, ObjectId invitationId, String email,
-                                                        String codeHmac, Instant now) {
+    private Optional<EmailVerificationChallenge> reserveChallenge(String key, ObjectId invitationId, String email,
+                                                                  String codeHmac, Instant now) {
         EmailVerificationChallenge existing = challenges.findByKey(key).orElse(null);
         if (existing == null) {
             try {
-                return challenges.save(EmailVerificationChallenge.builder()
+                return Optional.of(challenges.save(EmailVerificationChallenge.builder()
                     .key(key).invitationId(invitationId).email(email).codeHmac(codeHmac)
                     .issuedAt(now).expiresAt(now.plus(codeLifetimeMinutes, ChronoUnit.MINUTES))
-                    .lastSentAt(now).attempts(0).resends(0).build());
+                    .lastSentAt(now).attempts(0).resends(0).build()));
             } catch (DuplicateKeyException exception) {
                 existing = challenges.findByKey(key).orElseThrow(() -> exception);
             }
         }
         if (existing.getConsumedAt() != null) {
-            throw new BusinessException(AppErrorCode.EMAIL_CODE_INVALID, HttpStatus.BAD_REQUEST.value());
+            return Optional.empty();
         }
         if (existing.getLastSentAt() != null && existing.getLastSentAt().isAfter(now.minusSeconds(cooldownSeconds))) {
             throw new BusinessException(AppErrorCode.EMAIL_CODE_COOLDOWN, HttpStatus.TOO_MANY_REQUESTS.value());
@@ -125,7 +140,7 @@ public class EmailVerificationService {
         if (reserved == null) {
             throw new BusinessException(AppErrorCode.EMAIL_CODE_COOLDOWN, HttpStatus.TOO_MANY_REQUESTS.value());
         }
-        return reserved;
+        return Optional.of(reserved);
     }
 
     private EmailVerificationChallenge incrementAttempt(String key, Instant now) {
@@ -164,8 +179,19 @@ public class EmailVerificationService {
         }
     }
 
+    private OrganizationInvitation resolveInvitation(String token, String email) {
+        if (token == null || token.isBlank()) {
+            if (trialCodePolicy.isRequired()) {
+                throw new BusinessException(AppErrorCode.INVITATION_REQUIRED, HttpStatus.FORBIDDEN.value());
+            }
+            return null;
+        }
+        return invitationService.requireUsable(token, email);
+    }
+
     private String challengeKey(ObjectId invitationId, String email) {
-        return InvitationService.hash(invitationId.toHexString() + ":" + email);
+        String scope = invitationId == null ? "open" : invitationId.toHexString();
+        return InvitationService.hash(scope + ":" + email);
     }
 
     private void requireHmacKey() {

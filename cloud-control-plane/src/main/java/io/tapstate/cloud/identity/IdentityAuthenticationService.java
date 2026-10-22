@@ -21,6 +21,7 @@ public class IdentityAuthenticationService {
     private final UserRepository users;
     private final MemberRepository members;
     private final InvitationService invitations;
+    private final TrialCodePolicy trialCodePolicy;
     private final PasswordEncoder passwordEncoder;
     private final OrganizationService organizations;
     private final java.security.SecureRandom secureRandom = new java.security.SecureRandom();
@@ -85,15 +86,19 @@ public class IdentityAuthenticationService {
         if (users.existsByEmail(normalizedEmail)) {
             throw new BusinessException(AppErrorCode.SSO_ACCOUNT_LINK_REQUIRED, HttpStatus.CONFLICT.value());
         }
+        OrganizationInvitation invitation = null;
         if (invitationTokenHash == null || invitationTokenHash.isBlank()) {
-            throw new BusinessException(AppErrorCode.INVITATION_REQUIRED, HttpStatus.FORBIDDEN.value());
-        }
-
-        OrganizationInvitation invitation = invitations.requireUsableHash(invitationTokenHash, normalizedEmail);
-        if (invitations.isTrial(invitation)) {
+            if (!"signup".equals(flow) || trialCodePolicy.isRequired()) {
+                throw new BusinessException(AppErrorCode.INVITATION_REQUIRED, HttpStatus.FORBIDDEN.value());
+            }
             invitations.requireOrganizationName(organizationName);
+        } else {
+            invitation = invitations.requireUsableHash(invitationTokenHash, normalizedEmail);
+            if (invitations.isTrial(invitation)) {
+                invitations.requireOrganizationName(organizationName);
+            }
+            invitations.consume(invitation, normalizedEmail);
         }
-        invitations.consume(invitation, normalizedEmail);
         User user = users.save(User.builder()
             .email(normalizedEmail)
             .displayName(displayName == null || displayName.isBlank()
@@ -103,7 +108,7 @@ public class IdentityAuthenticationService {
             .status("active")
             .lastLoginAt(Instant.now())
             .build());
-        if (invitations.isTrial(invitation)) {
+        if (invitation == null || invitations.isTrial(invitation)) {
             organizations.createTrialOrganization(organizationName, normalizedEmail);
         } else {
             members.save(Member.builder().orgId(invitation.getOrgId()).userEmail(normalizedEmail)

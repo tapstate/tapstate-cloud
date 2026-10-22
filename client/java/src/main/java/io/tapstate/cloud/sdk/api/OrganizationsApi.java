@@ -1,6 +1,6 @@
 /*
  * Tapstate Cloud — Global Control Plane API
- * Global Control Plane backend API for Tapstate Cloud.  ## Authentication  Three authentication contexts (ADR-0122 D2): - **Session Cookie** — Cloud Console users (type ①) - **Static Token** — SDK status sender (type ②, `/api/sdk/_*`) - **Resolve JWT** — issued by this service for Cluster Console access  ## Regions  Week 2: only `ap-southeast-1` (Singapore) available. Production regions to be added post-W4.  ## Clusters  Clusters are auto-provisioned via CloudFormation + EC2 + Docker. Lifecycle state machine has 6 states in Week 2.
+ * Global Control Plane backend API for Tapstate Cloud.  ## Authentication  Three authentication contexts (ADR-0122 D2): - **Session Cookie** — Cloud Console users (type ①) - **Static Token** — SDK status sender (type ②, `/api/sdk/_*`) - **Resolve JWT** — issued by this service for Cluster Console access  ## Regions  Week 2: only `ap-southeast-1` (Singapore) available. Production regions to be added post-W4.  ## Clusters  Clusters are auto-provisioned via CloudFormation + EC2 + Docker. Lifecycle state machine has 6 states in Week 2. 
  *
  * The version of the OpenAPI document: v1
  * Contact: cloud@tapstate.io
@@ -68,12 +68,12 @@ public class OrganizationsApi extends BaseApi {
    */
   public ApiResponseOrganizationResponse create(@jakarta.annotation.Nonnull Map<String, String> requestBody, Map<String, String> additionalHeaders) throws ApiException {
     Object localVarPostBody = requestBody;
-
+    
     // verify the required parameter 'requestBody' is set
     if (requestBody == null) {
       throw new ApiException(400, "Missing the required parameter 'requestBody' when calling create");
     }
-
+    
     // create path and map variables
     String localVarPath = "/v1/api/orgs";
 
@@ -85,11 +85,11 @@ public class OrganizationsApi extends BaseApi {
     Map<String, String> localVarCookieParams = new HashMap<String, String>();
     Map<String, Object> localVarFormParams = new HashMap<String, Object>();
 
-
+    
     localVarHeaderParams.putAll(additionalHeaders);
 
-
-
+    
+    
     final String[] localVarAccepts = {
       "*/*"
     };
@@ -144,17 +144,17 @@ public class OrganizationsApi extends BaseApi {
    */
   public ApiResponseCreatedInvitation createInvitation(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull CreateInvitationRequest createInvitationRequest, Map<String, String> additionalHeaders) throws ApiException {
     Object localVarPostBody = createInvitationRequest;
-
+    
     // verify the required parameter 'orgId' is set
     if (orgId == null) {
       throw new ApiException(400, "Missing the required parameter 'orgId' when calling createInvitation");
     }
-
+    
     // verify the required parameter 'createInvitationRequest' is set
     if (createInvitationRequest == null) {
       throw new ApiException(400, "Missing the required parameter 'createInvitationRequest' when calling createInvitation");
     }
-
+    
     // create path and map variables
     String localVarPath = "/v1/api/orgs/{orgId}/invitations"
       .replaceAll("\\{" + "orgId" + "\\}", apiClient.escapeString(apiClient.parameterToString(orgId)));
@@ -167,11 +167,11 @@ public class OrganizationsApi extends BaseApi {
     Map<String, String> localVarCookieParams = new HashMap<String, String>();
     Map<String, Object> localVarFormParams = new HashMap<String, Object>();
 
-
+    
     localVarHeaderParams.putAll(additionalHeaders);
 
-
-
+    
+    
     final String[] localVarAccepts = {
       "*/*"
     };
@@ -224,12 +224,12 @@ public class OrganizationsApi extends BaseApi {
    */
   public ApiResponseOrganizationResponse getOrg(@jakarta.annotation.Nonnull String orgId, Map<String, String> additionalHeaders) throws ApiException {
     Object localVarPostBody = null;
-
+    
     // verify the required parameter 'orgId' is set
     if (orgId == null) {
       throw new ApiException(400, "Missing the required parameter 'orgId' when calling getOrg");
     }
-
+    
     // create path and map variables
     String localVarPath = "/v1/api/orgs/{orgId}"
       .replaceAll("\\{" + "orgId" + "\\}", apiClient.escapeString(apiClient.parameterToString(orgId)));
@@ -242,18 +242,18 @@ public class OrganizationsApi extends BaseApi {
     Map<String, String> localVarCookieParams = new HashMap<String, String>();
     Map<String, Object> localVarFormParams = new HashMap<String, Object>();
 
-
+    
     localVarHeaderParams.putAll(additionalHeaders);
 
-
-
+    
+    
     final String[] localVarAccepts = {
       "*/*"
     };
     final String localVarAccept = apiClient.selectHeaderAccept(localVarAccepts);
 
     final String[] localVarContentTypes = {
-
+      
     };
     final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
 
@@ -299,12 +299,12 @@ public class OrganizationsApi extends BaseApi {
    */
   public ApiResponseListInvitationView listInvitations(@jakarta.annotation.Nonnull String orgId, Map<String, String> additionalHeaders) throws ApiException {
     Object localVarPostBody = null;
-
+    
     // verify the required parameter 'orgId' is set
     if (orgId == null) {
       throw new ApiException(400, "Missing the required parameter 'orgId' when calling listInvitations");
     }
-
+    
     // create path and map variables
     String localVarPath = "/v1/api/orgs/{orgId}/invitations"
       .replaceAll("\\{" + "orgId" + "\\}", apiClient.escapeString(apiClient.parameterToString(orgId)));
@@ -317,18 +317,18 @@ public class OrganizationsApi extends BaseApi {
     Map<String, String> localVarCookieParams = new HashMap<String, String>();
     Map<String, Object> localVarFormParams = new HashMap<String, Object>();
 
-
+    
     localVarHeaderParams.putAll(additionalHeaders);
 
-
-
+    
+    
     final String[] localVarAccepts = {
       "*/*"
     };
     final String localVarAccept = apiClient.selectHeaderAccept(localVarAccepts);
 
     final String[] localVarContentTypes = {
-
+      
     };
     final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
 
@@ -372,7 +372,7 @@ public class OrganizationsApi extends BaseApi {
    */
   public ApiResponseListOrganizationResponse listMyOrganizations(Map<String, String> additionalHeaders) throws ApiException {
     Object localVarPostBody = null;
-
+    
     // create path and map variables
     String localVarPath = "/v1/api/orgs";
 
@@ -384,18 +384,18 @@ public class OrganizationsApi extends BaseApi {
     Map<String, String> localVarCookieParams = new HashMap<String, String>();
     Map<String, Object> localVarFormParams = new HashMap<String, Object>();
 
-
+    
     localVarHeaderParams.putAll(additionalHeaders);
 
-
-
+    
+    
     final String[] localVarAccepts = {
       "*/*"
     };
     final String localVarAccept = apiClient.selectHeaderAccept(localVarAccepts);
 
     final String[] localVarContentTypes = {
-
+      
     };
     final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
 
@@ -421,7 +421,7 @@ public class OrganizationsApi extends BaseApi {
 
   /**
    * Revoke an unused organization invitation
-   *
+   * 
    * @param orgId  (required)
    * @param invitationId  (required)
    * @return ApiResponseInvitationView
@@ -434,7 +434,7 @@ public class OrganizationsApi extends BaseApi {
 
   /**
    * Revoke an unused organization invitation
-   *
+   * 
    * @param orgId  (required)
    * @param invitationId  (required)
    * @param additionalHeaders additionalHeaders for this call
@@ -443,17 +443,17 @@ public class OrganizationsApi extends BaseApi {
    */
   public ApiResponseInvitationView revokeInvitation(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull String invitationId, Map<String, String> additionalHeaders) throws ApiException {
     Object localVarPostBody = null;
-
+    
     // verify the required parameter 'orgId' is set
     if (orgId == null) {
       throw new ApiException(400, "Missing the required parameter 'orgId' when calling revokeInvitation");
     }
-
+    
     // verify the required parameter 'invitationId' is set
     if (invitationId == null) {
       throw new ApiException(400, "Missing the required parameter 'invitationId' when calling revokeInvitation");
     }
-
+    
     // create path and map variables
     String localVarPath = "/v1/api/orgs/{orgId}/invitations/{invitationId}"
       .replaceAll("\\{" + "orgId" + "\\}", apiClient.escapeString(apiClient.parameterToString(orgId)))
@@ -467,18 +467,18 @@ public class OrganizationsApi extends BaseApi {
     Map<String, String> localVarCookieParams = new HashMap<String, String>();
     Map<String, Object> localVarFormParams = new HashMap<String, Object>();
 
-
+    
     localVarHeaderParams.putAll(additionalHeaders);
 
-
-
+    
+    
     final String[] localVarAccepts = {
       "*/*"
     };
     final String localVarAccept = apiClient.selectHeaderAccept(localVarAccepts);
 
     final String[] localVarContentTypes = {
-
+      
     };
     final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
 
@@ -520,7 +520,7 @@ public class OrganizationsApi extends BaseApi {
     final String localVarAccept = apiClient.selectHeaderAccept(localVarAccepts);
 
     final String[] localVarContentTypes = {
-
+      
     };
     final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
 

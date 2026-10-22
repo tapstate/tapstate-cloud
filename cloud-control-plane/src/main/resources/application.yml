@@ -99,6 +99,7 @@ knife4j:
 tapstate:
   cloud:
     auth:
+      trial-code-required: ${CLOUD_AUTH_TRIAL_CODE_REQUIRED:true}
       trial-issuer-email: ${CLOUD_AUTH_TRIAL_ISSUER_EMAIL:}
       otp-hmac-key: ${CLOUD_AUTH_OTP_HMAC_KEY:}
       otp:

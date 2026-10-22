@@ -68,8 +68,23 @@ class InvitationTokenServiceTest {
         assertEquals("guest@example.com", stored.getInvitedEmail());
         assertTrue(Duration.between(before.plus(Duration.ofDays(7)), stored.getExpiresAt()).abs().toMillis() < 1000);
         assertEquals("active", issued.invitation().status());
-        assertTrue(issued.token().length() >= 40);
+        assertTrue(issued.token().matches("[2-9A-HJ-NP-Z]{12}"));
         assertTrue(stored.getCreatedAt().compareTo(before) >= 0 && stored.getCreatedAt().compareTo(after) <= 0);
+    }
+
+    @Test
+    void rejectsLegacyFortyThreeCharacterInvitationTokens() {
+        BusinessException exception = assertThrows(BusinessException.class,
+            () -> service.requireUsable("A".repeat(43), null));
+
+        assertEquals(AppErrorCode.INVITATION_INVALID, exception.getErrorCode());
+        verifyNoInteractions(invitationRepository);
+    }
+
+    @Test
+    void invitationCodesAreCaseInsensitive() {
+        assertEquals(InvitationService.hash("A2B3C4D5E6F7"),
+            InvitationService.hash("a2b3c4d5e6f7"));
     }
 
     @Test

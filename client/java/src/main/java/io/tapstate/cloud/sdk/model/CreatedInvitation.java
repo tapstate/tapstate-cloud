@@ -1,6 +1,6 @@
 /*
  * Tapstate Cloud — Global Control Plane API
- * Global Control Plane backend API for Tapstate Cloud.  ## Authentication  Three authentication contexts (ADR-0122 D2): - **Session Cookie** — Cloud Console users (type ①) - **Static Token** — SDK status sender (type ②, `/api/sdk/_*`) - **Resolve JWT** — issued by this service for Cluster Console access  ## Regions  Week 2: only `ap-southeast-1` (Singapore) available. Production regions to be added post-W4.  ## Clusters  Clusters are auto-provisioned via CloudFormation + EC2 + Docker. Lifecycle state machine has 6 states in Week 2.
+ * Global Control Plane backend API for Tapstate Cloud.  ## Authentication  Three authentication contexts (ADR-0122 D2): - **Session Cookie** — Cloud Console users (type ①) - **Static Token** — SDK status sender (type ②, `/api/sdk/_*`) - **Resolve JWT** — issued by this service for Cluster Console access  ## Regions  Week 2: only `ap-southeast-1` (Singapore) available. Production regions to be added post-W4.  ## Clusters  Clusters are auto-provisioned via CloudFormation + EC2 + Docker. Lifecycle state machine has 6 states in Week 2. 
  *
  * The version of the OpenAPI document: v1
  * Contact: cloud@tapstate.io
@@ -48,7 +48,7 @@ public class CreatedInvitation {
   }
 
   public CreatedInvitation invitation(@jakarta.annotation.Nonnull InvitationView invitation) {
-
+    
     this.invitation = invitation;
     return this;
   }
@@ -73,7 +73,7 @@ public class CreatedInvitation {
   }
 
   public CreatedInvitation token(@jakarta.annotation.Nonnull String token) {
-
+    
     this.token = token;
     return this;
   }
@@ -185,3 +185,4 @@ public class CreatedInvitation {
   }
 
 }
+

@@ -145,7 +145,8 @@ class OAuthAuthenticationSuccessHandlerTest {
 
         handler.onAuthenticationSuccess(request, response, googleAuthentication());
 
-        assertEquals("https://console.example/auth?oauth=auth.invitation-invalid", response.getRedirectedUrl());
+        assertEquals("https://console.example/auth?oauth=auth.invitation-invalid&mode=register",
+            response.getRedirectedUrl());
         assertNull(SecurityContextHolder.getContext().getAuthentication());
         assertNull(session.getAttribute("SPRING_SECURITY_CONTEXT"));
         assertNull(session.getAttribute(AuthController.SESSION_USER_EMAIL));

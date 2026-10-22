@@ -1,6 +1,6 @@
 /*
  * Tapstate Cloud — Global Control Plane API
- * Global Control Plane backend API for Tapstate Cloud.  ## Authentication  Three authentication contexts (ADR-0122 D2): - **Session Cookie** — Cloud Console users (type ①) - **Static Token** — SDK status sender (type ②, `/api/sdk/_*`) - **Resolve JWT** — issued by this service for Cluster Console access  ## Regions  Week 2: only `ap-southeast-1` (Singapore) available. Production regions to be added post-W4.  ## Clusters  Clusters are auto-provisioned via CloudFormation + EC2 + Docker. Lifecycle state machine has 6 states in Week 2.
+ * Global Control Plane backend API for Tapstate Cloud.  ## Authentication  Three authentication contexts (ADR-0122 D2): - **Session Cookie** — Cloud Console users (type ①) - **Static Token** — SDK status sender (type ②, `/api/sdk/_*`) - **Resolve JWT** — issued by this service for Cluster Console access  ## Regions  Week 2: only `ap-southeast-1` (Singapore) available. Production regions to be added post-W4.  ## Clusters  Clusters are auto-provisioned via CloudFormation + EC2 + Docker. Lifecycle state machine has 6 states in Week 2. 
  *
  * The version of the OpenAPI document: v1
  * Contact: cloud@tapstate.io
@@ -53,7 +53,7 @@ public class ApiResponseOAuthStartResult {
   }
 
   public ApiResponseOAuthStartResult code(@jakarta.annotation.Nullable String code) {
-
+    
     this.code = code;
     return this;
   }
@@ -78,7 +78,7 @@ public class ApiResponseOAuthStartResult {
   }
 
   public ApiResponseOAuthStartResult msg(@jakarta.annotation.Nullable String msg) {
-
+    
     this.msg = msg;
     return this;
   }
@@ -103,7 +103,7 @@ public class ApiResponseOAuthStartResult {
   }
 
   public ApiResponseOAuthStartResult data(@jakarta.annotation.Nullable OAuthStartResult data) {
-
+    
     this.data = data;
     return this;
   }
@@ -227,3 +227,4 @@ public class ApiResponseOAuthStartResult {
   }
 
 }
+

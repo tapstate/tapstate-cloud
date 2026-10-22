@@ -473,7 +473,7 @@ paths:
     post:
       tags:
       - Auth
-      summary: Request an invited email verification code
+      summary: Request an email verification code
       description: Sends a short-lived, one-time code. The response does not disclose whether the address already has an account.
       operationId: requestEmailCode
       security: []
@@ -524,8 +524,8 @@ paths:
     post:
       tags:
       - Auth
-      summary: Complete invited email registration
-      description: Verifies the one-time code and atomically consumes the invitation while creating the account and organization membership.
+      summary: Complete email registration
+      description: Verifies the one-time code and creates the account and organization membership. An invitation is required while trial-code registration is enabled.
       operationId: registerWithEmailCode
       security: []
       requestBody:
@@ -596,6 +596,19 @@ paths:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseAccessType"
+  /v1/api/auth/registration-policy:
+    get:
+      tags: [Auth]
+      summary: Get public registration policy
+      operationId: registrationPolicy
+      security: []
+      responses:
+        "200":
+          description: Registration policy
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseRegistrationPolicy"
   /v1/api/trial-codes:
     post:
       tags: [Auth]
@@ -1636,7 +1649,7 @@ components:
           description: Always 'accepted' on success
     EmailCodeRequest:
       type: object
-      required: [email, invitationToken]
+      required: [email]
       properties:
         email:
           type: string
@@ -1645,7 +1658,7 @@ components:
           type: string
     EmailRegistrationRequest:
       type: object
-      required: [email, invitationToken, code, password]
+      required: [email, code, password]
       properties:
         email:
           type: string
@@ -1694,6 +1707,12 @@ components:
         type:
           type: string
           enum: [trial, organization]
+    RegistrationPolicy:
+      type: object
+      required: [trialCodeRequired]
+      properties:
+        trialCodeRequired:
+          type: boolean
     AccessCode:
       type: object
       required: [code]
@@ -1729,6 +1748,15 @@ components:
           type: string
         data:
           $ref: "#/components/schemas/AccessType"
+    ApiResponseRegistrationPolicy:
+      type: object
+      properties:
+        code:
+          type: string
+        msg:
+          type: string
+        data:
+          $ref: "#/components/schemas/RegistrationPolicy"
     OAuthStartResult:
       type: object
       properties:

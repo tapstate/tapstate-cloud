@@ -65,4 +65,22 @@ class OAuthAuthenticationFailureHandlerTest {
         assertNull(session.getAttribute(OAuthSessionSupport.PREVIOUS_USER_EMAIL));
         assertNull(session.getAttribute("TAPSTATE_OAUTH_FLOW"));
     }
+
+    @org.junit.jupiter.api.Test
+    void signupFailureReturnsToTheSignupMode() throws Exception {
+        OAuthAuthenticationFailureHandler handler = new OAuthAuthenticationFailureHandler();
+        ReflectionTestUtils.setField(handler, "consoleUrl", "https://console.example");
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        MockHttpSession session = new MockHttpSession();
+        session.setAttribute("TAPSTATE_OAUTH_FLOW", "signup");
+        request.setSession(session);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        handler.onAuthenticationFailure(request, response,
+            new OAuth2AuthenticationException(new OAuth2Error("access_denied")));
+
+        assertEquals("https://console.example/auth?oauth=cancelled&mode=register",
+            response.getRedirectedUrl());
+        assertNull(session.getAttribute("TAPSTATE_OAUTH_FLOW"));
+    }
 }

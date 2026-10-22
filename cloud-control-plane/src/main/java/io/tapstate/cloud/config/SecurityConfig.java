@@ -87,6 +87,7 @@ public class SecurityConfig {
                     "/actuator/info",
                     "/v1/api/auth/register",
                     "/v1/api/auth/login",
+                    "/v1/api/auth/registration-policy",
                     "/v1/api/auth/email/**",
                     "/v1/api/auth/access",
                     "/v1/api/auth/oauth/**",

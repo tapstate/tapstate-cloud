@@ -57,6 +57,8 @@ public class OAuthAuthenticationSuccessHandler implements AuthenticationSuccessH
             response.sendRedirect(authRedirect("provider-error"));
             return;
         }
+        String flow = (String) session.getAttribute(FLOW);
+        if (flow == null) flow = "login";
 
         String provider = oauth.getAuthorizedClientRegistrationId();
         String subject;
@@ -79,17 +81,15 @@ public class OAuthAuthenticationSuccessHandler implements AuthenticationSuccessH
             }
         } catch (RuntimeException exception) {
             OAuthSessionSupport.reject(session);
-            response.sendRedirect(authRedirect("provider-error"));
+            response.sendRedirect(authRedirect("provider-error", flow));
             return;
         }
         if (subject == null || "null".equals(subject) || email == null || email.isBlank()) {
             OAuthSessionSupport.reject(session);
-            response.sendRedirect(authRedirect("provider-email-unavailable"));
+            response.sendRedirect(authRedirect("provider-email-unavailable", flow));
             return;
         }
 
-        String flow = (String) session.getAttribute(FLOW);
-        if (flow == null) flow = "login";
         String invitation = (String) session.getAttribute(INVITATION_TOKEN);
         String organizationName = (String) session.getAttribute("TAPSTATE_OAUTH_ORGANIZATION_NAME");
         String currentEmail = (String) session.getAttribute(AuthController.SESSION_USER_EMAIL);
@@ -100,7 +100,7 @@ public class OAuthAuthenticationSuccessHandler implements AuthenticationSuccessH
                 flow, currentEmail, reauthenticatedAt, invitation, organizationName);
         } catch (RuntimeException exception) {
             OAuthSessionSupport.reject(session);
-            response.sendRedirect(authRedirect(errorKey(exception)));
+            response.sendRedirect(authRedirect(errorKey(exception), flow));
             return;
         }
 
@@ -143,8 +143,13 @@ public class OAuthAuthenticationSuccessHandler implements AuthenticationSuccessH
     }
 
     private String authRedirect(String outcome) {
-        return consoleUrl.replaceAll("/$", "") + "/auth?oauth="
+        return authRedirect(outcome, null);
+    }
+
+    private String authRedirect(String outcome, String flow) {
+        String redirect = consoleUrl.replaceAll("/$", "") + "/auth?oauth="
             + URLEncoder.encode(outcome, StandardCharsets.UTF_8);
+        return "signup".equals(flow) ? redirect + "&mode=register" : redirect;
     }
 
     private record GitHubEmail(String email, boolean verified) {}

@@ -30,10 +30,16 @@ import java.util.Base64;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
+import java.util.regex.Pattern;
 
 @Service
 @RequiredArgsConstructor
 public class InvitationService {
+
+    private static final String INVITATION_CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+    private static final Pattern INVITATION_CODE_PATTERN =
+        Pattern.compile("[2-9A-HJ-NP-Z]{12}", Pattern.CASE_INSENSITIVE);
+    private static final int INVITATION_CODE_LENGTH = 12;
 
     private final OrganizationInvitationRepository invitations;
     private final OrganizationRepository organizations;
@@ -51,9 +57,7 @@ public class InvitationService {
                 || !normalizeEmail(trialIssuerEmail).equals(normalizeEmail(issuerEmail))) {
             throw new BusinessException(AppErrorCode.UNAUTHORIZED, HttpStatus.FORBIDDEN.value());
         }
-        byte[] tokenBytes = new byte[32];
-        secureRandom.nextBytes(tokenBytes);
-        String token = Base64.getUrlEncoder().withoutPadding().encodeToString(tokenBytes);
+        String token = generateInvitationCode();
         Instant now = Instant.now();
         OrganizationInvitation invitation = invitations.save(OrganizationInvitation.builder()
             .tokenHash(hash(token))
@@ -82,9 +86,7 @@ public class InvitationService {
 
         String normalizedInviteEmail = invitedEmail == null || invitedEmail.isBlank()
             ? null : normalizeEmail(invitedEmail);
-        byte[] tokenBytes = new byte[32];
-        secureRandom.nextBytes(tokenBytes);
-        String token = Base64.getUrlEncoder().withoutPadding().encodeToString(tokenBytes);
+        String token = generateInvitationCode();
         Instant now = Instant.now();
         OrganizationInvitation invitation = invitations.save(OrganizationInvitation.builder()
             .tokenHash(hash(token))
@@ -129,7 +131,11 @@ public class InvitationService {
         if (token == null || token.isBlank()) {
             throw new BusinessException(AppErrorCode.INVITATION_REQUIRED, 400);
         }
-        return requireUsableHash(hash(token), email);
+        String normalizedToken = normalizeToken(token);
+        if (!INVITATION_CODE_PATTERN.matcher(normalizedToken).matches()) {
+            throw new BusinessException(AppErrorCode.INVITATION_INVALID, 400);
+        }
+        return requireUsableHash(hash(normalizedToken), email);
     }
 
     public OrganizationInvitation requireUsableHash(String tokenHash, String email) {
@@ -263,10 +269,23 @@ public class InvitationService {
     static String hash(String value) {
         try {
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
-                .digest(value.getBytes(StandardCharsets.UTF_8)));
+                .digest(normalizeToken(value).getBytes(StandardCharsets.UTF_8)));
         } catch (NoSuchAlgorithmException exception) {
             throw new IllegalStateException("SHA-256 is unavailable", exception);
         }
+    }
+
+    private String generateInvitationCode() {
+        StringBuilder code = new StringBuilder(INVITATION_CODE_LENGTH);
+        for (int index = 0; index < INVITATION_CODE_LENGTH; index++) {
+            code.append(INVITATION_CODE_ALPHABET.charAt(secureRandom.nextInt(INVITATION_CODE_ALPHABET.length())));
+        }
+        return code.toString();
+    }
+
+    private static String normalizeToken(String token) {
+        String trimmed = token.trim();
+        return INVITATION_CODE_PATTERN.matcher(trimmed).matches() ? trimmed.toUpperCase(Locale.ROOT) : trimmed;
     }
 
     public record IssuedInvitation(InvitationView invitation, String token) {}
