@@ -80,6 +80,12 @@ secrets:
     name: tapstate-cloud-control-feishu-bot
     webhookUrlKey: webhook-url
     signingSecretKey: signing-secret
+  # SMTP credentials for alert email. Optional until email delivery is enabled;
+  # the username/password may be omitted for an unauthenticated relay.
+  emailSmtp:
+    name: tapstate-cloud-control-smtp
+    usernameKey: username
+    passwordKey: password
   # Stripe API key + webhook secret (Week 4 — Stripe Checkout)
   # Optional: when the Secret is absent the payment controller stays up but
   # stripe_product catalog refresh logs a warning and /specs excludes
@@ -135,6 +141,24 @@ config:
   logLevelSecurity: WARN
   tawkPropertyId: ""
   tawkRetryIntervalMs: "30000"
+
+  # ----- Alert email delivery (SMTP) -----
+  # Disabled by default: an environment must opt in and provide smtpHost plus
+  # the optional emailSmtp Secret. When disabled, deliveries fail visibly in
+  # the Console instead of being reported as sent.
+  notifications:
+    emailEnabled: "false"
+    emailFrom: "no-reply@tapstate.com"
+    smtpHost: ""
+    smtpPort: "587"
+    smtpAuth: "true"
+    # STARTTLS for 587; set false and smtpSslEnable=true for implicit TLS on 465.
+    smtpStarttls: "true"
+    smtpSslEnable: "false"
+    maxAttempts: "5"
+    retryBaseSeconds: "30"
+    leaseSeconds: "60"
+    pollIntervalMs: "5000"
 
 # ========== Kubernetes resources ==========
 serviceAccount:
