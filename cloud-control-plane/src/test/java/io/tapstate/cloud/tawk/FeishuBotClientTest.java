@@ -9,7 +9,11 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
+import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+import org.springframework.context.support.PropertySourcesPlaceholderConfigurer;
+import org.springframework.core.env.MapPropertySource;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
@@ -20,6 +24,24 @@ class FeishuBotClientTest {
     private static final String TOKEN_ENDPOINT = "https://accounts.feishu.cn/oauth/v3/token";
     private static final String MESSAGE_ENDPOINT = "https://open.feishu.cn/open-apis/im/v1/messages"
         + "?receive_id_type=chat_id";
+
+    @Test
+    void springInjectsProductionRestClientBuilderConstructor() {
+        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
+            context.getEnvironment().getPropertySources().addFirst(new MapPropertySource(
+                "feishu-bot-test", Map.of(
+                    "tapstate.cloud.tawk.feishu.app-id", "app-id",
+                    "tapstate.cloud.tawk.feishu.app-secret", "app-secret",
+                    "tapstate.cloud.tawk.feishu.chat-id", "oc_tapstate_launch")));
+            context.addBeanFactoryPostProcessor(new PropertySourcesPlaceholderConfigurer());
+            context.registerBean("restClientBuilder", RestClient.Builder.class, () -> RestClient.builder());
+            context.register(FeishuBotClient.class);
+
+            context.refresh();
+
+            assertTrue(context.getBean(FeishuBotClient.class) != null);
+        }
+    }
 
     @Test
     void sendsAsConfiguredApplicationBotAndCachesItsAccessToken() {

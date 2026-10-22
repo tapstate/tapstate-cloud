@@ -12,6 +12,7 @@ import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.MediaType;
@@ -44,6 +45,7 @@ public class FeishuBotClient {
     private final String messageEndpoint;
     private volatile CachedAccessToken cachedAccessToken;
 
+    @Autowired
     public FeishuBotClient(
             RestClient.Builder restClientBuilder,
             @Value("${tapstate.cloud.tawk.feishu.app-id:}") String appId,
