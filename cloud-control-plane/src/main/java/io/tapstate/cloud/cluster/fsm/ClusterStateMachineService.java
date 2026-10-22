@@ -1,7 +1,6 @@
 package io.tapstate.cloud.cluster.fsm;
 
 import io.tapstate.cloud.cluster.Cluster;
-import io.tapstate.cloud.cluster.ClusterPartialWriter;
 import io.tapstate.cloud.cluster.ClusterRepository;
 import io.tapstate.cloud.cluster.ClusterState;
 import io.tapstate.cloud.cluster.ProvisionErrorCode;
@@ -26,6 +25,10 @@ import org.springframework.statemachine.StateMachine;
 import org.springframework.statemachine.config.StateMachineFactory;
 import org.springframework.statemachine.support.DefaultStateMachineContext;
 import org.springframework.stereotype.Service;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.mongodb.core.query.Update;
 
 import java.security.SecureRandom;
 import java.time.Instant;
@@ -62,7 +65,7 @@ public class ClusterStateMachineService {
 
     private final StateMachineFactory<ClusterState, ClusterEventType> clusterStateMachineFactory;
     private final ClusterRepository clusterRepository;
-    private final ClusterPartialWriter clusterPartialWriter;
+    private final MongoTemplate mongoTemplate;
     private final ClusterProvisioningService clusterProvisioningService;
     private final IacProperties iacProperties;
     private final ClusterDomainName clusterDomainName;
@@ -102,7 +105,7 @@ public class ClusterStateMachineService {
         @Qualifier("clusterStateMachineFactory")
         StateMachineFactory<ClusterState, ClusterEventType> clusterStateMachineFactory,
         ClusterRepository clusterRepository,
-        ClusterPartialWriter clusterPartialWriter,
+        MongoTemplate mongoTemplate,
         ClusterProvisioningService clusterProvisioningService,
         IacProperties iacProperties,
         ClusterDomainName clusterDomainName,
@@ -112,7 +115,7 @@ public class ClusterStateMachineService {
         ObjectProvider<MockProvisionFailureService> mockFailureProvider) {
         this.clusterStateMachineFactory = clusterStateMachineFactory;
         this.clusterRepository = clusterRepository;
-        this.clusterPartialWriter = clusterPartialWriter;
+        this.mongoTemplate = mongoTemplate;
         this.clusterProvisioningService = clusterProvisioningService;
         this.iacProperties = iacProperties;
         this.clusterDomainName = clusterDomainName;
@@ -152,7 +155,11 @@ public class ClusterStateMachineService {
             // new state and its side-effect fields become visible atomically;
             // async cloud operations are scheduled only after the write.
             applySynchronousMutations(cluster, prevState, newState, event);
-            clusterPartialWriter.apply(cluster);
+            if (!persistTransition(cluster, prevState)) {
+                sm.stop();
+                return TransitionResult.rejected(clusterRepository.findById(clusterId)
+                    .map(Cluster::getState).orElse(prevState));
+            }
 
             scheduleAsyncEffects(cluster, prevState, newState, event);
 
@@ -180,6 +187,27 @@ public class ClusterStateMachineService {
             .doWithAllRegions(accessor -> accessor.resetStateMachine(
                 new DefaultStateMachineContext<>(persistedState, null, null, null)
             ));
+    }
+
+    private boolean persistTransition(Cluster cluster, ClusterState from) {
+        Update update = new Update().set("state", cluster.getState()).set("updatedAt", cluster.getUpdatedAt());
+        if (from == ClusterState.PROVISIONING && cluster.getState() == ClusterState.READY) {
+            update.set("readyAt", cluster.getReadyAt());
+            if (!"real".equalsIgnoreCase(iacProperties.getMode())) {
+                update.set("ec2InstanceId", cluster.getEc2InstanceId())
+                    .set("ec2PublicIp", cluster.getEc2PublicIp()).set("publicDns", cluster.getPublicDns())
+                    .set("lastHeartbeatAt", cluster.getLastHeartbeatAt());
+            }
+        }
+        if (cluster.getState() == ClusterState.PROVISIONING_FAILED) {
+            update.set("provisionErrorCode", cluster.getProvisionErrorCode())
+                .set("provisionErrorDetail", cluster.getProvisionErrorDetail());
+        }
+        if (cluster.getState() == ClusterState.TERMINATED) {
+            update.set("terminatedAt", cluster.getTerminatedAt()).unset("sdkStaticToken").unset("bootstrapToken");
+        }
+        return mongoTemplate.updateFirst(Query.query(Criteria.where("_id").is(cluster.getId())
+                .and("state").is(from)), update, Cluster.class).getMatchedCount() == 1;
     }
 
     /**
@@ -306,7 +334,6 @@ public class ClusterStateMachineService {
                     log.info("[Cluster FSM] real retry skipped, cluster {} no longer exists", clusterId);
                     return;
                 }
-
                 // T2: query remote state before terminate — if the previous
                 // attempt's stack is still healthy (e.g. post-stack step failed),
                 // skip terminate entirely and retry provisioning on top of it.
@@ -322,13 +349,14 @@ public class ClusterStateMachineService {
                         clusterId);
                     // Clear the "remote stack healthy, skip cleanup" marker from the
                     // previous compensate so this retry starts fresh.
-                    latest.setCleanupErrorCode(null);
-                    latest.setCleanupErrorDetail(null);
-                    latest.setCleanupFailedAt(null);
-                    clusterPartialWriter.apply(latest);
+                    mongoTemplate.updateFirst(Query.query(Criteria.where("_id").is(clusterId)),
+                        new Update().unset("cleanupErrorCode").unset("cleanupErrorDetail")
+                            .unset("cleanupFailedAt"), Cluster.class);
                 } else if (hasProvisionedStack) {
                     try {
-                        clusterProvisioningService.terminate(latest);
+                        // Retry cleanup removes the old node but keeps this Cluster's EIP
+                        // so a provisioning retry reuses the same allowlisted address.
+                        clusterProvisioningService.prepareForRetry(latest);
                     } catch (Exception e) {
                         // T5: terminate failure was already persisted on the Cluster
                         // by terminate() itself. Retry cannot safely proceed without a
@@ -337,15 +365,13 @@ public class ClusterStateMachineService {
                             clusterId, e.getMessage());
                         // Persist terminal cleanup failure reason (terminate already
                         // did persistCleanupFailure, add retry-specific detail).
-                        latest = clusterRepository.findById(clusterId).orElse(latest);
-                        latest.setCleanupErrorDetail("Retry cleanup failed: "
-                            + safeMessage(e)
-                            + ". User must resolve the cleanup failure before retry can proceed.");
-                        clusterPartialWriter.apply(latest);
+                        String detail = "Retry cleanup failed: " + safeMessage(e)
+                            + ". User must resolve the cleanup failure before retry can proceed.";
+                        mongoTemplate.updateFirst(Query.query(Criteria.where("_id").is(clusterId)),
+                            new Update().set("cleanupErrorDetail", detail), Cluster.class);
                         return; // abort retry — cleanup must succeed first
                     }
                 }
-
                 transition(clusterId, ClusterEventType.START_PROVISION, "system:retry");
             } catch (Exception e) {
                 log.error("[Cluster FSM] retry restart failed for cluster {}: {}",

@@ -3,6 +3,7 @@ package io.tapstate.cloud.resolve;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import io.tapstate.cloud.cluster.Cluster;
+import io.tapstate.cloud.cluster.ClusterEgressAddressStatus;
 import io.tapstate.cloud.cluster.ClusterRepository;
 import io.tapstate.cloud.cluster.ClusterState;
 import io.tapstate.cloud.common.api.AppErrorCode;
@@ -292,7 +293,9 @@ public class ExchangeService {
             consumed.getUserId() != null ? consumed.getUserId().toHexString() : null,
             consumed.getOrgId() != null ? consumed.getOrgId().toHexString() : null,
             consumed.getClusterId() != null ? consumed.getClusterId().toHexString() : null,
-            organization.getName(), cluster.getName(), cluster.getRegion());
+            organization.getName(), cluster.getName(), cluster.getRegion(), cluster.getEc2PublicIp(),
+            cluster.getEgressAddressStatus() != null
+                ? cluster.getEgressAddressStatus() : ClusterEgressAddressStatus.DYNAMIC);
     }
 
     // ========== Cluster service identity secret verification ==========
@@ -345,5 +348,6 @@ public class ExchangeService {
     /** Result of successful code redemption — returned to Cluster Server via GC /exchange. */
     public record RedeemedExchange(String jwt, String expiresAt, String jti,
                                     String userEmail, String userId, String orgId, String clusterId,
-                                    String organizationName, String clusterName, String region) {}
+                                    String organizationName, String clusterName, String region,
+                                    String ec2PublicIp, ClusterEgressAddressStatus egressAddressStatus) {}
 }

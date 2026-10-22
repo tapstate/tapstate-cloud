@@ -64,8 +64,13 @@ class CrossOrgAuthIT extends BaseIT {
         pinSessionCookie(api);
 
         String orgId = orgs.create(Map.of("name", orgName, "slug", orgName.toLowerCase())).getData().getId();
-        subs.createSubscription(orgId, new CreateSubscriptionRequest()
-            .region("ap-southeast-1").clusterName(clusterName).specKey("basic"));
+        // Seed the subscription directly (no payment channel here) and finalize it
+        // with THIS user's client, because the shared BaseIT client belongs to
+        // another session and would be denied on this Organization.
+        String subscriptionId = seedSubscription(orgId, "2c8g");
+        subs.finalizeProvisioning(orgId, subscriptionId,
+            new io.tapstate.cloud.sdk.model.FinalizeProvisioningRequest()
+                .region("ap-southeast-1").clusterName(clusterName));
         // Poll for cluster with THIS user's own client — the shared BaseIT client
         // carries a different session and would be denied (403) on this org.
         io.tapstate.cloud.sdk.api.ClustersApi clusters = new io.tapstate.cloud.sdk.api.ClustersApi(api);

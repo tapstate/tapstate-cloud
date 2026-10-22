@@ -88,6 +88,23 @@ secrets:
     hostKey: host
     usernameKey: username
     passwordKey: password
+  # Tawk callback signing secret and Feishu custom-bot credentials are optional
+  # until the feedback notification integration is enabled in an environment.
+  tawkWebhook:
+    name: tapstate-cloud-control-tawk-webhook
+    secretKey: webhook-secret
+  feishuBot:
+    name: tapstate-cloud-control-feishu-bot
+    webhookUrlKey: webhook-url
+    signingSecretKey: signing-secret
+  # Stripe API key + webhook secret (Week 4 — Stripe Checkout)
+  # Optional: when the Secret is absent the payment controller stays up but
+  # stripe_product catalog refresh logs a warning and /specs excludes
+  # payment-channel pricing. Created by scripts/k3s-stripe-secrets.sh.
+  stripe:
+    name: tapstate-cloud-control-secrets
+    secretKeyKey: stripe.secret-key
+    webhookSecretKey: stripe.webhook-secret
 
 # ========== ConfigMap (non-sensitive config) ==========
 config:
@@ -145,6 +162,8 @@ config:
   # ----- Logging -----
   logLevelCloud: INFO
   logLevelSecurity: WARN
+  tawkPropertyId: ""
+  tawkRetryIntervalMs: "30000"
 
 # ========== Kubernetes resources ==========
 serviceAccount:

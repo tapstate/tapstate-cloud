@@ -319,6 +319,85 @@ public abstract class BaseIT {
         return out;
     }
 
+    // ---- Subscription fixtures ----
+
+    /**
+     * Insert a provisionable subscription straight into the store.
+     * <p>
+     * There is no API that creates a subscription without a payment channel, and
+     * the integration suite has no channel — so a test that needs one starts from
+     * the state the webhook would have produced (TRIAL, spec snapshot, the two
+     * billable items) and then goes through the real {@code finalize-provisioning}
+     * call. What is skipped is the payment, not the behaviour under test.
+     *
+     * @return hex id of the inserted subscription
+     */
+    protected String seedSubscription(String orgId, String specKey) throws Exception {
+        int[] shape = switch (specKey) {
+            case "2c8g" -> new int[]{2, 8, 7, 10};
+            case "4c16g" -> new int[]{4, 16, 0, 20};
+            case "8c32g" -> new int[]{8, 32, 0, 50};
+            default -> throw new IllegalArgumentException("unknown spec " + specKey);
+        };
+        String out = mongoshEval("""
+            const sid = new ObjectId();
+            const now = new Date();
+            db.subscriptions.insertOne({
+              _id: sid,
+              orgId: ObjectId('%s'),
+              status: 'TRIAL',
+              provisionInitiated: true,
+              specConfig: {key: '%s', displayName: '%s', cpuCores: %d, memoryGb: %d,
+                           trialDays: %d, mdbSizeGb: %d, enabled: true,
+                           _class: 'io.tapstate.cloud.subscription.SpecConfig'},
+              currentPeriodStart: now,
+              currentPeriodEnd: new Date(now.getTime() + 30 * 86400000),
+              createdAt: now,
+              updatedAt: now,
+              _class: 'io.tapstate.cloud.subscription.Subscription'
+            });
+            db.subscription_items.insertMany([
+              {_id: new ObjectId(), subscriptionId: sid, orgId: ObjectId('%s'),
+               itemType: 'CLUSTER_PIPELINE_RUNTIME', includedQuantity: 0, unitPriceCents: NumberLong(0),
+               metadata: {}, createdAt: now, updatedAt: now,
+               _class: 'io.tapstate.cloud.subscription.SubscriptionItem'},
+              {_id: new ObjectId(), subscriptionId: sid, orgId: ObjectId('%s'),
+               itemType: 'ATLAS_DATABASE_STORAGE', includedQuantity: 0, unitPriceCents: NumberLong(0),
+               metadata: {}, createdAt: now, updatedAt: now,
+               _class: 'io.tapstate.cloud.subscription.SubscriptionItem'}
+            ]);
+            print('SEEDED=' + sid.toHexString());
+            """.formatted(orgId, specKey, specKey, shape[0], shape[1], shape[2], shape[3], orgId, orgId));
+        // mongosh can prepend diagnostics to stdout; take the id line only, so a
+        // stray warning never becomes part of the request path.
+        return out.lines()
+            .map(String::strip)
+            .filter(line -> line.startsWith("SEEDED="))
+            .map(line -> line.substring("SEEDED=".length()).strip())
+            .findFirst()
+            .orElseThrow(() -> new IllegalStateException(
+                "seedSubscription produced no id, mongosh output:\n" + out));
+    }
+
+    /**
+     * Seed a subscription and finalize it through the API, so the Cluster and
+     * MdbAllocation exist and provisioning has started.
+     */
+    protected io.tapstate.cloud.sdk.model.SubscriptionResponse seedProvisionedSubscription(
+            String orgId, String specKey, String region, String clusterName) throws Exception {
+        return seedProvisionedSubscription(orgId, specKey, region, clusterName, null);
+    }
+
+    /** Same, pinning the Cluster version instead of resolving the latest ACTIVE one. */
+    protected io.tapstate.cloud.sdk.model.SubscriptionResponse seedProvisionedSubscription(
+            String orgId, String specKey, String region, String clusterName, String version) throws Exception {
+        String subscriptionId = seedSubscription(orgId, specKey);
+        subscriptionApi.finalizeProvisioning(orgId, subscriptionId,
+            new io.tapstate.cloud.sdk.model.FinalizeProvisioningRequest()
+                .region(region).clusterName(clusterName).version(version));
+        return subscriptionApi.getSubscription(orgId, subscriptionId).getData();
+    }
+
     // ---- MongoDB cleanup ----
 
     /**

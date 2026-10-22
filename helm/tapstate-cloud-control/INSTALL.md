@@ -22,6 +22,11 @@ kubectl create secret generic tapstate-cloud-control-aws-credentials \
   --from-literal=access-key-id='AKIA...' \
   --from-literal=secret-access-key='...'
 
+# The configured AWS identity must also allow the Cloud Control Plane to manage
+# per-Cluster Elastic IPs: ec2:AllocateAddress, ec2:AssociateAddress,
+# ec2:DescribeAddresses, ec2:DisassociateAddress, ec2:ReleaseAddress, and
+# ec2:CreateTags. Keep the existing CloudFormation stack and EC2 permissions.
+
 # ---- GoDaddy DNS API key (required only when config.iacMode=real) ----
 # A gd_pat_ Personal Access Token works as Bearer with an empty api-secret;
 # a classic sso-key needs both values.
@@ -105,6 +110,33 @@ kubectl create secret generic tapstate-cloud-control-smtp \
 # The response contains a one-time code and a ready-to-share /auth#invite= link.
 # Store or send it immediately: only its hash is retained, and it expires in
 # seven days. The tester may paste the code on /auth or follow the link.
+# ---- Optional: Tawk to Feishu feedback notifications ----
+# Create one Tawk webhook in each environment's existing Property. Use the
+# environment's HTTPS callback URL and select Chat Start and New Ticket. Enable
+# signature verification on the Feishu custom bot. Keep both env files outside
+# Git with owner-only permissions; never put their values in shell history.
+# tawk-webhook.env contains webhook-secret=<Tawk webhook signing secret>.
+# feishu-bot.env contains webhook-url=<bot webhook URL> and
+# signing-secret=<bot signing secret>.
+kubectl create secret generic tapstate-cloud-control-tawk-webhook \
+  -n tapstate-cloud-control \
+  --from-env-file=/secure/path/tawk-webhook.env
+kubectl create secret generic tapstate-cloud-control-feishu-bot \
+  -n tapstate-cloud-control \
+  --from-env-file=/secure/path/feishu-bot.env
+
+# For awsdev, create the same Secrets in the tapstate namespace instead.
+# The expected Tawk Property ID is selected by values-awsdev.yaml / values-awsprod.yaml.
+# The Feishu URL is environment configuration, not a code constant. Each custom
+# bot is bound to its group. To change the destination later, create a custom
+# bot in the new group, update webhook-url and signing-secret in this
+# environment's feishu-bot.env, then reapply the same Secret:
+kubectl create secret generic tapstate-cloud-control-feishu-bot \
+  -n tapstate-cloud-control \
+  --from-env-file=/secure/path/feishu-bot.env \
+  --dry-run=client -o yaml | kubectl apply -f -
+# For awsdev, use namespace tapstate and its own feishu-bot.env. Restart the
+# Control Plane after the update so the environment-backed Secret values reload.
 
 # ---- Shared sample database password ----
 # Keep this file outside the repository with owner-only permissions.

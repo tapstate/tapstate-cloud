@@ -192,9 +192,8 @@ class AwsClusterDeployIT extends BaseIT {
         new ClusterVersionITSupport(httpClient, BASE_URL).ensureBootstrapActive();
 
         clusterName = "aws-it-" + Long.toHexString(System.nanoTime());
-        var created = subscriptionApi.createSubscription(orgId, new CreateSubscriptionRequest()
-            .region(REGION).clusterName(clusterName).specKey("basic")
-            .version(ClusterVersionITSupport.BOOTSTRAP_VERSION)).getData();
+        var created = seedProvisionedSubscription(orgId, "2c8g", REGION, clusterName,
+            ClusterVersionITSupport.BOOTSTRAP_VERSION);
         subscriptionId = created.getId();
 
         clusterId = created.getClusterId();
@@ -261,7 +260,7 @@ class AwsClusterDeployIT extends BaseIT {
             "HTTPS /healthz must answer 200, got: " + health.body());
 
         // ---------- 4. Cancel → TERMINATED ----------
-        subscriptionApi.cancelSubscription(orgId, subscriptionId);
+        subscriptionApi.cancelNow(orgId, subscriptionId);
         waitForClusterState(orgId, clusterId, "TERMINATED",
             TERMINATED_ATTEMPTS, TERMINATED_POLL_MS);
 
@@ -291,7 +290,7 @@ class AwsClusterDeployIT extends BaseIT {
         // Cancel the subscription; if that did not reclaim the resources in time,
         // delete them directly so a Mongo wipe cannot orphan billable resources.
         try {
-            subscriptionApi.cancelSubscription(orgId, subscriptionId);
+            subscriptionApi.cancelNow(orgId, subscriptionId);
         } catch (Exception ignored) {
             // Subscription may already be cancelled — continue to raw cleanup.
         }

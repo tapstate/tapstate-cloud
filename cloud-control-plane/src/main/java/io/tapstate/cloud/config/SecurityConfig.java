@@ -98,15 +98,26 @@ public class SecurityConfig {
                     // service identity Secret (validated inside ExchangeController)
                     "/v1/api/auth/exchange",
                     "/v1/api/jwks.json",
+                    "/v1/api/webhooks/tawk",
 
                 // C2 status-report endpoints — runtime SDK authenticates with Bearer sdk-static-token
                     // (validated inside the controller, NOT via Spring Session)
                     "/v1/api/clusters/*/status-report",
+                    "/v1/api/clusters/*/egress-address",
                     "/v1/api/clusters/*/sample-sources/**"
                 ).permitAll()
 
                 // Regions — public (user sees before login)
                 .requestMatchers(HttpMethod.GET, "/v1/api/regions").permitAll()
+
+                // Subscription spec catalog — public: the Console renders pricing
+                // on the landing page, before the user signs in.
+                .requestMatchers(HttpMethod.GET, "/v1/api/specs").permitAll()
+
+                // Payment-channel webhooks — the caller is the payment provider, not a
+                // session user. Authenticity is the signature header, verified inside the
+                // controller before any state changes.
+                .requestMatchers(HttpMethod.POST, "/v1/api/internal/payment/*/webhook").permitAll()
 
                 // Cluster version publish / delist — operator automation authenticates
                 // with a static Bearer token inside the controller; the console GET list

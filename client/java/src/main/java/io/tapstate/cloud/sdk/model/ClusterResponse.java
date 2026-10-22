@@ -40,6 +40,7 @@ import java.util.StringJoiner;
   ClusterResponse.JSON_PROPERTY_RUNTIME_ID,
   ClusterResponse.JSON_PROPERTY_PUBLIC_DNS,
   ClusterResponse.JSON_PROPERTY_EC2_PUBLIC_IP,
+  ClusterResponse.JSON_PROPERTY_EGRESS_ADDRESS_STATUS,
   ClusterResponse.JSON_PROPERTY_LAST_HEARTBEAT_AT,
   ClusterResponse.JSON_PROPERTY_CREATED_AT,
   ClusterResponse.JSON_PROPERTY_READY_AT,
@@ -180,6 +181,51 @@ public class ClusterResponse {
   public static final String JSON_PROPERTY_EC2_PUBLIC_IP = "ec2PublicIp";
   @jakarta.annotation.Nullable
   private String ec2PublicIp;
+
+  /**
+   * Stability state of the Cluster egress address
+   */
+  public enum EgressAddressStatusEnum {
+    DYNAMIC(String.valueOf("DYNAMIC")),
+    
+    STABILIZING(String.valueOf("STABILIZING")),
+    
+    ATTACHING(String.valueOf("ATTACHING")),
+    
+    STABLE(String.valueOf("STABLE")),
+    
+    FAILED(String.valueOf("FAILED"));
+
+    private String value;
+
+    EgressAddressStatusEnum(String value) {
+      this.value = value;
+    }
+
+    @JsonValue
+    public String getValue() {
+      return value;
+    }
+
+    @Override
+    public String toString() {
+      return String.valueOf(value);
+    }
+
+    @JsonCreator
+    public static EgressAddressStatusEnum fromValue(String value) {
+      for (EgressAddressStatusEnum b : EgressAddressStatusEnum.values()) {
+        if (b.value.equals(value)) {
+          return b;
+        }
+      }
+      throw new IllegalArgumentException("Unexpected value '" + value + "'");
+    }
+  }
+
+  public static final String JSON_PROPERTY_EGRESS_ADDRESS_STATUS = "egressAddressStatus";
+  @jakarta.annotation.Nullable
+  private EgressAddressStatusEnum egressAddressStatus;
 
   public static final String JSON_PROPERTY_LAST_HEARTBEAT_AT = "lastHeartbeatAt";
   @jakarta.annotation.Nullable
@@ -432,7 +478,7 @@ public class ClusterResponse {
   }
 
   /**
-   * EC2 node public IPv4 address
+   * Cluster public and source-firewall egress IPv4 address
    * @return ec2PublicIp
    */
   @jakarta.annotation.Nullable
@@ -448,6 +494,31 @@ public class ClusterResponse {
   @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
   public void setEc2PublicIp(@jakarta.annotation.Nullable String ec2PublicIp) {
     this.ec2PublicIp = ec2PublicIp;
+  }
+
+  public ClusterResponse egressAddressStatus(@jakarta.annotation.Nullable EgressAddressStatusEnum egressAddressStatus) {
+    
+    this.egressAddressStatus = egressAddressStatus;
+    return this;
+  }
+
+  /**
+   * Stability state of the Cluster egress address
+   * @return egressAddressStatus
+   */
+  @jakarta.annotation.Nullable
+  @JsonProperty(value = JSON_PROPERTY_EGRESS_ADDRESS_STATUS, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+
+  public EgressAddressStatusEnum getEgressAddressStatus() {
+    return egressAddressStatus;
+  }
+
+
+  @JsonProperty(value = JSON_PROPERTY_EGRESS_ADDRESS_STATUS, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+  public void setEgressAddressStatus(@jakarta.annotation.Nullable EgressAddressStatusEnum egressAddressStatus) {
+    this.egressAddressStatus = egressAddressStatus;
   }
 
   public ClusterResponse lastHeartbeatAt(@jakarta.annotation.Nullable String lastHeartbeatAt) {
@@ -570,6 +641,7 @@ public class ClusterResponse {
         Objects.equals(this.runtimeId, clusterResponse.runtimeId) &&
         Objects.equals(this.publicDns, clusterResponse.publicDns) &&
         Objects.equals(this.ec2PublicIp, clusterResponse.ec2PublicIp) &&
+        Objects.equals(this.egressAddressStatus, clusterResponse.egressAddressStatus) &&
         Objects.equals(this.lastHeartbeatAt, clusterResponse.lastHeartbeatAt) &&
         Objects.equals(this.createdAt, clusterResponse.createdAt) &&
         Objects.equals(this.readyAt, clusterResponse.readyAt) &&
@@ -578,7 +650,7 @@ public class ClusterResponse {
 
   @Override
   public int hashCode() {
-    return Objects.hash(id, orgId, region, name, specKey, state, provisionErrorCode, runtimeId, publicDns, ec2PublicIp, lastHeartbeatAt, createdAt, readyAt, clusterVersion);
+    return Objects.hash(id, orgId, region, name, specKey, state, provisionErrorCode, runtimeId, publicDns, ec2PublicIp, egressAddressStatus, lastHeartbeatAt, createdAt, readyAt, clusterVersion);
   }
 
   @Override
@@ -595,6 +667,7 @@ public class ClusterResponse {
     sb.append("    runtimeId: ").append(toIndentedString(runtimeId)).append("\n");
     sb.append("    publicDns: ").append(toIndentedString(publicDns)).append("\n");
     sb.append("    ec2PublicIp: ").append(toIndentedString(ec2PublicIp)).append("\n");
+    sb.append("    egressAddressStatus: ").append(toIndentedString(egressAddressStatus)).append("\n");
     sb.append("    lastHeartbeatAt: ").append(toIndentedString(lastHeartbeatAt)).append("\n");
     sb.append("    createdAt: ").append(toIndentedString(createdAt)).append("\n");
     sb.append("    readyAt: ").append(toIndentedString(readyAt)).append("\n");
@@ -737,6 +810,16 @@ public class ClusterResponse {
     if (getEc2PublicIp() != null) {
       try {
         joiner.add(String.format(java.util.Locale.ROOT, "%sec2PublicIp%s=%s", prefix, suffix, URLEncoder.encode(String.valueOf(getEc2PublicIp()), "UTF-8").replaceAll("\\+", "%20")));
+      } catch (UnsupportedEncodingException e) {
+        // Should never happen, UTF-8 is always supported
+        throw new RuntimeException(e);
+      }
+    }
+
+    // add `egressAddressStatus` to the URL query string
+    if (getEgressAddressStatus() != null) {
+      try {
+        joiner.add(String.format(java.util.Locale.ROOT, "%segressAddressStatus%s=%s", prefix, suffix, URLEncoder.encode(String.valueOf(getEgressAddressStatus()), "UTF-8").replaceAll("\\+", "%20")));
       } catch (UnsupportedEncodingException e) {
         // Should never happen, UTF-8 is always supported
         throw new RuntimeException(e);

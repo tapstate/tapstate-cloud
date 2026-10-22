@@ -34,6 +34,9 @@ import org.bson.types.ObjectId;
 // per-org/region): the hosted zone of an environment is shared, so the derived
 // subdomain must be unique across every active Cluster in that environment.
 @CompoundIndexes({
+    @CompoundIndex(name = "terminated_cleanup_ordered",
+        def = "{'terminatedResourceCleanupLastAttemptAt': 1, 'createdAt': 1, '_id': 1}",
+        partialFilter = "{'state': 'TERMINATED'}"),
     @CompoundIndex(name = "org_region_name_active_unique", def = "{'orgId': 1, 'region': 1, 'name': 1}",
         unique = true,
         partialFilter = "{'state': {'$in': ['PROVISIONING_PENDING', 'PROVISIONING', 'READY', 'PROVISIONING_FAILED', 'DEGRADED', 'DRAINED']}}"),
@@ -102,6 +105,15 @@ public class Cluster {
     @Schema(description = "EC2 node public IPv4 address")
     private String ec2PublicIp;
 
+    @Schema(description = "Cluster-owned Elastic IP allocation ID")
+    private String egressAddressAllocationId;
+
+    @Schema(description = "Lifecycle state of the Cluster's source-firewall egress address")
+    private ClusterEgressAddressStatus egressAddressStatus;
+
+    @Schema(description = "Time the current egress address operation started")
+    private Instant egressAddressOperationStartedAt;
+
     @Schema(description = "Per-Cluster SSH public key (OpenSSH format)")
     private String sshPublicKey;
 
@@ -146,6 +158,9 @@ public class Cluster {
 
     @Schema(description = "When Cluster transitioned to TERMINATED (resources cleaned up)")
     private Instant terminatedAt;
+
+    @Schema(description = "Last attempt to reclaim terminated Cluster resources")
+    private Instant terminatedResourceCleanupLastAttemptAt;
 
     // ========== Atlas MDB allocation — populated at Cluster create time ==========
 

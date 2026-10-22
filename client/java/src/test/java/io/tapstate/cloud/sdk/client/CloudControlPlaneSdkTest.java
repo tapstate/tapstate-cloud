@@ -5,6 +5,7 @@
 
 package io.tapstate.cloud.sdk.client;
 
+import io.tapstate.cloud.sdk.ApiClient;
 import io.tapstate.cloud.sdk.ApiException;
 import io.tapstate.cloud.sdk.api.ExchangeApi;
 import io.tapstate.cloud.sdk.model.ApiResponseExchangeResponse;
@@ -45,6 +46,7 @@ class CloudControlPlaneSdkTest {
 
     @BeforeEach
     void setUp() {
+        when(mockExchangeApi.getApiClient()).thenReturn(new ApiClient());
         JwksKeyCache jwksCache = new JwksKeyCache(BASE_URL + "/v1/api/jwks.json",
             java.time.Duration.ofMinutes(10));
         sdk = CloudControlPlaneSdk.builder()
@@ -80,6 +82,8 @@ class CloudControlPlaneSdkTest {
         assertEquals("alice@tapstate.io", result.userEmail());
         assertEquals("org-abc", result.orgId());
         assertEquals(CLUSTER_ID, result.clusterId());
+        assertNull(result.ec2PublicIp());
+        assertNull(result.egressAddressStatus());
 
         // Verify the ExchangeRequest built by SDK contains the stored clusterId
         ArgumentCaptor<ExchangeRequest> reqCaptor = ArgumentCaptor.forClass(ExchangeRequest.class);
@@ -91,6 +95,25 @@ class CloudControlPlaneSdkTest {
         ArgumentCaptor<String> secretCaptor = ArgumentCaptor.forClass(String.class);
         verify(mockExchangeApi).exchange(any(ExchangeRequest.class), secretCaptor.capture(), any());
         assertEquals(CLUSTER_IDENTITY_SECRET, secretCaptor.getValue());
+    }
+
+    @Test
+    void exchangePreservesOptionalEgressFieldsFromTheBackChannel() throws Exception {
+        ExchangeResponse response = new io.tapstate.cloud.sdk.ApiClient().getObjectMapper().readValue("""
+            {"jwt":"signed-jwt","expiresAt":"2026-10-15T12:00:00Z","jti":"egress-jti",
+             "orgId":"org-one","clusterId":"cluster-one","organizationName":"Org",
+             "clusterName":"Analytics","region":"us-east-1","ec2PublicIp":"203.0.113.42",
+             "egressAddressStatus":"STABLE"}
+            """, ExchangeResponse.class);
+        when(mockExchangeApi.exchange(any(ExchangeRequest.class), anyString(), any()))
+            .thenReturn(new ApiResponseExchangeResponse().code("ok").data(response));
+        JwtExchangeResult result = sdk.exchangeForJwt(EXCHANGE_CODE);
+        assertEquals("203.0.113.42", result.ec2PublicIp());
+        assertEquals("STABLE", result.egressAddressStatus());
+        ExchangeResponse legacy = new io.tapstate.cloud.sdk.ApiClient().getObjectMapper().readValue(
+            "{\"jwt\":\"legacy\"}", ExchangeResponse.class);
+        assertNull(legacy.getEc2PublicIp());
+        assertNull(legacy.getEgressAddressStatus());
     }
 
     @Test

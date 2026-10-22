@@ -39,7 +39,9 @@ import java.util.StringJoiner;
   ExchangeResponse.JSON_PROPERTY_CLUSTER_ID,
   ExchangeResponse.JSON_PROPERTY_ORGANIZATION_NAME,
   ExchangeResponse.JSON_PROPERTY_CLUSTER_NAME,
-  ExchangeResponse.JSON_PROPERTY_REGION
+  ExchangeResponse.JSON_PROPERTY_REGION,
+  ExchangeResponse.JSON_PROPERTY_EC2_PUBLIC_IP,
+  ExchangeResponse.JSON_PROPERTY_EGRESS_ADDRESS_STATUS
 })
 @jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", comments = "Generator version: 7.25.0")
 public class ExchangeResponse {
@@ -82,6 +84,55 @@ public class ExchangeResponse {
   public static final String JSON_PROPERTY_REGION = "region";
   @jakarta.annotation.Nullable
   private String region;
+
+  public static final String JSON_PROPERTY_EC2_PUBLIC_IP = "ec2PublicIp";
+  @jakarta.annotation.Nullable
+  private String ec2PublicIp;
+
+  /**
+   * Stability state of the Cluster egress address
+   */
+  public enum EgressAddressStatusEnum {
+    DYNAMIC(String.valueOf("DYNAMIC")),
+    
+    STABILIZING(String.valueOf("STABILIZING")),
+    
+    ATTACHING(String.valueOf("ATTACHING")),
+    
+    STABLE(String.valueOf("STABLE")),
+    
+    FAILED(String.valueOf("FAILED"));
+
+    private String value;
+
+    EgressAddressStatusEnum(String value) {
+      this.value = value;
+    }
+
+    @JsonValue
+    public String getValue() {
+      return value;
+    }
+
+    @Override
+    public String toString() {
+      return String.valueOf(value);
+    }
+
+    @JsonCreator
+    public static EgressAddressStatusEnum fromValue(String value) {
+      for (EgressAddressStatusEnum b : EgressAddressStatusEnum.values()) {
+        if (b.value.equals(value)) {
+          return b;
+        }
+      }
+      throw new IllegalArgumentException("Unexpected value '" + value + "'");
+    }
+  }
+
+  public static final String JSON_PROPERTY_EGRESS_ADDRESS_STATUS = "egressAddressStatus";
+  @jakarta.annotation.Nullable
+  private EgressAddressStatusEnum egressAddressStatus;
 
   public ExchangeResponse() {
   }
@@ -336,6 +387,56 @@ public class ExchangeResponse {
     this.region = region;
   }
 
+  public ExchangeResponse ec2PublicIp(@jakarta.annotation.Nullable String ec2PublicIp) {
+    
+    this.ec2PublicIp = ec2PublicIp;
+    return this;
+  }
+
+  /**
+   * Cluster public and source-firewall egress IPv4 address
+   * @return ec2PublicIp
+   */
+  @jakarta.annotation.Nullable
+  @JsonProperty(value = JSON_PROPERTY_EC2_PUBLIC_IP, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+
+  public String getEc2PublicIp() {
+    return ec2PublicIp;
+  }
+
+
+  @JsonProperty(value = JSON_PROPERTY_EC2_PUBLIC_IP, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+  public void setEc2PublicIp(@jakarta.annotation.Nullable String ec2PublicIp) {
+    this.ec2PublicIp = ec2PublicIp;
+  }
+
+  public ExchangeResponse egressAddressStatus(@jakarta.annotation.Nullable EgressAddressStatusEnum egressAddressStatus) {
+    
+    this.egressAddressStatus = egressAddressStatus;
+    return this;
+  }
+
+  /**
+   * Stability state of the Cluster egress address
+   * @return egressAddressStatus
+   */
+  @jakarta.annotation.Nullable
+  @JsonProperty(value = JSON_PROPERTY_EGRESS_ADDRESS_STATUS, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+
+  public EgressAddressStatusEnum getEgressAddressStatus() {
+    return egressAddressStatus;
+  }
+
+
+  @JsonProperty(value = JSON_PROPERTY_EGRESS_ADDRESS_STATUS, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+  public void setEgressAddressStatus(@jakarta.annotation.Nullable EgressAddressStatusEnum egressAddressStatus) {
+    this.egressAddressStatus = egressAddressStatus;
+  }
+
 
   @Override
   public boolean equals(Object o) {
@@ -355,12 +456,14 @@ public class ExchangeResponse {
         Objects.equals(this.clusterId, exchangeResponse.clusterId) &&
         Objects.equals(this.organizationName, exchangeResponse.organizationName) &&
         Objects.equals(this.clusterName, exchangeResponse.clusterName) &&
-        Objects.equals(this.region, exchangeResponse.region);
+        Objects.equals(this.region, exchangeResponse.region) &&
+        Objects.equals(this.ec2PublicIp, exchangeResponse.ec2PublicIp) &&
+        Objects.equals(this.egressAddressStatus, exchangeResponse.egressAddressStatus);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(jwt, expiresAt, jti, userEmail, userId, orgId, clusterId, organizationName, clusterName, region);
+    return Objects.hash(jwt, expiresAt, jti, userEmail, userId, orgId, clusterId, organizationName, clusterName, region, ec2PublicIp, egressAddressStatus);
   }
 
   @Override
@@ -377,6 +480,8 @@ public class ExchangeResponse {
     sb.append("    organizationName: ").append(toIndentedString(organizationName)).append("\n");
     sb.append("    clusterName: ").append(toIndentedString(clusterName)).append("\n");
     sb.append("    region: ").append(toIndentedString(region)).append("\n");
+    sb.append("    ec2PublicIp: ").append(toIndentedString(ec2PublicIp)).append("\n");
+    sb.append("    egressAddressStatus: ").append(toIndentedString(egressAddressStatus)).append("\n");
     sb.append("}");
     return sb.toString();
   }
@@ -515,6 +620,26 @@ public class ExchangeResponse {
     if (getRegion() != null) {
       try {
         joiner.add(String.format(java.util.Locale.ROOT, "%sregion%s=%s", prefix, suffix, URLEncoder.encode(String.valueOf(getRegion()), "UTF-8").replaceAll("\\+", "%20")));
+      } catch (UnsupportedEncodingException e) {
+        // Should never happen, UTF-8 is always supported
+        throw new RuntimeException(e);
+      }
+    }
+
+    // add `ec2PublicIp` to the URL query string
+    if (getEc2PublicIp() != null) {
+      try {
+        joiner.add(String.format(java.util.Locale.ROOT, "%sec2PublicIp%s=%s", prefix, suffix, URLEncoder.encode(String.valueOf(getEc2PublicIp()), "UTF-8").replaceAll("\\+", "%20")));
+      } catch (UnsupportedEncodingException e) {
+        // Should never happen, UTF-8 is always supported
+        throw new RuntimeException(e);
+      }
+    }
+
+    // add `egressAddressStatus` to the URL query string
+    if (getEgressAddressStatus() != null) {
+      try {
+        joiner.add(String.format(java.util.Locale.ROOT, "%segressAddressStatus%s=%s", prefix, suffix, URLEncoder.encode(String.valueOf(getEgressAddressStatus()), "UTF-8").replaceAll("\\+", "%20")));
       } catch (UnsupportedEncodingException e) {
         // Should never happen, UTF-8 is always supported
         throw new RuntimeException(e);

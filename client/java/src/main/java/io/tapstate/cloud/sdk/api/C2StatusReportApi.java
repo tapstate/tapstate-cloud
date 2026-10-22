@@ -21,6 +21,7 @@ import io.tapstate.cloud.sdk.Configuration;
 import io.tapstate.cloud.sdk.Pair;
 
 import io.tapstate.cloud.sdk.model.ApiResponseStatusReportResponse;
+import io.tapstate.cloud.sdk.model.CurrentEgressAddress200Response;
 import io.tapstate.cloud.sdk.model.StatusReportRequest;
 
 
@@ -40,6 +41,90 @@ public class C2StatusReportApi extends BaseApi {
 
   public C2StatusReportApi(ApiClient apiClient) {
     super(apiClient);
+  }
+
+  /**
+   * Read the runtime Cluster&#39;s current outbound address
+   * Uses the per-Cluster SDK Bearer token and returns no credentials. The token must own the requested Cluster.
+   * @param clusterId  (required)
+   * @param authorization  (required)
+   * @return CurrentEgressAddress200Response
+   * @throws ApiException if fails to make API call
+   */
+  public CurrentEgressAddress200Response currentEgressAddress(@jakarta.annotation.Nonnull String clusterId, @jakarta.annotation.Nonnull String authorization) throws ApiException {
+    return this.currentEgressAddress(clusterId, authorization, Collections.emptyMap());
+  }
+
+
+  /**
+   * Read the runtime Cluster&#39;s current outbound address
+   * Uses the per-Cluster SDK Bearer token and returns no credentials. The token must own the requested Cluster.
+   * @param clusterId  (required)
+   * @param authorization  (required)
+   * @param additionalHeaders additionalHeaders for this call
+   * @return CurrentEgressAddress200Response
+   * @throws ApiException if fails to make API call
+   */
+  public CurrentEgressAddress200Response currentEgressAddress(@jakarta.annotation.Nonnull String clusterId, @jakarta.annotation.Nonnull String authorization, Map<String, String> additionalHeaders) throws ApiException {
+    Object localVarPostBody = null;
+    
+    // verify the required parameter 'clusterId' is set
+    if (clusterId == null) {
+      throw new ApiException(400, "Missing the required parameter 'clusterId' when calling currentEgressAddress");
+    }
+    
+    // verify the required parameter 'authorization' is set
+    if (authorization == null) {
+      throw new ApiException(400, "Missing the required parameter 'authorization' when calling currentEgressAddress");
+    }
+    
+    // create path and map variables
+    String localVarPath = "/v1/api/clusters/{clusterId}/egress-address"
+      .replaceAll("\\{" + "clusterId" + "\\}", apiClient.escapeString(apiClient.parameterToString(clusterId)));
+
+    StringJoiner localVarQueryStringJoiner = new StringJoiner("&");
+    String localVarQueryParameterBaseName;
+    List<Pair> localVarQueryParams = new ArrayList<Pair>();
+    List<Pair> localVarCollectionQueryParams = new ArrayList<Pair>();
+    Map<String, String> localVarHeaderParams = new HashMap<String, String>();
+    Map<String, String> localVarCookieParams = new HashMap<String, String>();
+    Map<String, Object> localVarFormParams = new HashMap<String, Object>();
+
+    if (authorization != null)
+      localVarHeaderParams.put("Authorization", apiClient.parameterToString(authorization));
+
+    localVarHeaderParams.putAll(additionalHeaders);
+
+    
+    
+    final String[] localVarAccepts = {
+      "application/json"
+    };
+    final String localVarAccept = apiClient.selectHeaderAccept(localVarAccepts);
+
+    final String[] localVarContentTypes = {
+      
+    };
+    final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
+
+    String[] localVarAuthNames = new String[] {  };
+
+    TypeReference<CurrentEgressAddress200Response> localVarReturnType = new TypeReference<CurrentEgressAddress200Response>() {};
+    return apiClient.invokeAPI(
+        localVarPath,
+        "GET",
+        localVarQueryParams,
+        localVarCollectionQueryParams,
+        localVarQueryStringJoiner.toString(),
+        localVarPostBody,
+        localVarHeaderParams,
+        localVarCookieParams,
+        localVarFormParams,
+        localVarAccept,
+        localVarContentType,
+        localVarAuthNames,
+        localVarReturnType
+    );
   }
 
   /**

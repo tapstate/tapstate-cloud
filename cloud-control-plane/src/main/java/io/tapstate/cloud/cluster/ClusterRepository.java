@@ -1,7 +1,9 @@
 package io.tapstate.cloud.cluster;
 
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.mongodb.repository.MongoRepository;
 import org.springframework.data.mongodb.repository.Query;
+import org.springframework.data.mongodb.repository.Update;
 import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
@@ -12,6 +14,10 @@ import org.bson.types.ObjectId;
 @Repository
 public interface ClusterRepository extends MongoRepository<Cluster, ObjectId> {
 
+    @Query("{ '_id': ?0 }")
+    @Update("{ '$set': { 'cloudFormationStackStatus': ?1 } }")
+    void updateStackStatus(ObjectId id, String status);
+
     List<Cluster> findByOrgId(ObjectId orgId);
 
     List<Cluster> findByOrgIdAndRegion(ObjectId orgId, String region);
@@ -20,6 +26,9 @@ public interface ClusterRepository extends MongoRepository<Cluster, ObjectId> {
 
     /** Every Cluster in one lifecycle state — used by the provisioning reconciler. */
     List<Cluster> findByState(ClusterState state);
+
+    /** A bounded lifecycle-state page ordered by the caller's recovery policy. */
+    List<Cluster> findByState(ClusterState state, Pageable pageable);
 
     Optional<Cluster> findByIdAndOrgId(ObjectId id, ObjectId orgId);
 
@@ -36,6 +45,9 @@ public interface ClusterRepository extends MongoRepository<Cluster, ObjectId> {
      * unique across every org and region.
      */
     boolean existsByDnsLabelAndStateNot(String dnsLabel, ClusterState state);
+
+    /** A hostname cannot be removed while another live Cluster owns its DNS record. */
+    boolean existsByPublicDnsAndStateNotAndIdNot(String publicDns, ClusterState state, ObjectId id);
 
     /**
      * Find READY clusters whose last heartbeat was more than 5 minutes ago.
@@ -63,4 +75,10 @@ public interface ClusterRepository extends MongoRepository<Cluster, ObjectId> {
      */
     List<Cluster> findByStateInAndEc2PublicIpIsNotNullAndSshPrivateKeyEncIsNotNull(
         java.util.Collection<ClusterState> states);
+
+    List<Cluster> findByEgressAddressStatusAndEgressAddressOperationStartedAtBefore(
+        ClusterEgressAddressStatus status, Instant threshold);
+
+    List<Cluster> findByEgressAddressStatusAndStateIn(
+        ClusterEgressAddressStatus status, java.util.Collection<ClusterState> states);
 }

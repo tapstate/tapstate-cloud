@@ -283,6 +283,89 @@ public class ClustersApi extends BaseApi {
     );
   }
 
+  /**
+   * Stabilize the Cluster egress IPv4 address
+   * Attaches a Cluster-owned Elastic IP to a live Cluster. The public address and DNS record change when the operation completes; the EC2 runtime is not replaced.
+   * @param orgId  (required)
+   * @param clusterId  (required)
+   * @return ApiResponseClusterResponse
+   * @throws ApiException if fails to make API call
+   */
+  public ApiResponseClusterResponse stabilizeClusterEgressAddress(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull String clusterId) throws ApiException {
+    return this.stabilizeClusterEgressAddress(orgId, clusterId, Collections.emptyMap());
+  }
+
+
+  /**
+   * Stabilize the Cluster egress IPv4 address
+   * Attaches a Cluster-owned Elastic IP to a live Cluster. The public address and DNS record change when the operation completes; the EC2 runtime is not replaced.
+   * @param orgId  (required)
+   * @param clusterId  (required)
+   * @param additionalHeaders additionalHeaders for this call
+   * @return ApiResponseClusterResponse
+   * @throws ApiException if fails to make API call
+   */
+  public ApiResponseClusterResponse stabilizeClusterEgressAddress(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull String clusterId, Map<String, String> additionalHeaders) throws ApiException {
+    Object localVarPostBody = null;
+    
+    // verify the required parameter 'orgId' is set
+    if (orgId == null) {
+      throw new ApiException(400, "Missing the required parameter 'orgId' when calling stabilizeClusterEgressAddress");
+    }
+    
+    // verify the required parameter 'clusterId' is set
+    if (clusterId == null) {
+      throw new ApiException(400, "Missing the required parameter 'clusterId' when calling stabilizeClusterEgressAddress");
+    }
+    
+    // create path and map variables
+    String localVarPath = "/v1/api/orgs/{orgId}/clusters/{clusterId}/egress-address:stabilize"
+      .replaceAll("\\{" + "orgId" + "\\}", apiClient.escapeString(apiClient.parameterToString(orgId)))
+      .replaceAll("\\{" + "clusterId" + "\\}", apiClient.escapeString(apiClient.parameterToString(clusterId)));
+
+    StringJoiner localVarQueryStringJoiner = new StringJoiner("&");
+    String localVarQueryParameterBaseName;
+    List<Pair> localVarQueryParams = new ArrayList<Pair>();
+    List<Pair> localVarCollectionQueryParams = new ArrayList<Pair>();
+    Map<String, String> localVarHeaderParams = new HashMap<String, String>();
+    Map<String, String> localVarCookieParams = new HashMap<String, String>();
+    Map<String, Object> localVarFormParams = new HashMap<String, Object>();
+
+    
+    localVarHeaderParams.putAll(additionalHeaders);
+
+    
+    
+    final String[] localVarAccepts = {
+      "*/*"
+    };
+    final String localVarAccept = apiClient.selectHeaderAccept(localVarAccepts);
+
+    final String[] localVarContentTypes = {
+      
+    };
+    final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
+
+    String[] localVarAuthNames = new String[] { "session-cookie" };
+
+    TypeReference<ApiResponseClusterResponse> localVarReturnType = new TypeReference<ApiResponseClusterResponse>() {};
+    return apiClient.invokeAPI(
+        localVarPath,
+        "POST",
+        localVarQueryParams,
+        localVarCollectionQueryParams,
+        localVarQueryStringJoiner.toString(),
+        localVarPostBody,
+        localVarHeaderParams,
+        localVarCookieParams,
+        localVarFormParams,
+        localVarAccept,
+        localVarContentType,
+        localVarAuthNames,
+        localVarReturnType
+    );
+  }
+
   @Override
   public <T> T invokeAPI(String url, String method, Object request, TypeReference<T> returnType, Map<String, String> additionalHeaders) throws ApiException {
     String localVarPath = url.replace(apiClient.getBaseURL(), "");

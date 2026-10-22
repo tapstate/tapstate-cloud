@@ -4,8 +4,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.tapstate.cloud.sdk.api.ClustersApi;
 import io.tapstate.cloud.sdk.api.OrganizationsApi;
-import io.tapstate.cloud.sdk.api.SubscriptionApi;
-import io.tapstate.cloud.sdk.model.CreateSubscriptionRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -53,10 +51,8 @@ class C2StatusReportIT extends BaseIT {
             "name", "C2-" + name,
             "slug", "c2-" + name.toLowerCase())).getData().getId();
 
-        // Create cluster via subscription flow
-        SubscriptionApi subApi = new SubscriptionApi(client);
-        subApi.createSubscription(orgId,
-            new CreateSubscriptionRequest().region("ap-southeast-1").clusterName(name).specKey("basic"));
+        // A provisioned cluster, seeded and finalized through the paid-flow endpoint.
+        seedProvisionedSubscription(orgId, "2c8g", "ap-southeast-1", name);
 
         // Poll clusters list via raw HTTP until we find our cluster
         String clusterId = null;

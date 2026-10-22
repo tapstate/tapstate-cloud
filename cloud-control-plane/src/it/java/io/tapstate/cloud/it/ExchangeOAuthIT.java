@@ -38,8 +38,7 @@ class ExchangeOAuthIT extends BaseIT {
             "name", "Exchange",
             "slug", "exchange")).getData().getId();
 
-        subscriptionApi.createSubscription(orgId,
-            new CreateSubscriptionRequest().region("ap-southeast-1").clusterName("ExchangeCluster").specKey("basic"));
+        seedProvisionedSubscription(orgId, "2c8g", "ap-southeast-1", "ExchangeCluster");
 
         // Poll for cluster via raw HTTP
         String clusterId = null;
