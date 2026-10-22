@@ -99,7 +99,8 @@ public class TawkWebhookService {
         event.setAttemptCount(event.getAttemptCount() + 1);
         event.setLastAttemptAt(now);
 
-        FeishuBotClient.DeliveryResult result = feishuBotClient.send(formatMessage(event));
+        FeishuBotClient.DeliveryResult result = feishuBotClient.send(
+            event.getPropertyId(), event.getEventId(), formatMessage(event));
         if (result.delivered()) {
             event.setDeliveryStatus(TawkWebhookEvent.DeliveryStatus.DELIVERED);
             event.setDeliveredAt(now);

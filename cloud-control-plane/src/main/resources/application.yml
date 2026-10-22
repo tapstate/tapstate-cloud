@@ -128,8 +128,9 @@ tapstate:
       webhook-secret: ${TAWK_WEBHOOK_SECRET:}
       retry-interval-ms: ${TAPSTATE_CLOUD_TAWK_RETRY_INTERVAL_MS:30000}
       feishu:
-        webhook-url: ${FEISHU_BOT_WEBHOOK_URL:}
-        signing-secret: ${FEISHU_BOT_SIGNING_SECRET:}
+        app-id: ${FEISHU_BOT_APP_ID:}
+        app-secret: ${FEISHU_BOT_APP_SECRET:}
+        chat-id: ${FEISHU_CHAT_ID:}
     # Atlas MDB allocation engine.
     # mock=true skips every real Atlas Admin API call (local dev / fast IT).
     # Real deployments set TAPSTATE_CLOUD_MDB_ATLAS_MOCK=false and provide the

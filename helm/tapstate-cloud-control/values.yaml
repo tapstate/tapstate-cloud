@@ -71,15 +71,16 @@ secrets:
   clusterVersionReleaseToken:
     name: tapstate-cloud-control-cluster-version
     key: release-token
-  # Tawk callback signing secret and Feishu custom-bot credentials are optional
+  # Tawk callback signing secret and Feishu application-bot credentials are optional
   # until the feedback notification integration is enabled in an environment.
   tawkWebhook:
     name: tapstate-cloud-control-tawk-webhook
     secretKey: webhook-secret
   feishuBot:
     name: tapstate-cloud-control-feishu-bot
-    webhookUrlKey: webhook-url
-    signingSecretKey: signing-secret
+    appIdKey: app-id
+    appSecretKey: app-secret
+    chatIdKey: chat-id
   # Stripe API key + webhook secret (Week 4 — Stripe Checkout)
   # Optional: when the Secret is absent the payment controller stays up but
   # stripe_product catalog refresh logs a warning and /specs excludes

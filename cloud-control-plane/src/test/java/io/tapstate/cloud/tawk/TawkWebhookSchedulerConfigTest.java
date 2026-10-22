@@ -46,7 +46,7 @@ class TawkWebhookSchedulerConfigTest {
             deliveryStarted.countDown();
             releaseDelivery.await(5, TimeUnit.SECONDS);
             return FeishuBotClient.DeliveryResult.success();
-        }).when(feishuBotClient).send(anyString());
+        }).when(feishuBotClient).send(anyString(), anyString(), anyString());
 
         AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext();
         context.getEnvironment().getPropertySources().addFirst(new MapPropertySource(
