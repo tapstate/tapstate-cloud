@@ -109,6 +109,9 @@ public class FeishuBotClient {
             if (isSuccess(response)) {
                 return DeliveryResult.success();
             }
+            if (hasErrorCode(response, 60012)) {
+                return DeliveryResult.success();
+            }
             if (hasErrorCode(response, 99991663)) {
                 cachedAccessToken = null;
                 return DeliveryResult.failed("access_token_rejected");

@@ -57,6 +57,29 @@ class FeishuBotClientTest {
     }
 
     @Test
+    void treatsFeishuUuidConflictAsPreviouslyDelivered() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        FeishuBotClient client = new FeishuBotClient(
+            builder.build(), "app-id", "app-secret", "oc_tapstate_launch",
+            TOKEN_ENDPOINT, MESSAGE_ENDPOINT);
+
+        server.expect(requestTo(TOKEN_ENDPOINT))
+            .andRespond(withSuccess(
+                "{\"code\":0,\"access_token\":\"access-token\",\"expires_in\":7200}",
+                MediaType.APPLICATION_JSON));
+        server.expect(requestTo(MESSAGE_ENDPOINT))
+            .andExpect(header("Authorization", "Bearer access-token"))
+            .andExpect(jsonPath("$.uuid").exists())
+            .andRespond(withSuccess(
+                "{\"code\":60012,\"msg\":\"Uuid unique\"}",
+                MediaType.APPLICATION_JSON));
+
+        assertTrue(client.send("property-1", "event-1", "notification").delivered());
+        server.verify();
+    }
+
+    @Test
     void refusesToSendWithoutApplicationCredentialsOrChatId() {
         assertNotConfigured(" ", "app-secret", "oc_tapstate_launch");
         assertNotConfigured("app-id", " ", "oc_tapstate_launch");
