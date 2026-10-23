@@ -17,6 +17,8 @@ import org.springframework.statemachine.StateMachine;
 import org.springframework.statemachine.config.StateMachineFactory;
 import org.springframework.statemachine.support.DefaultStateMachineContext;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Instant;
 import org.bson.types.ObjectId;
@@ -153,17 +155,44 @@ public class MdbAllocationStateMachineService {
      * Schedule asynchronous side-effects after the transition document has
      * been made durable. Every worker loads its own allocation instance so its
      * writes never share object identity with a caller thread's document.
+     * <p>
+     * When called from within an active {@code @Transactional} boundary —
+     * specifically from {@code SubscriptionService.finalizeProvisioning}, which
+     * persists both the MdbAllocation and the Cluster before scheduling both
+     * async workers — the virtual thread cannot observe the uncommitted
+     * transition on its first read. We defer to {@code afterCommit} so the
+     * durable state is guaranteed to be visible before the worker starts.
+     * Outside a transaction we run directly.
      */
     private void scheduleAsyncEffects(ObjectId allocationId,
                                       MdbAllocationStatus from,
                                       MdbAllocationStatus to) {
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    doScheduleAsyncEffects(allocationId, from, to);
+                }
+            });
+            return;
+        }
+        doScheduleAsyncEffects(allocationId, from, to);
+    }
+
+    private void doScheduleAsyncEffects(ObjectId allocationId,
+                                        MdbAllocationStatus from,
+                                        MdbAllocationStatus to) {
 
         // === PROVISIONING_PENDING → PROVISIONING: async Atlas DB + user creation ===
         if (from == MdbAllocationStatus.PROVISIONING_PENDING && to == MdbAllocationStatus.PROVISIONING) {
             log.info("[MdbAllocation FSM] scheduling async Atlas provisioning for allocation {}", allocationId);
             Thread.ofVirtual().start(() -> {
-                MdbAllocation allocation = allocationRepo.findById(allocationId)
-                    .orElseThrow(() -> new IllegalStateException("MdbAllocation not found: " + allocationId));
+                MdbAllocation allocation = loadWithRetry(allocationId);
+                if (allocation == null || allocation.getStatus() != MdbAllocationStatus.PROVISIONING) {
+                    log.info("[MdbAllocation FSM] Atlas provisioning skipped for allocation {} (state={})",
+                        allocationId, allocation == null ? "missing" : allocation.getStatus());
+                    return;
+                }
                 long startedAt = System.currentTimeMillis();
                 try {
                     // First create database (connectivity check + seed)
@@ -247,6 +276,26 @@ public class MdbAllocationStateMachineService {
     }
 
     // ========== Cancel convergence ==========
+
+    /**
+     * Load the allocation with a short retry loop. After commit the durable
+     * state is usually visible on the very first read, but a brief replication
+     * lag or GC pause can make it come back empty; polling a few times keeps
+     * the worker resilient without adding latency to the happy path.
+     */
+    private MdbAllocation loadWithRetry(ObjectId allocationId) {
+        for (int attempt = 1; attempt <= 5; attempt++) {
+            MdbAllocation a = allocationRepo.findById(allocationId).orElse(null);
+            if (a != null) {
+                return a;
+            }
+            try { Thread.sleep(200); } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+                return null;
+            }
+        }
+        return null;
+    }
 
     /**
      * Mark the in-flight INSTALL operation as FAILED after an Atlas provisioning

@@ -29,6 +29,8 @@ import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.mongodb.core.query.Update;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.security.SecureRandom;
 import java.time.Instant;
@@ -253,9 +255,29 @@ public class ClusterStateMachineService {
     /**
      * Schedule side-effects that must run after the transition is persisted:
      * real-mode provisioning, retry cleanup and resource termination.
+     * <p>
+     * When called from within an active {@code @Transactional} boundary
+     * (for example, from {@link SubscriptionService#finalizeProvisioning}),
+     * the async worker cannot observe the uncommitted transition on its first
+     * read — it runs on a different thread/session. We defer the side-effects
+     * to {@code afterCommit} so the durable state is guaranteed to be visible
+     * before the worker starts. Outside a transaction we run directly.
      */
     private void scheduleAsyncEffects(Cluster cluster, ClusterState from, ClusterState to,
                                       ClusterEventType event) {
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    doScheduleAsyncEffects(cluster, from, to);
+                }
+            });
+            return;
+        }
+        doScheduleAsyncEffects(cluster, from, to);
+    }
+
+    private void doScheduleAsyncEffects(Cluster cluster, ClusterState from, ClusterState to) {
         boolean real = "real".equalsIgnoreCase(iacProperties.getMode());
 
         // === PROVISIONING_PENDING → PROVISIONING ===
@@ -300,7 +322,17 @@ public class ClusterStateMachineService {
         Thread.ofVirtual().start(() -> {
             long startedAt = System.currentTimeMillis();
             try {
-                Cluster latest = clusterRepository.findById(clusterId).orElse(null);
+                // Defensive retry: the transition may have just been committed
+                // and a brief replication lag or GC pause can make the first
+                // read come back empty. We poll a few times before giving up.
+                Cluster latest = null;
+                for (int attempt = 1; attempt <= 5; attempt++) {
+                    latest = clusterRepository.findById(clusterId).orElse(null);
+                    if (latest != null && latest.getState() == ClusterState.PROVISIONING) {
+                        break;
+                    }
+                    Thread.sleep(200);
+                }
                 if (latest == null || latest.getState() != ClusterState.PROVISIONING) {
                     log.info("[Cluster FSM] real provisioning skipped for cluster {} (state={})",
                         clusterId, latest == null ? "missing" : latest.getState());
