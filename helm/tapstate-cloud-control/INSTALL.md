@@ -60,6 +60,56 @@ kubectl create secret generic tapstate-cloud-control-cluster-version \
   -n tapstate-cloud-control \
   --from-literal=release-token="$(openssl rand -hex 32)"
 
+# ---- Invited email registration and OAuth (optional) ----
+# Commands below use the local/production namespace. For awsdev, create each
+# Secret in the tapstate namespace instead.
+# Keep the OTP HMAC key stable across restarts. Rotating it invalidates any
+# outstanding email verification codes. Use a persistent value per environment;
+# do not put it in Helm values or source control.
+kubectl create secret generic tapstate-cloud-control-auth \
+  -n tapstate-cloud-control \
+  --from-literal=otp-hmac-key="$(openssl rand -hex 32)"
+
+# Google and GitHub OAuth app credentials are optional independently. Create
+# these Secrets only for configured providers. Register each callback URL in
+# the provider application:
+#   production: https://cloud.tapstate.com/login/oauth2/code/google
+#               https://cloud.tapstate.com/login/oauth2/code/github
+#   awsdev:     https://dev.cloud.tapstate.com/login/oauth2/code/google
+#               https://dev.cloud.tapstate.com/login/oauth2/code/github
+kubectl create secret generic tapstate-cloud-control-google-oauth \
+  -n tapstate-cloud-control \
+  --from-literal=client-id='<Google OAuth client ID>' \
+  --from-literal=client-secret='<Google OAuth client secret>'
+kubectl create secret generic tapstate-cloud-control-github-oauth \
+  -n tapstate-cloud-control \
+  --from-literal=client-id='<GitHub OAuth client ID>' \
+  --from-literal=client-secret='<GitHub OAuth client secret>'
+
+# SMTP credentials enable verification-code delivery. SMTP port, authentication,
+# STARTTLS, sender address, OAuth callback base URL and Console redirect URL are
+# read from the environment-specific Helm values.
+kubectl create secret generic tapstate-cloud-control-smtp \
+  -n tapstate-cloud-control \
+  --from-literal=host='<SMTP host>' \
+  --from-literal=username='<SMTP username>' \
+  --from-literal=password='<SMTP password>'
+
+# ---- Limited trial access ----
+# Set config.trialIssuerEmail to an existing Cloud account's exact email in
+# each environment's Helm values, or pass --set-string config.trialIssuerEmail=<email>
+# to helm upgrade. The value is an account identifier, not an OAuth secret.
+# Set config.authTrialCodeRequired=false later to allow email-verified signup
+# without a trial code. New users still create their own Organization.
+# With an empty value, trial-code issuance is disabled. Production needs its
+# own issuer setting and its own Google/GitHub callbacks and SMTP configuration.
+# Sign in to that environment's Cloud Console as the issuer, then issue one code
+# per tester from the browser's developer console:
+#   fetch('/v1/api/trial-codes', { method: 'POST', credentials: 'include' })
+#     .then(response => response.json()).then(result => console.log(result.data))
+# The response contains a one-time code and a ready-to-share /auth#invite= link.
+# Store or send it immediately: only its hash is retained, and it expires in
+# seven days. The tester may paste the code on /auth or follow the link.
 # ---- Optional: Tawk to Feishu feedback notifications ----
 # ⚠️ Breaking change (PR #154): this release replaces the old Feishu custom
 # webhook bot (FEISHU_BOT_WEBHOOK_URL + FEISHU_BOT_SIGNING_SECRET) with the
@@ -97,6 +147,30 @@ kubectl create secret generic tapstate-cloud-control-feishu-bot \
   --dry-run=client -o yaml | kubectl apply -f -
 # For awsdev, use namespace tapstate and its own feishu-bot.env. Restart the
 # Control Plane after the update so the environment-backed Secret values reload.
+
+# ---- Optional: SMTP for alert email ----
+# Credentials only; the relay host/port and the enable switch are non-sensitive
+# values in values.yaml (config.notifications.*). Omit the Secret entirely for
+# an unauthenticated relay.
+# smtp.env contains username=<smtp user> and password=<smtp password>.
+kubectl create secret generic tapstate-cloud-control-smtp \
+  -n tapstate-cloud-control \
+  --from-env-file=/secure/path/smtp.env
+# Enable it in the environment values:
+#   config:
+#     notifications:
+#       emailEnabled: "true"
+#       smtpHost: email-smtp.ap-southeast-1.amazonaws.com
+#       smtpPort: "587"          # STARTTLS
+#       smtpStarttls: "true"
+#       smtpSslEnable: "false"
+#       emailFrom: no-reply@tapstate.com
+# For implicit TLS on 465 set smtpStarttls: "false" and smtpSslEnable: "true".
+# The control-plane egress policy must allow the chosen SMTP port, and the
+# sending domain must be authenticated (SPF/DKIM) before production use.
+# After changing the Secret or values, restart the Control Plane so the
+# environment-backed values reload. Alert delivery status is visible in
+# Console -> Deliveries; failures are not reported as sent.
 
 # ---- Shared sample database password ----
 # Keep this file outside the repository with owner-only permissions.

@@ -2,6 +2,7 @@ package io.tapstate.cloud.common;
 
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
 
 /**
  * Extract the authenticated user's email from SecurityContext.
@@ -20,10 +21,14 @@ public final class CurrentUser {
      */
     public static String getEmail() {
         var auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth == null || !auth.isAuthenticated()) return null;
+        if (auth == null || !auth.isAuthenticated() || auth instanceof AnonymousAuthenticationToken) return null;
         Object principal = auth.getPrincipal();
-        if (principal instanceof String s) return s;
-        if (principal instanceof UserDetails ud) return ud.getUsername();
+        if (principal instanceof String s) return emailOrNull(s);
+        if (principal instanceof UserDetails ud) return emailOrNull(ud.getUsername());
         return null;
+    }
+
+    private static String emailOrNull(String value) {
+        return value != null && value.contains("@") ? value : null;
     }
 }

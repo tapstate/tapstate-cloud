@@ -5,7 +5,6 @@ import io.tapstate.cloud.sdk.api.AuthApi;
 import io.tapstate.cloud.sdk.model.LoginRequest;
 import io.tapstate.cloud.sdk.model.LoginResult;
 import io.tapstate.cloud.sdk.model.RegisterRequest;
-import io.tapstate.cloud.sdk.model.UserResponse;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -35,15 +34,13 @@ class AuthSessionIT extends BaseIT {
     private static final String PASSWORD = "StrongPass123!";
 
     @Test
-    @DisplayName("T1 — Register new user → 201, ApiResponse envelope unwrapped via .getData()")
-    void register_returns201() throws ApiException {
-        UserResponse resp = authApi.register(
-            new RegisterRequest().email(EMAIL).password(PASSWORD).displayName("IT User")).getData();
-        captureSessionCookie();
-
-        assertEquals("active", resp.getStatus(), "User status should be active");
-        assertNotNull(resp.getId(), "User id should be present");
-        assertEquals(EMAIL, resp.getEmail(), "User email should match");
+    @DisplayName("T1 — Anonymous open registration is rejected without creating a user or member")
+    void openRegistration_isRejectedWithoutCreatingAccount() {
+        ApiException ex = assertThrows(ApiException.class, () -> authApi.register(
+            new RegisterRequest().email(EMAIL).password(PASSWORD).displayName("IT User")));
+        assertEquals(403, ex.getCode());
+        assertEquals(0, countUsers(EMAIL));
+        assertEquals(0, countMembers(EMAIL));
     }
 
     @Test
@@ -53,7 +50,7 @@ class AuthSessionIT extends BaseIT {
 
         ApiException ex = assertThrows(ApiException.class,
             () -> authApi.register(new RegisterRequest().email(EMAIL).password(PASSWORD).displayName("Dup")));
-        assertEquals(409, ex.getCode(), "Duplicate email should return 409");
+        assertEquals(403, ex.getCode(), "Open registration stays closed for existing accounts too");
     }
 
     @Test
@@ -95,6 +92,17 @@ class AuthSessionIT extends BaseIT {
 
         ApiException ex = assertThrows(ApiException.class, anonymousApi::me);
         assertEquals(401, ex.getCode());
+    }
+
+    @Test
+    @DisplayName("Registration policy is available before sign-in")
+    void registrationPolicy_withoutSession_isPublic() throws ApiException {
+        AuthApi anonymousApi = createAnonymousAuthApi();
+
+        var response = anonymousApi.registrationPolicy();
+
+        assertNotNull(response.getData());
+        assertNotNull(response.getData().isTrialCodeRequired());
     }
 
     @Test
