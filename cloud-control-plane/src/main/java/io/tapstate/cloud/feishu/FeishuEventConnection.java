@@ -29,7 +29,8 @@ public class FeishuEventConnection {
                 public void handle(P2MessageReceiveV1 event) throws Exception {
                     var response = commands.handleVerifiedEvent(json.readTree(Jsons.DEFAULT.toJson(event)));
                     if (!response.getStatusCode().is2xxSuccessful()) {
-                        throw new IllegalStateException("Feishu invitation delivery was not acknowledged");
+                        throw new io.tapstate.cloud.common.api.BusinessException(
+                            io.tapstate.cloud.common.api.AppErrorCode.SYSTEM_ERROR, 503);
                     }
                 }
             }).build();
