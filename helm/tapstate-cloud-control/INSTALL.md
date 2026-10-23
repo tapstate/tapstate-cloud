@@ -224,7 +224,23 @@ Configure the application's `im.message.receive_v1` subscription and the scope
 `im:message.group_at_msg:readonly`. Use the environment's HTTPS callback
 `/v1/api/webhooks/feishu`. Add `event-encrypt-key`, `event-verification-token`, and
 `invite-allowed-chat-id` to the existing Feishu Secret through a private env file.
-The allowed chat ID limits issuance to the intended group; every human member can use the command. The existing configured trial issuer email remains required.
+The allowed chat ID limits issuance to the intended group; every human member can use the command. Bot issuance records its own service identity and does not require a trial issuer email.
 Keep the event encryption key stable: it also derives retry-stable invitation codes.
 Callback requests require a valid signature and a timestamp within five minutes;
 URL verification uses the same signed callback. No test message is sent on startup.
+
+### Feishu outbound event connection
+
+Set `config.feishuLongConnectionEnabled=true` only in the environment that owns
+the Feedback application. Configure long connection mode and subscribe to
+`im.message.receive_v1` in Feishu, then publish the application version.
+The application needs group mention receive permission and bot send permission.
+Use a separate application for each concurrently running environment; Feishu
+distributes events across connections of the same application.
+
+Bot trial issuance does not need `config.trialIssuerEmail` or a real mailbox.
+It records `feishu-bot` as its source. Human trial issuance retains its existing
+issuer authorization. The allowed chat Secret and event encryption key are still
+required: the latter is the stable private key for retry-safe invitation tokens.
+Do not rotate it casually because that changes tokens for repeated events.
+No inbound public callback is needed when using the outbound connection.

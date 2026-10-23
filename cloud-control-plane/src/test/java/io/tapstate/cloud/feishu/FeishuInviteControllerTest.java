@@ -18,7 +18,7 @@ class FeishuInviteControllerTest {
     private final InvitationService invitations = mock(InvitationService.class);
     private final FeishuBotClient bot = mock(FeishuBotClient.class);
     private final FeishuInviteController controller = new FeishuInviteController(
-        invitations, bot, "private-encrypt-key", "verification", "oc_source", "issuer@example.com", "https://console.test");
+        invitations, bot, "private-encrypt-key", "verification", "oc_source", "https://console.test");
     private final ObjectMapper json = new ObjectMapper();
 
     private byte[] event(String sender, String text) throws Exception {
@@ -45,20 +45,34 @@ class FeishuInviteControllerTest {
     }
     @Test void retriesUseSameTokenAndReplyToOriginatingChat() throws Exception {
         Instant expiry = Instant.now().plusSeconds(604800);
-        when(invitations.createBotTrialCode(eq("issuer@example.com"), anyString())).thenAnswer(invocation ->
+        when(invitations.createBotTrialCode(anyString())).thenAnswer(invocation ->
             new InvitationService.IssuedInvitation(new InvitationService.InvitationView("id", null, null,
-                Instant.now(), expiry, "pending"), invocation.getArgument(1)));
+                Instant.now(), expiry, "pending"), invocation.getArgument(0)));
         when(bot.sendToChat(anyString(), anyString(), anyString(), anyString()))
             .thenReturn(new FeishuBotClient.DeliveryResult(true, null));
         byte[] body = event("operator", "\u751f\u6210\u9080\u8bf7\u94fe\u63a5");
         assertEquals(200, receive(body).getStatusCode().value());
         assertEquals(200, receive(event("another-member", "\u751f\u6210\u9080\u8bf7\u94fe\u63a5")).getStatusCode().value());
         var tokens = ArgumentCaptor.forClass(String.class);
-        verify(invitations, times(2)).createBotTrialCode(eq("issuer@example.com"), tokens.capture());
+        verify(invitations, times(2)).createBotTrialCode(tokens.capture());
         assertEquals(tokens.getAllValues().get(0), tokens.getAllValues().get(1));
         assertTrue(tokens.getValue().matches("[2-9A-HJ-NP-Z]{12}"));
         verify(bot, times(2)).sendToChat(eq("oc_source"), eq("trial-invite"), eq("om_one"),
             contains("https://console.test/auth#invite=" + tokens.getValue()));
+    }
+    @Test void sdkEventNeedsNoIssuerEmailOrWebhookVerificationToken() throws Exception {
+        var sdkEvent = com.lark.oapi.core.utils.Jsons.DEFAULT.fromJson(
+            new String(event("operator", "\u751f\u6210\u9080\u8bf7\u94fe\u63a5"), StandardCharsets.UTF_8),
+            com.lark.oapi.service.im.v1.model.P2MessageReceiveV1.class);
+        var receiver = new FeishuInviteController(invitations, bot, "private-encrypt-key", "", "oc_source", "https://console.test");
+        when(invitations.createBotTrialCode(anyString())).thenAnswer(invocation ->
+            new InvitationService.IssuedInvitation(new InvitationService.InvitationView("id", null, null,
+                Instant.now(), Instant.now().plusSeconds(604800), "pending"), invocation.getArgument(0)));
+        when(bot.sendToChat(anyString(), anyString(), anyString(), anyString()))
+            .thenReturn(new FeishuBotClient.DeliveryResult(true, null));
+        assertEquals(200, receiver.handleVerifiedEvent(json.readTree(
+            com.lark.oapi.core.utils.Jsons.DEFAULT.toJson(sdkEvent))).getStatusCode().value());
+        verify(invitations).createBotTrialCode(anyString());
     }
     @Test void verifiesChallenge() throws Exception {
         var response = receive(json.writeValueAsBytes(Map.of("type", "url_verification", "token", "verification", "challenge", "abc")));
@@ -83,9 +97,9 @@ class FeishuInviteControllerTest {
         verifyNoInteractions(invitations, bot);
     }
     @Test void returnsRetryableFailureWhenDeliveryFails() throws Exception {
-        when(invitations.createBotTrialCode(anyString(), anyString())).thenAnswer(invocation ->
+        when(invitations.createBotTrialCode(anyString())).thenAnswer(invocation ->
             new InvitationService.IssuedInvitation(new InvitationService.InvitationView("id", null, null,
-                Instant.now(), Instant.now().plusSeconds(604800), "pending"), invocation.getArgument(1)));
+                Instant.now(), Instant.now().plusSeconds(604800), "pending"), invocation.getArgument(0)));
         when(bot.sendToChat(anyString(), anyString(), anyString(), anyString()))
             .thenReturn(new FeishuBotClient.DeliveryResult(false, "network_error"));
         assertEquals(503, receive(event("operator", "\u751f\u6210\u9080\u8bf7\u94fe\u63a5")).getStatusCode().value());

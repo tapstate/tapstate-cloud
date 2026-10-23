@@ -130,6 +130,7 @@ config:
   authOtpLifetimeMinutes: "10"
   authMailFrom: no-reply@tapstate.com
   authTrialCodeRequired: "true"
+  feishuLongConnectionEnabled: false
   trialIssuerEmail: ""
   oauthCallbackBaseUrl: https://dev.cloud.tapstate.com
   cloudConsoleUrl: https://dev.cloud.tapstate.com

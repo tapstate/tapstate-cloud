@@ -32,21 +32,18 @@ public class FeishuInviteController {
     private final String encryptKey;
     private final String verificationToken;
     private final String allowedChatId;
-    private final String issuerEmail;
     private final String consoleUrl;
 
     public FeishuInviteController(InvitationService invitations, FeishuBotClient bot,
             @Value("${FEISHU_EVENT_ENCRYPT_KEY:}") String encryptKey,
             @Value("${FEISHU_EVENT_VERIFICATION_TOKEN:}") String verificationToken,
             @Value("${FEISHU_INVITE_ALLOWED_CHAT_ID:}") String allowedChatId,
-            @Value("${tapstate.cloud.auth.trial-issuer-email:}") String issuerEmail,
             @Value("${tapstate.cloud.auth.console-url:http://localhost:5173}") String consoleUrl) {
         this.invitations = invitations;
         this.bot = bot;
         this.encryptKey = encryptKey;
         this.verificationToken = verificationToken;
         this.allowedChatId = allowedChatId;
-        this.issuerEmail = issuerEmail;
         this.consoleUrl = consoleUrl;
     }
 
@@ -83,13 +80,17 @@ public class FeishuInviteController {
         if (event.path("type").asText().equals("url_verification")) {
             return ResponseEntity.ok(Map.of("challenge", event.path("challenge").asText()));
         }
+        return handleVerifiedEvent(event);
+    }
+
+    ResponseEntity<?> handleVerifiedEvent(JsonNode event) throws Exception {
         if (!event.path("header").path("event_type").asText().equals("im.message.receive_v1")) {
             return ResponseEntity.ok(Map.of());
         }
         JsonNode payload = event.path("event");
         JsonNode sender = payload.path("sender");
         JsonNode message = payload.path("message");
-        if (allowedChatId.isBlank() || issuerEmail.isBlank()
+        if (allowedChatId.isBlank()
                 || !sender.path("sender_type").asText().equals("user")
                 || !message.path("chat_id").asText().equals(allowedChatId)
                 || !message.path("message_type").asText().equals("text")
@@ -112,7 +113,7 @@ public class FeishuInviteController {
             return ResponseEntity.ok(Map.of());
         }
         String messageId = message.path("message_id").asText();
-        InvitationService.IssuedInvitation issued = invitations.createBotTrialCode(issuerEmail, stableToken(messageId));
+        InvitationService.IssuedInvitation issued = invitations.createBotTrialCode(stableToken(messageId));
         String url = consoleUrl.replaceAll("/$", "") + "/auth#invite=" + issued.token();
         var result = bot.sendToChat(message.path("chat_id").asText(), "trial-invite", messageId,
             "Cloud trial invitation (single use)\n" + url + "\nExpires: " + issued.invitation().expiresAt());
