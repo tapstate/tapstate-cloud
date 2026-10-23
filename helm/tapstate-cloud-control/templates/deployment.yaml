@@ -171,6 +171,24 @@ spec:
               value: {{ .Values.config.notifications.pollIntervalMs | quote }}
 
             # ========== Secrets from k3s Secret — Tawk and Feishu ==========
+            - name: FEISHU_EVENT_ENCRYPT_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.feishuBot.name }}
+                  key: event-encrypt-key
+                  optional: true
+            - name: FEISHU_EVENT_VERIFICATION_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.feishuBot.name }}
+                  key: event-verification-token
+                  optional: true
+            - name: FEISHU_INVITE_ALLOWED_CHAT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.feishuBot.name }}
+                  key: invite-allowed-chat-id
+                  optional: true
             - name: TAWK_WEBHOOK_SECRET
               valueFrom:
                 secretKeyRef:

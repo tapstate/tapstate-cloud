@@ -77,7 +77,11 @@ public class FeishuBotClient {
     }
 
     DeliveryResult send(String propertyId, String eventId, String text) {
-        if (isBlank(appId) || isBlank(appSecret) || isBlank(chatId)) {
+        return sendToChat(chatId, propertyId, eventId, text);
+    }
+
+    public DeliveryResult sendToChat(String targetChatId, String propertyId, String eventId, String text) {
+        if (isBlank(appId) || isBlank(appSecret) || isBlank(targetChatId)) {
             return DeliveryResult.failed("application_bot_not_configured");
         }
         if (isBlank(propertyId) || isBlank(eventId)) {
@@ -90,9 +94,9 @@ public class FeishuBotClient {
         }
 
         Map<String, Object> requestBody = new LinkedHashMap<>();
-        requestBody.put("receive_id", chatId);
+        requestBody.put("receive_id", targetChatId);
         requestBody.put("msg_type", "text");
-        requestBody.put("uuid", idempotencyKey(chatId, propertyId, eventId));
+        requestBody.put("uuid", idempotencyKey(targetChatId, propertyId, eventId));
         try {
             requestBody.put("content", OBJECT_MAPPER.writeValueAsString(Map.of("text", text)));
         } catch (JsonProcessingException e) {
@@ -222,7 +226,7 @@ public class FeishuBotClient {
         }
     }
 
-    record DeliveryResult(boolean delivered, String failureCategory) {
+    public record DeliveryResult(boolean delivered, String failureCategory) {
         static DeliveryResult success() {
             return new DeliveryResult(true, null);
         }

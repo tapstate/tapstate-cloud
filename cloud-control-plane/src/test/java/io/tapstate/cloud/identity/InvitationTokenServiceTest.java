@@ -100,4 +100,34 @@ class InvitationTokenServiceTest {
         assertEquals(AppErrorCode.ORG_OWNER_REQUIRED, exception.getErrorCode());
         verifyNoInteractions(invitationRepository);
     }
+    @Test
+    void botIssuanceUpsertsOnlyDigestAndPreservesExistingExpiry() {
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "trialIssuerEmail", "issuer@example.com");
+        Instant originalExpiry = Instant.now().plusSeconds(604800);
+        OrganizationInvitation existing = OrganizationInvitation.builder().id(new ObjectId())
+            .tokenHash(InvitationService.hash("A2B3C4D5E6F7")).purpose("trial")
+            .createdAt(Instant.now()).expiresAt(originalExpiry).build();
+        when(mongoTemplate.findAndModify(any(org.springframework.data.mongodb.core.query.Query.class),
+            any(org.springframework.data.mongodb.core.query.Update.class),
+            any(org.springframework.data.mongodb.core.FindAndModifyOptions.class), eq(OrganizationInvitation.class)))
+            .thenReturn(existing);
+        var first = service.createBotTrialCode("issuer@example.com", "A2B3C4D5E6F7");
+        var retry = service.createBotTrialCode("issuer@example.com", "A2B3C4D5E6F7");
+        assertEquals(first, retry);
+        assertEquals(originalExpiry, retry.invitation().expiresAt());
+        var update = ArgumentCaptor.forClass(org.springframework.data.mongodb.core.query.Update.class);
+        verify(mongoTemplate, times(2)).findAndModify(any(org.springframework.data.mongodb.core.query.Query.class),
+            update.capture(), any(org.springframework.data.mongodb.core.FindAndModifyOptions.class), eq(OrganizationInvitation.class));
+        assertFalse(update.getValue().getUpdateObject().toString().contains("A2B3C4D5E6F7"));
+        assertTrue(update.getValue().getUpdateObject().containsKey("$setOnInsert"));
+        verifyNoInteractions(invitationRepository);
+    }
+
+    @Test
+    void botIssuanceRequiresConfiguredIssuer() {
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "trialIssuerEmail", "issuer@example.com");
+        assertThrows(BusinessException.class, () -> service.createBotTrialCode("stranger@example.com", "A2B3C4D5E6F7"));
+        verifyNoInteractions(mongoTemplate, invitationRepository);
+    }
+
 }
