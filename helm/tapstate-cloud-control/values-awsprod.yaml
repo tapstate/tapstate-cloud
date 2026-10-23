@@ -45,6 +45,8 @@ config:
   springProfilesActive: prod
   jwtIssuer: https://cloud.tapstate.com
   corsAllowedOrigins: "https://cloud.tapstate.com,https://*.cloud.tapstate.com"
+  oauthCallbackBaseUrl: https://cloud.tapstate.com
+  cloudConsoleUrl: https://cloud.tapstate.com
 
   # Production drives real AWS (ap-southeast-1) + real Atlas provisioning.
   # Requires the dns / iac k3s Secrets and Activated AtlasConfig + ACTIVE

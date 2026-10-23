@@ -20,6 +20,8 @@ import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.AuthenticationFailureHandler;
+import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -48,7 +50,9 @@ public class SecurityConfig {
     private String corsAllowedOrigins;
 
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain securityFilterChain(HttpSecurity http,
+            AuthenticationSuccessHandler oauthSuccessHandler,
+            AuthenticationFailureHandler oauthFailureHandler) throws Exception {
         http
             // CSRF disabled — API uses cookie-based session (Spring Session handles cookie)
             .csrf(AbstractHttpConfigurer::disable)
@@ -83,7 +87,13 @@ public class SecurityConfig {
                     "/actuator/info",
                     "/v1/api/auth/register",
                     "/v1/api/auth/login",
+                    "/v1/api/auth/registration-policy",
+                    "/v1/api/auth/email/**",
+                    "/v1/api/auth/access",
+                    "/v1/api/auth/oauth/**",
                     "/v1/api/auth/verify-email",
+                    "/oauth2/**",
+                    "/login/oauth2/**",
                     // /v1/api/auth/exchange — Cluster Server backend calls this with per-Cluster
                     // service identity Secret (validated inside ExchangeController)
                     "/v1/api/auth/exchange",
@@ -125,6 +135,10 @@ public class SecurityConfig {
                 .authenticationEntryPoint((request, response, authException) ->
                     response.sendError(HttpStatus.UNAUTHORIZED.value(), "Unauthorized"))
             );
+
+        http.oauth2Login(oauth -> oauth
+            .successHandler(oauthSuccessHandler)
+            .failureHandler(oauthFailureHandler));
 
         return http.build();
     }

@@ -26,6 +26,8 @@ config:
   # issuer, which would make dev-issued resolve JWTs carry the prod issuer.
   jwtIssuer: https://dev.cloud.tapstate.com
   corsAllowedOrigins: "https://dev.cloud.tapstate.com,https://*.dev.cloud.tapstate.com,http://localhost:5173,http://localhost:5174"
+  oauthCallbackBaseUrl: https://dev.cloud.tapstate.com
+  cloudConsoleUrl: https://dev.cloud.tapstate.com
 
   # awsdev drives real AWS (ap-southeast-1) + real Atlas provisioning.
   # Required secrets beyond the base set:
@@ -50,3 +52,6 @@ service:
 
 ingress:
   enabled: false
+readinessProbe:
+  httpGet:
+    path: /actuator/health/readiness

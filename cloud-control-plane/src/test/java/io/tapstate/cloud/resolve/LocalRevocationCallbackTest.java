@@ -3,7 +3,9 @@ package io.tapstate.cloud.resolve;
 import com.sun.net.httpserver.HttpServer;
 import io.tapstate.cloud.config.JwksRotationService;
 import io.tapstate.cloud.identity.AuthController;
-import io.tapstate.cloud.identity.AuthService;
+import io.tapstate.cloud.identity.EmailVerificationService;
+import io.tapstate.cloud.identity.InvitationService;
+import io.tapstate.cloud.identity.TrialCodePolicy;
 import io.tapstate.cloud.identity.UserRepository;
 import org.bson.types.ObjectId;
 import org.junit.jupiter.api.Test;
@@ -11,6 +13,7 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 
 import java.net.InetSocketAddress;
 import java.net.Inet4Address;
@@ -61,8 +64,11 @@ class LocalRevocationCallbackTest {
             var record = JtiRecord.builder().jti("local-jti").clusterId(new ObjectId(CLUSTER_ID))
                 .clusterBaseUri(clusterOrigin).build();
             when(records.findByUserEmailAndRevokedAtIsNull("user@example.com")).thenReturn(List.of(record));
-            var controller = new AuthController(mock(AuthService.class), mock(UserRepository.class),
-                mock(AuthenticationManager.class), records, new CallbackSignService(keys), resolver);
+            var controller = new AuthController(mock(UserRepository.class),
+                mock(EmailVerificationService.class), mock(InvitationService.class),
+                mock(TrialCodePolicy.class),
+                mock(AuthenticationManager.class), records, new CallbackSignService(keys), resolver,
+                mock(ClientRegistrationRepository.class));
             SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken("user@example.com", null, List.of()));
             assertEquals(200, controller.logout(new MockHttpServletRequest()).getStatusCode().value());
