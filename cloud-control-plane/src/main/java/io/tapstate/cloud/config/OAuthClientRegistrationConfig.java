@@ -14,6 +14,7 @@ import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
 import org.springframework.security.oauth2.core.oidc.OidcScopes;
 import org.springframework.security.oauth2.client.registration.ClientRegistration.ClientSettings;
 
+import java.net.http.HttpClient;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -24,8 +25,8 @@ public class OAuthClientRegistrationConfig {
 
     @Bean
     RestClient.Builder oauthRestClientBuilder() {
-        JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory();
-        requestFactory.setConnectTimeout(Duration.ofSeconds(3));
+        JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(
+            HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build());
         requestFactory.setReadTimeout(Duration.ofSeconds(10));
         return RestClient.builder().requestFactory(requestFactory);
     }
