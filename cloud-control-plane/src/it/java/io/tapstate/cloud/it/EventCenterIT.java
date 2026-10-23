@@ -58,6 +58,13 @@ class EventCenterIT extends BaseIT {
         assertTrue(eventItems.get(0).get("payload").get("password").asText().equals("[redacted]"),
             "secret-shaped payload keys must be redacted");
 
+        HttpResponse<String> types = get("/v1/api/orgs/" + orgId + "/events/types?q=test.",
+            Map.of("Cookie", cookie()));
+        assertEquals(200, types.statusCode(), types.body());
+        JsonNode typeOptions = JSON.readTree(types.body()).get("data");
+        assertTrue(typeOptions.toString().contains("\"test.alert\""),
+            "the policy editor typeahead must see the ingested type, got " + typeOptions);
+
         HttpResponse<String> alerts = get("/v1/api/orgs/" + orgId + "/alerts",
             Map.of("Cookie", cookie()));
         assertEquals(200, alerts.statusCode(), alerts.body());
