@@ -17,8 +17,6 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
-import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -35,12 +33,10 @@ import java.util.UUID;
 @Slf4j
 public class NotificationDeliveryService {
 
-    private static final DateTimeFormatter TIME_FORMAT =
-        DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss 'UTC'").withZone(ZoneOffset.UTC);
-
     private final NotificationDeliveryRepository deliveryRepository;
     private final MongoTemplate mongoTemplate;
     private final Map<String, NotificationChannel> channels;
+    private final EmailTemplateRenderer emailTemplates;
     private final io.tapstate.cloud.event.EventCenterMetrics metrics;
     private final int maxAttempts;
     private final long retryBaseSeconds;
@@ -50,6 +46,7 @@ public class NotificationDeliveryService {
             NotificationDeliveryRepository deliveryRepository,
             MongoTemplate mongoTemplate,
             List<NotificationChannel> channels,
+            EmailTemplateRenderer emailTemplates,
             io.tapstate.cloud.event.EventCenterMetrics metrics,
             @Value("${tapstate.cloud.notifications.max-attempts:5}") int maxAttempts,
             @Value("${tapstate.cloud.notifications.retry-base-seconds:30}") long retryBaseSeconds,
@@ -60,6 +57,7 @@ public class NotificationDeliveryService {
         for (NotificationChannel channel : channels) {
             this.channels.put(channel.name().toUpperCase(), channel);
         }
+        this.emailTemplates = emailTemplates;
         this.metrics = metrics;
         this.maxAttempts = Math.max(1, maxAttempts);
         this.retryBaseSeconds = Math.max(1, retryBaseSeconds);
@@ -71,16 +69,17 @@ public class NotificationDeliveryService {
      * repeated policy evaluation a no-op for rows that already exist.
      */
     public void createDeliveries(AlertRecord alert, AlertPolicy policy) {
+        RenderedEmail rendered = emailTemplates.renderAlert(alert);
         for (String recipient : policy.getRecipients()) {
             enqueue(new NotificationRequest(
                 alert.getOrgId(),
                 alert.getId(),
                 policy.getChannel(),
                 recipient,
-                subject(alert),
-                body(alert),
-                null,
-                false,
+                rendered.subject(),
+                rendered.textBody(),
+                rendered.htmlBody(),
+                rendered.inlineLogo(),
                 "alert:" + alert.getId() + ":" + policy.getChannel() + ":" + recipient));
         }
     }
@@ -124,11 +123,6 @@ public class NotificationDeliveryService {
             }
             throw e;
         }
-    }
-
-    public boolean isChannelConfigured(String channel) {
-        NotificationChannel target = channels.get(channel == null ? "" : channel.toUpperCase());
-        return target != null && target.isConfigured();
     }
 
     /**
@@ -335,34 +329,6 @@ public class NotificationDeliveryService {
             new Criteria().andOperator(
                 Criteria.where("status").is(DeliveryStatus.SENDING),
                 Criteria.where("leaseUntil").lte(now)));
-    }
-
-    private String subject(AlertRecord alert) {
-        return truncate("[Tapstate Cloud][" + alert.getSeverity() + "] " + alert.getSubject(), 300);
-    }
-
-    private String body(AlertRecord alert) {
-        String text = """
-            A Tapstate Cloud alert matched an alert policy.
-
-            Policy: %s
-            Severity: %s
-            Event type: %s
-            Subject: %s
-            Actor: %s
-            Alert ID: %s
-            Time: %s
-
-            This is an automated message. Do not reply.
-            """.formatted(
-            alert.getPolicyName(),
-            alert.getSeverity(),
-            alert.getEventType(),
-            alert.getSubject(),
-            alert.getActor() == null ? "-" : alert.getActor(),
-            alert.getId() == null ? "-" : alert.getId().toHexString(),
-            alert.getCreatedAt() == null ? "-" : TIME_FORMAT.format(alert.getCreatedAt()));
-        return truncate(text, 4000);
     }
 
     private static String truncate(String value, int max) {

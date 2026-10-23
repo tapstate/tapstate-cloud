@@ -1,5 +1,6 @@
 package io.tapstate.cloud.identity;
 
+import io.tapstate.cloud.notification.EmailTemplateRenderer;
 import io.tapstate.cloud.notification.NotificationDeliveryService;
 import io.tapstate.cloud.notification.NotificationRequest;
 import org.junit.jupiter.api.Test;
@@ -25,7 +26,7 @@ class VerificationMailerConfigurationTest {
     void sendsVerificationCodeThroughTheNotificationService() {
         when(notifications.sendNow(any())).thenReturn(true);
         VerificationCodeMailer mailer = new VerificationMailerConfiguration()
-            .notificationVerificationCodeMailer(notifications);
+            .notificationVerificationCodeMailer(notifications, new EmailTemplateRenderer());
 
         assertDoesNotThrow(() -> mailer.send("guest@example.com", "123456"));
 
@@ -44,7 +45,7 @@ class VerificationMailerConfigurationTest {
     void failsWhenTheNotificationServiceRejectsTheMessage() {
         when(notifications.sendNow(any())).thenReturn(false);
         VerificationCodeMailer mailer = new VerificationMailerConfiguration()
-            .notificationVerificationCodeMailer(notifications);
+            .notificationVerificationCodeMailer(notifications, new EmailTemplateRenderer());
 
         assertThrows(IllegalStateException.class, () -> mailer.send("guest@example.com", "123456"));
     }

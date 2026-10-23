@@ -17,8 +17,9 @@ import java.nio.charset.StandardCharsets;
  * Email channel. Sending is disabled unless an operator explicitly enables it
  * and provides SMTP transport settings through the deployment environment.
  * <p>
- * The same channel serves plain-text alert mail and the multipart auth
- * verification mail, so there is one SMTP send path for every email.
+ * The same channel serves alert and auth verification mail: both are rendered
+ * from the shared template shell, with the plain-text body kept as the
+ * alternative part.
  */
 @Component
 @Slf4j

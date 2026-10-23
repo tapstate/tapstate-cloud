@@ -11,6 +11,7 @@ import org.springframework.data.mongodb.core.index.CompoundIndex;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.Instant;
+import java.util.Map;
 
 /**
  * A matched alert. The unique {@code (policyId, dedupeKey)} index is what makes
@@ -49,6 +50,9 @@ public class AlertRecord {
     private AlertStatus status;
 
     private String dedupeKey;
+
+    /** Bounded, redacted event payload used to render affected task/reason. */
+    private Map<String, Object> details;
 
     @CreatedDate
     private Instant createdAt;

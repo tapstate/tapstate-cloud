@@ -39,7 +39,7 @@ class EmailDeliveryRetryTest {
     void setUp() {
         channel = new FakeChannel();
         service = new NotificationDeliveryService(
-            deliveryRepository, mongoTemplate, List.of(channel), metrics, 3, 10, 60);
+            deliveryRepository, mongoTemplate, List.of(channel), new EmailTemplateRenderer(), metrics, 3, 10, 60);
     }
 
     @Test
