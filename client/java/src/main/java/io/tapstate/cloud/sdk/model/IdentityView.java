@@ -37,44 +37,9 @@ import java.util.StringJoiner;
 })
 @jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", comments = "Generator version: 7.25.0")
 public class IdentityView {
-  /**
-   * Gets or Sets provider
-   */
-  public enum ProviderEnum {
-    GOOGLE(String.valueOf("google")),
-    
-    GITHUB(String.valueOf("github"));
-
-    private String value;
-
-    ProviderEnum(String value) {
-      this.value = value;
-    }
-
-    @JsonValue
-    public String getValue() {
-      return value;
-    }
-
-    @Override
-    public String toString() {
-      return String.valueOf(value);
-    }
-
-    @JsonCreator
-    public static ProviderEnum fromValue(String value) {
-      for (ProviderEnum b : ProviderEnum.values()) {
-        if (b.value.equals(value)) {
-          return b;
-        }
-      }
-      throw new IllegalArgumentException("Unexpected value '" + value + "'");
-    }
-  }
-
   public static final String JSON_PROPERTY_PROVIDER = "provider";
   @jakarta.annotation.Nullable
-  private ProviderEnum provider;
+  private String provider;
 
   public static final String JSON_PROPERTY_EMAIL = "email";
   @jakarta.annotation.Nullable
@@ -87,7 +52,7 @@ public class IdentityView {
   public IdentityView() {
   }
 
-  public IdentityView provider(@jakarta.annotation.Nullable ProviderEnum provider) {
+  public IdentityView provider(@jakarta.annotation.Nullable String provider) {
     
     this.provider = provider;
     return this;
@@ -101,14 +66,14 @@ public class IdentityView {
   @JsonProperty(value = JSON_PROPERTY_PROVIDER, required = false)
   @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
 
-  public ProviderEnum getProvider() {
+  public String getProvider() {
     return provider;
   }
 
 
   @JsonProperty(value = JSON_PROPERTY_PROVIDER, required = false)
   @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
-  public void setProvider(@jakarta.annotation.Nullable ProviderEnum provider) {
+  public void setProvider(@jakarta.annotation.Nullable String provider) {
     this.provider = provider;
   }
 

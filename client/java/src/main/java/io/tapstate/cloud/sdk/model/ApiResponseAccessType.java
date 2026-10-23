@@ -28,15 +28,20 @@ import java.net.URLEncoder;
 import java.util.StringJoiner;
 
 /**
- * ApiResponseAccessType
+ * Global API response envelope
  */
 @JsonPropertyOrder({
+  ApiResponseAccessType.JSON_PROPERTY_OP_ID,
   ApiResponseAccessType.JSON_PROPERTY_CODE,
   ApiResponseAccessType.JSON_PROPERTY_MSG,
   ApiResponseAccessType.JSON_PROPERTY_DATA
 })
 @jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", comments = "Generator version: 7.25.0")
 public class ApiResponseAccessType {
+  public static final String JSON_PROPERTY_OP_ID = "opId";
+  @jakarta.annotation.Nullable
+  private String opId;
+
   public static final String JSON_PROPERTY_CODE = "code";
   @jakarta.annotation.Nullable
   private String code;
@@ -52,6 +57,31 @@ public class ApiResponseAccessType {
   public ApiResponseAccessType() {
   }
 
+  public ApiResponseAccessType opId(@jakarta.annotation.Nullable String opId) {
+    
+    this.opId = opId;
+    return this;
+  }
+
+  /**
+   * Request correlation ID — unique per request
+   * @return opId
+   */
+  @jakarta.annotation.Nullable
+  @JsonProperty(value = JSON_PROPERTY_OP_ID, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+
+  public String getOpId() {
+    return opId;
+  }
+
+
+  @JsonProperty(value = JSON_PROPERTY_OP_ID, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+  public void setOpId(@jakarta.annotation.Nullable String opId) {
+    this.opId = opId;
+  }
+
   public ApiResponseAccessType code(@jakarta.annotation.Nullable String code) {
     
     this.code = code;
@@ -59,7 +89,7 @@ public class ApiResponseAccessType {
   }
 
   /**
-   * Get code
+   * Business result code — &#39;ok&#39; on success, error code on failure
    * @return code
    */
   @jakarta.annotation.Nullable
@@ -84,7 +114,7 @@ public class ApiResponseAccessType {
   }
 
   /**
-   * Get msg
+   * Detailed message — success info or failure reason
    * @return msg
    */
   @jakarta.annotation.Nullable
@@ -109,7 +139,7 @@ public class ApiResponseAccessType {
   }
 
   /**
-   * Get data
+   * Response payload — object or array, null on void responses
    * @return data
    */
   @jakarta.annotation.Nullable
@@ -137,20 +167,22 @@ public class ApiResponseAccessType {
       return false;
     }
     ApiResponseAccessType apiResponseAccessType = (ApiResponseAccessType) o;
-    return Objects.equals(this.code, apiResponseAccessType.code) &&
+    return Objects.equals(this.opId, apiResponseAccessType.opId) &&
+        Objects.equals(this.code, apiResponseAccessType.code) &&
         Objects.equals(this.msg, apiResponseAccessType.msg) &&
         Objects.equals(this.data, apiResponseAccessType.data);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(code, msg, data);
+    return Objects.hash(opId, code, msg, data);
   }
 
   @Override
   public String toString() {
     StringBuilder sb = new StringBuilder();
     sb.append("class ApiResponseAccessType {\n");
+    sb.append("    opId: ").append(toIndentedString(opId)).append("\n");
     sb.append("    code: ").append(toIndentedString(code)).append("\n");
     sb.append("    msg: ").append(toIndentedString(msg)).append("\n");
     sb.append("    data: ").append(toIndentedString(data)).append("\n");
@@ -197,6 +229,16 @@ public class ApiResponseAccessType {
     }
 
     StringJoiner joiner = new StringJoiner("&");
+
+    // add `opId` to the URL query string
+    if (getOpId() != null) {
+      try {
+        joiner.add(String.format(java.util.Locale.ROOT, "%sopId%s=%s", prefix, suffix, URLEncoder.encode(String.valueOf(getOpId()), "UTF-8").replaceAll("\\+", "%20")));
+      } catch (UnsupportedEncodingException e) {
+        // Should never happen, UTF-8 is always supported
+        throw new RuntimeException(e);
+      }
+    }
 
     // add `code` to the URL query string
     if (getCode() != null) {

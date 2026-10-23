@@ -20,7 +20,6 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonTypeName;
 import com.fasterxml.jackson.annotation.JsonValue;
-import java.net.URI;
 import java.util.Date;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import com.fasterxml.jackson.annotation.JsonTypeName;
@@ -44,7 +43,7 @@ public class TrialCode {
 
   public static final String JSON_PROPERTY_URL = "url";
   @jakarta.annotation.Nullable
-  private URI url;
+  private String url;
 
   public static final String JSON_PROPERTY_EXPIRES_AT = "expiresAt";
   @jakarta.annotation.Nullable
@@ -78,7 +77,7 @@ public class TrialCode {
     this.code = code;
   }
 
-  public TrialCode url(@jakarta.annotation.Nullable URI url) {
+  public TrialCode url(@jakarta.annotation.Nullable String url) {
     
     this.url = url;
     return this;
@@ -92,14 +91,14 @@ public class TrialCode {
   @JsonProperty(value = JSON_PROPERTY_URL, required = false)
   @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
 
-  public URI getUrl() {
+  public String getUrl() {
     return url;
   }
 
 
   @JsonProperty(value = JSON_PROPERTY_URL, required = false)
   @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
-  public void setUrl(@jakarta.annotation.Nullable URI url) {
+  public void setUrl(@jakarta.annotation.Nullable String url) {
     this.url = url;
   }
 

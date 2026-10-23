@@ -60,48 +60,9 @@ public class InvitationView {
   @jakarta.annotation.Nullable
   private Date expiresAt;
 
-  /**
-   * Gets or Sets status
-   */
-  public enum StatusEnum {
-    ACTIVE(String.valueOf("active")),
-    
-    REVOKED(String.valueOf("revoked")),
-    
-    CONSUMED(String.valueOf("consumed")),
-    
-    EXPIRED(String.valueOf("expired"));
-
-    private String value;
-
-    StatusEnum(String value) {
-      this.value = value;
-    }
-
-    @JsonValue
-    public String getValue() {
-      return value;
-    }
-
-    @Override
-    public String toString() {
-      return String.valueOf(value);
-    }
-
-    @JsonCreator
-    public static StatusEnum fromValue(String value) {
-      for (StatusEnum b : StatusEnum.values()) {
-        if (b.value.equals(value)) {
-          return b;
-        }
-      }
-      throw new IllegalArgumentException("Unexpected value '" + value + "'");
-    }
-  }
-
   public static final String JSON_PROPERTY_STATUS = "status";
   @jakarta.annotation.Nullable
-  private StatusEnum status;
+  private String status;
 
   public InvitationView() {
   }
@@ -231,7 +192,7 @@ public class InvitationView {
     this.expiresAt = expiresAt;
   }
 
-  public InvitationView status(@jakarta.annotation.Nullable StatusEnum status) {
+  public InvitationView status(@jakarta.annotation.Nullable String status) {
     
     this.status = status;
     return this;
@@ -245,14 +206,14 @@ public class InvitationView {
   @JsonProperty(value = JSON_PROPERTY_STATUS, required = false)
   @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
 
-  public StatusEnum getStatus() {
+  public String getStatus() {
     return status;
   }
 
 
   @JsonProperty(value = JSON_PROPERTY_STATUS, required = false)
   @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
-  public void setStatus(@jakarta.annotation.Nullable StatusEnum status) {
+  public void setStatus(@jakarta.annotation.Nullable String status) {
     this.status = status;
   }
 

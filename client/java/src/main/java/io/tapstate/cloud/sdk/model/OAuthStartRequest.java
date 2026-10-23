@@ -36,46 +36,9 @@ import java.util.StringJoiner;
 })
 @jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", comments = "Generator version: 7.25.0")
 public class OAuthStartRequest {
-  /**
-   * Gets or Sets flow
-   */
-  public enum FlowEnum {
-    LOGIN(String.valueOf("login")),
-    
-    SIGNUP(String.valueOf("signup")),
-    
-    LINK(String.valueOf("link"));
-
-    private String value;
-
-    FlowEnum(String value) {
-      this.value = value;
-    }
-
-    @JsonValue
-    public String getValue() {
-      return value;
-    }
-
-    @Override
-    public String toString() {
-      return String.valueOf(value);
-    }
-
-    @JsonCreator
-    public static FlowEnum fromValue(String value) {
-      for (FlowEnum b : FlowEnum.values()) {
-        if (b.value.equals(value)) {
-          return b;
-        }
-      }
-      throw new IllegalArgumentException("Unexpected value '" + value + "'");
-    }
-  }
-
   public static final String JSON_PROPERTY_FLOW = "flow";
   @jakarta.annotation.Nonnull
-  private FlowEnum flow;
+  private String flow;
 
   public static final String JSON_PROPERTY_INVITATION_TOKEN = "invitationToken";
   @jakarta.annotation.Nullable
@@ -88,7 +51,7 @@ public class OAuthStartRequest {
   public OAuthStartRequest() {
   }
 
-  public OAuthStartRequest flow(@jakarta.annotation.Nonnull FlowEnum flow) {
+  public OAuthStartRequest flow(@jakarta.annotation.Nonnull String flow) {
     
     this.flow = flow;
     return this;
@@ -102,14 +65,14 @@ public class OAuthStartRequest {
   @JsonProperty(value = JSON_PROPERTY_FLOW, required = true)
   @JsonInclude(value = JsonInclude.Include.ALWAYS)
 
-  public FlowEnum getFlow() {
+  public String getFlow() {
     return flow;
   }
 
 
   @JsonProperty(value = JSON_PROPERTY_FLOW, required = true)
   @JsonInclude(value = JsonInclude.Include.ALWAYS)
-  public void setFlow(@jakarta.annotation.Nonnull FlowEnum flow) {
+  public void setFlow(@jakarta.annotation.Nonnull String flow) {
     this.flow = flow;
   }
 

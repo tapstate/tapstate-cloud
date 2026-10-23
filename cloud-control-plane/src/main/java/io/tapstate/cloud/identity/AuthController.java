@@ -54,7 +54,7 @@ import java.io.IOException;
 @RequestMapping("/v1/api/auth")
 @RequiredArgsConstructor
 @Slf4j
-@Tag(name = "Auth", description = "Cloud Console authentication — register, login, session management")
+@Tag(name = "Auth", description = "Cloud Console authentication, session management and trial access")
 public class AuthController extends BaseController {
 
     private final UserRepository userRepository;

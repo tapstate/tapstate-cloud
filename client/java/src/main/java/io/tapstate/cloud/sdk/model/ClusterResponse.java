@@ -44,7 +44,10 @@ import java.util.StringJoiner;
   ClusterResponse.JSON_PROPERTY_LAST_HEARTBEAT_AT,
   ClusterResponse.JSON_PROPERTY_CREATED_AT,
   ClusterResponse.JSON_PROPERTY_READY_AT,
-  ClusterResponse.JSON_PROPERTY_CLUSTER_VERSION
+  ClusterResponse.JSON_PROPERTY_CLUSTER_VERSION,
+  ClusterResponse.JSON_PROPERTY_CLEANUP_ERROR_CODE,
+  ClusterResponse.JSON_PROPERTY_CLEANUP_ERROR_DETAIL,
+  ClusterResponse.JSON_PROPERTY_CLEANUP_FAILED_AT
 })
 @jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", comments = "Generator version: 7.25.0")
 public class ClusterResponse {
@@ -242,6 +245,18 @@ public class ClusterResponse {
   public static final String JSON_PROPERTY_CLUSTER_VERSION = "clusterVersion";
   @jakarta.annotation.Nullable
   private String clusterVersion;
+
+  public static final String JSON_PROPERTY_CLEANUP_ERROR_CODE = "cleanupErrorCode";
+  @jakarta.annotation.Nullable
+  private String cleanupErrorCode;
+
+  public static final String JSON_PROPERTY_CLEANUP_ERROR_DETAIL = "cleanupErrorDetail";
+  @jakarta.annotation.Nullable
+  private String cleanupErrorDetail;
+
+  public static final String JSON_PROPERTY_CLEANUP_FAILED_AT = "cleanupFailedAt";
+  @jakarta.annotation.Nullable
+  private String cleanupFailedAt;
 
   public ClusterResponse() {
   }
@@ -621,6 +636,81 @@ public class ClusterResponse {
     this.clusterVersion = clusterVersion;
   }
 
+  public ClusterResponse cleanupErrorCode(@jakarta.annotation.Nullable String cleanupErrorCode) {
+    
+    this.cleanupErrorCode = cleanupErrorCode;
+    return this;
+  }
+
+  /**
+   * Cleanup failure error code — non-null means the user should call retry-cleanup
+   * @return cleanupErrorCode
+   */
+  @jakarta.annotation.Nullable
+  @JsonProperty(value = JSON_PROPERTY_CLEANUP_ERROR_CODE, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+
+  public String getCleanupErrorCode() {
+    return cleanupErrorCode;
+  }
+
+
+  @JsonProperty(value = JSON_PROPERTY_CLEANUP_ERROR_CODE, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+  public void setCleanupErrorCode(@jakarta.annotation.Nullable String cleanupErrorCode) {
+    this.cleanupErrorCode = cleanupErrorCode;
+  }
+
+  public ClusterResponse cleanupErrorDetail(@jakarta.annotation.Nullable String cleanupErrorDetail) {
+    
+    this.cleanupErrorDetail = cleanupErrorDetail;
+    return this;
+  }
+
+  /**
+   * Diagnostic detail for cleanup failure (AWS error, which resource, etc.)
+   * @return cleanupErrorDetail
+   */
+  @jakarta.annotation.Nullable
+  @JsonProperty(value = JSON_PROPERTY_CLEANUP_ERROR_DETAIL, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+
+  public String getCleanupErrorDetail() {
+    return cleanupErrorDetail;
+  }
+
+
+  @JsonProperty(value = JSON_PROPERTY_CLEANUP_ERROR_DETAIL, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+  public void setCleanupErrorDetail(@jakarta.annotation.Nullable String cleanupErrorDetail) {
+    this.cleanupErrorDetail = cleanupErrorDetail;
+  }
+
+  public ClusterResponse cleanupFailedAt(@jakarta.annotation.Nullable String cleanupFailedAt) {
+    
+    this.cleanupFailedAt = cleanupFailedAt;
+    return this;
+  }
+
+  /**
+   * When cleanup failure was recorded (ISO-8601 UTC)
+   * @return cleanupFailedAt
+   */
+  @jakarta.annotation.Nullable
+  @JsonProperty(value = JSON_PROPERTY_CLEANUP_FAILED_AT, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+
+  public String getCleanupFailedAt() {
+    return cleanupFailedAt;
+  }
+
+
+  @JsonProperty(value = JSON_PROPERTY_CLEANUP_FAILED_AT, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+  public void setCleanupFailedAt(@jakarta.annotation.Nullable String cleanupFailedAt) {
+    this.cleanupFailedAt = cleanupFailedAt;
+  }
+
 
   @Override
   public boolean equals(Object o) {
@@ -645,12 +735,15 @@ public class ClusterResponse {
         Objects.equals(this.lastHeartbeatAt, clusterResponse.lastHeartbeatAt) &&
         Objects.equals(this.createdAt, clusterResponse.createdAt) &&
         Objects.equals(this.readyAt, clusterResponse.readyAt) &&
-        Objects.equals(this.clusterVersion, clusterResponse.clusterVersion);
+        Objects.equals(this.clusterVersion, clusterResponse.clusterVersion) &&
+        Objects.equals(this.cleanupErrorCode, clusterResponse.cleanupErrorCode) &&
+        Objects.equals(this.cleanupErrorDetail, clusterResponse.cleanupErrorDetail) &&
+        Objects.equals(this.cleanupFailedAt, clusterResponse.cleanupFailedAt);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(id, orgId, region, name, specKey, state, provisionErrorCode, runtimeId, publicDns, ec2PublicIp, egressAddressStatus, lastHeartbeatAt, createdAt, readyAt, clusterVersion);
+    return Objects.hash(id, orgId, region, name, specKey, state, provisionErrorCode, runtimeId, publicDns, ec2PublicIp, egressAddressStatus, lastHeartbeatAt, createdAt, readyAt, clusterVersion, cleanupErrorCode, cleanupErrorDetail, cleanupFailedAt);
   }
 
   @Override
@@ -672,6 +765,9 @@ public class ClusterResponse {
     sb.append("    createdAt: ").append(toIndentedString(createdAt)).append("\n");
     sb.append("    readyAt: ").append(toIndentedString(readyAt)).append("\n");
     sb.append("    clusterVersion: ").append(toIndentedString(clusterVersion)).append("\n");
+    sb.append("    cleanupErrorCode: ").append(toIndentedString(cleanupErrorCode)).append("\n");
+    sb.append("    cleanupErrorDetail: ").append(toIndentedString(cleanupErrorDetail)).append("\n");
+    sb.append("    cleanupFailedAt: ").append(toIndentedString(cleanupFailedAt)).append("\n");
     sb.append("}");
     return sb.toString();
   }
@@ -860,6 +956,36 @@ public class ClusterResponse {
     if (getClusterVersion() != null) {
       try {
         joiner.add(String.format(java.util.Locale.ROOT, "%sclusterVersion%s=%s", prefix, suffix, URLEncoder.encode(String.valueOf(getClusterVersion()), "UTF-8").replaceAll("\\+", "%20")));
+      } catch (UnsupportedEncodingException e) {
+        // Should never happen, UTF-8 is always supported
+        throw new RuntimeException(e);
+      }
+    }
+
+    // add `cleanupErrorCode` to the URL query string
+    if (getCleanupErrorCode() != null) {
+      try {
+        joiner.add(String.format(java.util.Locale.ROOT, "%scleanupErrorCode%s=%s", prefix, suffix, URLEncoder.encode(String.valueOf(getCleanupErrorCode()), "UTF-8").replaceAll("\\+", "%20")));
+      } catch (UnsupportedEncodingException e) {
+        // Should never happen, UTF-8 is always supported
+        throw new RuntimeException(e);
+      }
+    }
+
+    // add `cleanupErrorDetail` to the URL query string
+    if (getCleanupErrorDetail() != null) {
+      try {
+        joiner.add(String.format(java.util.Locale.ROOT, "%scleanupErrorDetail%s=%s", prefix, suffix, URLEncoder.encode(String.valueOf(getCleanupErrorDetail()), "UTF-8").replaceAll("\\+", "%20")));
+      } catch (UnsupportedEncodingException e) {
+        // Should never happen, UTF-8 is always supported
+        throw new RuntimeException(e);
+      }
+    }
+
+    // add `cleanupFailedAt` to the URL query string
+    if (getCleanupFailedAt() != null) {
+      try {
+        joiner.add(String.format(java.util.Locale.ROOT, "%scleanupFailedAt%s=%s", prefix, suffix, URLEncoder.encode(String.valueOf(getCleanupFailedAt()), "UTF-8").replaceAll("\\+", "%20")));
       } catch (UnsupportedEncodingException e) {
         // Should never happen, UTF-8 is always supported
         throw new RuntimeException(e);

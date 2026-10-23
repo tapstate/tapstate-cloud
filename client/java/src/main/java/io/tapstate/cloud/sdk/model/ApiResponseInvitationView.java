@@ -28,7 +28,7 @@ import java.net.URLEncoder;
 import java.util.StringJoiner;
 
 /**
- * ApiResponseInvitationView
+ * Global API response envelope
  */
 @JsonPropertyOrder({
   ApiResponseInvitationView.JSON_PROPERTY_OP_ID,
@@ -64,7 +64,7 @@ public class ApiResponseInvitationView {
   }
 
   /**
-   * Get opId
+   * Request correlation ID — unique per request
    * @return opId
    */
   @jakarta.annotation.Nullable
@@ -89,7 +89,7 @@ public class ApiResponseInvitationView {
   }
 
   /**
-   * Get code
+   * Business result code — &#39;ok&#39; on success, error code on failure
    * @return code
    */
   @jakarta.annotation.Nullable
@@ -114,7 +114,7 @@ public class ApiResponseInvitationView {
   }
 
   /**
-   * Get msg
+   * Detailed message — success info or failure reason
    * @return msg
    */
   @jakarta.annotation.Nullable
@@ -139,7 +139,7 @@ public class ApiResponseInvitationView {
   }
 
   /**
-   * Get data
+   * Response payload — object or array, null on void responses
    * @return data
    */
   @jakarta.annotation.Nullable

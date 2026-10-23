@@ -1,5 +1,6 @@
 package io.tapstate.cloud.event;
 
+import io.swagger.v3.oas.annotations.Operation;
 import io.tapstate.cloud.common.CurrentUser;
 import io.tapstate.cloud.common.api.ApiResponse;
 import io.tapstate.cloud.common.api.AppErrorCode;
@@ -28,6 +29,7 @@ public class AlertPolicyController extends BaseController {
     private final AlertPolicyService policyService;
     private final OrgAccessService orgAccessService;
 
+    @Operation(operationId = "listAlertPolicies")
     @GetMapping
     public ResponseEntity<ApiResponse<List<AlertPolicyResponse>>> list(@PathVariable String orgId) {
         String email = CurrentUser.getEmail();
@@ -40,6 +42,7 @@ public class AlertPolicyController extends BaseController {
         return ok(body);
     }
 
+    @Operation(operationId = "createAlertPolicy")
     @PostMapping
     public ResponseEntity<ApiResponse<AlertPolicyResponse>> create(
             @PathVariable String orgId,
@@ -52,6 +55,7 @@ public class AlertPolicyController extends BaseController {
         return okCreated(AlertPolicyResponse.from(policyService.create(org.getId(), request)));
     }
 
+    @Operation(operationId = "updateAlertPolicy")
     @PutMapping("/{policyId}")
     public ResponseEntity<ApiResponse<AlertPolicyResponse>> update(
             @PathVariable String orgId,
@@ -65,6 +69,7 @@ public class AlertPolicyController extends BaseController {
         return ok(AlertPolicyResponse.from(policyService.update(org.getId(), policyId, request)));
     }
 
+    @Operation(operationId = "deleteAlertPolicy")
     @DeleteMapping("/{policyId}")
     public ResponseEntity<ApiResponse<Void>> delete(
             @PathVariable String orgId,

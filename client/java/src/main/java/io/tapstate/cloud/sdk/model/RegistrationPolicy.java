@@ -35,13 +35,13 @@ import java.util.StringJoiner;
 @jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", comments = "Generator version: 7.25.0")
 public class RegistrationPolicy {
   public static final String JSON_PROPERTY_TRIAL_CODE_REQUIRED = "trialCodeRequired";
-  @jakarta.annotation.Nonnull
+  @jakarta.annotation.Nullable
   private Boolean trialCodeRequired;
 
   public RegistrationPolicy() {
   }
 
-  public RegistrationPolicy trialCodeRequired(@jakarta.annotation.Nonnull Boolean trialCodeRequired) {
+  public RegistrationPolicy trialCodeRequired(@jakarta.annotation.Nullable Boolean trialCodeRequired) {
     
     this.trialCodeRequired = trialCodeRequired;
     return this;
@@ -51,18 +51,18 @@ public class RegistrationPolicy {
    * Get trialCodeRequired
    * @return trialCodeRequired
    */
-  @jakarta.annotation.Nonnull
-  @JsonProperty(value = JSON_PROPERTY_TRIAL_CODE_REQUIRED, required = true)
-  @JsonInclude(value = JsonInclude.Include.ALWAYS)
+  @jakarta.annotation.Nullable
+  @JsonProperty(value = JSON_PROPERTY_TRIAL_CODE_REQUIRED, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
 
   public Boolean isTrialCodeRequired() {
     return trialCodeRequired;
   }
 
 
-  @JsonProperty(value = JSON_PROPERTY_TRIAL_CODE_REQUIRED, required = true)
-  @JsonInclude(value = JsonInclude.Include.ALWAYS)
-  public void setTrialCodeRequired(@jakarta.annotation.Nonnull Boolean trialCodeRequired) {
+  @JsonProperty(value = JSON_PROPERTY_TRIAL_CODE_REQUIRED, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+  public void setTrialCodeRequired(@jakarta.annotation.Nullable Boolean trialCodeRequired) {
     this.trialCodeRequired = trialCodeRequired;
   }
 
