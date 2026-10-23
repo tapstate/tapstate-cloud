@@ -82,7 +82,7 @@ docker run -p 8080:8080 \
 The Tawk receiver stores only event IDs and notification routing metadata. It
 does not persist chat transcripts, message text, visitor names, or email
 addresses. It sends `chat:start`, `ticket:create`, and metadata-only
-offline-form callback alerts to the configured Feishu custom bot and retries
+offline-form callback alerts through the configured Feishu application bot and retries
 failed delivery from MongoDB. Configure the Tawk webhook secret and Feishu bot
 credentials through the optional k3s Secrets documented in
 `helm/tapstate-cloud-control/INSTALL.md`.

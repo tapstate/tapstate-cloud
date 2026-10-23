@@ -200,17 +200,23 @@ spec:
                   name: {{ .Values.secrets.tawkWebhook.name }}
                   key: {{ .Values.secrets.tawkWebhook.secretKey }}
                   optional: true
-            - name: FEISHU_BOT_WEBHOOK_URL
+            - name: FEISHU_BOT_APP_ID
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.secrets.feishuBot.name }}
-                  key: {{ .Values.secrets.feishuBot.webhookUrlKey }}
+                  key: {{ .Values.secrets.feishuBot.appIdKey }}
                   optional: true
-            - name: FEISHU_BOT_SIGNING_SECRET
+            - name: FEISHU_BOT_APP_SECRET
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.secrets.feishuBot.name }}
-                  key: {{ .Values.secrets.feishuBot.signingSecretKey }}
+                  key: {{ .Values.secrets.feishuBot.appSecretKey }}
+                  optional: true
+            - name: FEISHU_CHAT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.feishuBot.name }}
+                  key: {{ .Values.secrets.feishuBot.chatIdKey }}
                   optional: true
 
             # ========== Secrets from k3s Secret — MONGODB ==========

@@ -111,13 +111,24 @@ kubectl create secret generic tapstate-cloud-control-smtp \
 # Store or send it immediately: only its hash is retained, and it expires in
 # seven days. The tester may paste the code on /auth or follow the link.
 # ---- Optional: Tawk to Feishu feedback notifications ----
+# ⚠️ Breaking change (PR #154): this release replaces the old Feishu custom
+# webhook bot (FEISHU_BOT_WEBHOOK_URL + FEISHU_BOT_SIGNING_SECRET) with the
+# Feishu application bot below. If you previously configured a webhook secret
+# and env vars, delete those first, then create the new feishu-bot Secret.
+# All deployment env vars have optional: true, so the Control Plane stays up
+# after upgrade — but notifications will silently stop until the new Secret
+# is created.
+#
 # Create one Tawk webhook in each environment's existing Property. Use the
-# environment's HTTPS callback URL and select Chat Start and New Ticket. Enable
-# signature verification on the Feishu custom bot. Keep both env files outside
-# Git with owner-only permissions; never put their values in shell history.
+# environment's HTTPS callback URL and select Chat Start and New Ticket. Keep
+# both env files outside Git with owner-only permissions; never put their values
+# in shell history.
 # tawk-webhook.env contains webhook-secret=<Tawk webhook signing secret>.
-# feishu-bot.env contains webhook-url=<bot webhook URL> and
-# signing-secret=<bot signing secret>.
+# feishu-bot.env contains app-id=<existing Feedback app ID>,
+# app-secret=<existing Feedback app secret>, and
+# chat-id=<destination group ID>.
+# The existing app bot must remain enabled, have im:message:send_as_bot, and be
+# a member of the configured group.
 kubectl create secret generic tapstate-cloud-control-tawk-webhook \
   -n tapstate-cloud-control \
   --from-env-file=/secure/path/tawk-webhook.env
@@ -127,10 +138,9 @@ kubectl create secret generic tapstate-cloud-control-feishu-bot \
 
 # For awsdev, create the same Secrets in the tapstate namespace instead.
 # The expected Tawk Property ID is selected by values-awsdev.yaml / values-awsprod.yaml.
-# The Feishu URL is environment configuration, not a code constant. Each custom
-# bot is bound to its group. To change the destination later, create a custom
-# bot in the new group, update webhook-url and signing-secret in this
-# environment's feishu-bot.env, then reapply the same Secret:
+# The application bot stays the same when the destination group changes. Add it
+# to the new group, update chat-id in this environment's feishu-bot.env, then
+# reapply the same Secret:
 kubectl create secret generic tapstate-cloud-control-feishu-bot \
   -n tapstate-cloud-control \
   --from-env-file=/secure/path/feishu-bot.env \
