@@ -171,6 +171,8 @@ spec:
               value: {{ .Values.config.notifications.pollIntervalMs | quote }}
 
             # ========== Secrets from k3s Secret — Tawk and Feishu ==========
+            - name: FEISHU_LONG_CONNECTION_ENABLED
+              value: {{ .Values.config.feishuLongConnectionEnabled | quote }}
             - name: FEISHU_EVENT_ENCRYPT_KEY
               valueFrom:
                 secretKeyRef:

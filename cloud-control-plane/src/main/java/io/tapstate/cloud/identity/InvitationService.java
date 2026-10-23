@@ -70,16 +70,12 @@ public class InvitationService {
     }
 
     /** Issues a stable trial invitation for a verified bot command, without storing its plaintext token. */
-    public IssuedInvitation createBotTrialCode(String issuerEmail, String token) {
-        if (trialIssuerEmail == null || trialIssuerEmail.isBlank()
-                || !normalizeEmail(trialIssuerEmail).equals(normalizeEmail(issuerEmail))) {
-            throw new BusinessException(AppErrorCode.UNAUTHORIZED, HttpStatus.FORBIDDEN.value());
-        }
+    public IssuedInvitation createBotTrialCode(String token) {
         String tokenHash = hash(token);
         Instant now = Instant.now();
         Query query = Query.query(Criteria.where("tokenHash").is(tokenHash));
         Update insert = new Update().setOnInsert("tokenHash", tokenHash)
-            .setOnInsert("purpose", "trial").setOnInsert("createdByEmail", normalizeEmail(issuerEmail))
+            .setOnInsert("purpose", "trial").setOnInsert("createdByEmail", "feishu-bot")
             .setOnInsert("createdAt", now).setOnInsert("expiresAt", now.plus(7, ChronoUnit.DAYS));
         OrganizationInvitation invitation;
         try {

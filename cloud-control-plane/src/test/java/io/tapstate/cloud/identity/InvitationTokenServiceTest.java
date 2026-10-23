@@ -102,7 +102,7 @@ class InvitationTokenServiceTest {
     }
     @Test
     void botIssuanceUpsertsOnlyDigestAndPreservesExistingExpiry() {
-        org.springframework.test.util.ReflectionTestUtils.setField(service, "trialIssuerEmail", "issuer@example.com");
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "trialIssuerEmail", "");
         Instant originalExpiry = Instant.now().plusSeconds(604800);
         OrganizationInvitation existing = OrganizationInvitation.builder().id(new ObjectId())
             .tokenHash(InvitationService.hash("A2B3C4D5E6F7")).purpose("trial")
@@ -111,8 +111,8 @@ class InvitationTokenServiceTest {
             any(org.springframework.data.mongodb.core.query.Update.class),
             any(org.springframework.data.mongodb.core.FindAndModifyOptions.class), eq(OrganizationInvitation.class)))
             .thenReturn(existing);
-        var first = service.createBotTrialCode("issuer@example.com", "A2B3C4D5E6F7");
-        var retry = service.createBotTrialCode("issuer@example.com", "A2B3C4D5E6F7");
+        var first = service.createBotTrialCode("A2B3C4D5E6F7");
+        var retry = service.createBotTrialCode("A2B3C4D5E6F7");
         assertEquals(first, retry);
         assertEquals(originalExpiry, retry.invitation().expiresAt());
         var update = ArgumentCaptor.forClass(org.springframework.data.mongodb.core.query.Update.class);
@@ -123,11 +123,6 @@ class InvitationTokenServiceTest {
         verifyNoInteractions(invitationRepository);
     }
 
-    @Test
-    void botIssuanceRequiresConfiguredIssuer() {
-        org.springframework.test.util.ReflectionTestUtils.setField(service, "trialIssuerEmail", "issuer@example.com");
-        assertThrows(BusinessException.class, () -> service.createBotTrialCode("stranger@example.com", "A2B3C4D5E6F7"));
-        verifyNoInteractions(mongoTemplate, invitationRepository);
-    }
+
 
 }
