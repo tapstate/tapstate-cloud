@@ -105,6 +105,18 @@ class EmailDeliveryRetryTest {
     }
 
     @Test
+    @DisplayName("retry delay doubles per attempt and is capped at one hour")
+    void backoffIsExponentialAndCapped() {
+        assertThat(service.backoffSeconds(1)).isEqualTo(10);
+        assertThat(service.backoffSeconds(2)).isEqualTo(20);
+        assertThat(service.backoffSeconds(3)).isEqualTo(40);
+        assertThat(service.backoffSeconds(4)).isEqualTo(80);
+        assertThat(service.backoffSeconds(5)).isEqualTo(160);
+        assertThat(service.backoffSeconds(6)).isEqualTo(320);
+        assertThat(service.backoffSeconds(10)).isEqualTo(3600);
+    }
+
+    @Test
     @DisplayName("a row another replica already claimed is not sent")
     void lostClaimIsNotSent() {
         NotificationDelivery delivery = delivery(0);

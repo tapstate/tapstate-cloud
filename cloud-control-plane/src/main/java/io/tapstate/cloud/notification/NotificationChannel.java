@@ -8,5 +8,10 @@ public interface NotificationChannel {
 
     String name();
 
+    /** Whether this channel has enough configuration to attempt a send. */
+    default boolean isConfigured() {
+        return true;
+    }
+
     void send(NotificationMessage message);
 }

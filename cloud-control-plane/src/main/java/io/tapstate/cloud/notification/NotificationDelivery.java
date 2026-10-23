@@ -8,6 +8,7 @@ import org.bson.types.ObjectId;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.index.CompoundIndex;
+import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.Instant;
@@ -43,6 +44,18 @@ public class NotificationDelivery {
     private String subject;
 
     private String body;
+
+    private String htmlBody;
+
+    private boolean inlineLogo;
+
+    /**
+     * Idempotency key for every notification, including non-alert email such as
+     * verification codes. Sparse so pre-existing rows without the field stay
+     * valid during rollout.
+     */
+    @Indexed(name = "delivery_notification_key_unique", unique = true, sparse = true)
+    private String notificationKey;
 
     private DeliveryStatus status;
 

@@ -67,30 +67,145 @@ public class NotificationDeliveryService {
     }
 
     /**
-     * Fan an alert out to every policy recipient. The unique index makes a
+     * Fan an alert out to every policy recipient. The idempotency key makes a
      * repeated policy evaluation a no-op for rows that already exist.
      */
     public void createDeliveries(AlertRecord alert, AlertPolicy policy) {
         for (String recipient : policy.getRecipients()) {
-            NotificationDelivery delivery = NotificationDelivery.builder()
-                .orgId(alert.getOrgId())
-                .alertId(alert.getId())
-                .channel(policy.getChannel())
-                .recipient(recipient)
-                .subject(subject(alert))
-                .body(body(alert))
-                .status(DeliveryStatus.PENDING)
-                .attempts(0)
-                .nextAttemptAt(Instant.now())
-                .createdAt(Instant.now())
-                .updatedAt(Instant.now())
-                .build();
-            try {
-                deliveryRepository.save(delivery);
-            } catch (DuplicateKeyException e) {
-                log.debug("Delivery already exists for alert {} recipient {} — skipping",
-                    alert.getId(), recipient);
+            enqueue(new NotificationRequest(
+                alert.getOrgId(),
+                alert.getId(),
+                policy.getChannel(),
+                recipient,
+                subject(alert),
+                body(alert),
+                null,
+                false,
+                "alert:" + alert.getId() + ":" + policy.getChannel() + ":" + recipient));
+        }
+    }
+
+    /**
+     * Put any email on the same durable outbox used by alert notifications.
+     * This is the single send path for auth verification, trial mail and alert
+     * mail; callers only render the message.
+     */
+    public NotificationDelivery enqueue(NotificationRequest request) {
+        String channel = request.channel() == null ? "EMAIL" : request.channel().toUpperCase();
+        if (request.notificationKey() != null && !request.notificationKey().isBlank()) {
+            var existing = deliveryRepository.findByNotificationKey(request.notificationKey());
+            if (existing.isPresent()) {
+                return existing.get();
             }
+        }
+        Instant now = Instant.now();
+        NotificationDelivery delivery = NotificationDelivery.builder()
+            .orgId(request.orgId())
+            .alertId(request.sourceId())
+            .channel(channel)
+            .recipient(request.recipient())
+            .subject(request.subject())
+            .body(request.textBody())
+            .htmlBody(request.htmlBody())
+            .inlineLogo(request.inlineLogo())
+            .notificationKey(request.notificationKey())
+            .status(DeliveryStatus.PENDING)
+            .attempts(0)
+            .nextAttemptAt(now)
+            .createdAt(now)
+            .updatedAt(now)
+            .build();
+        try {
+            return deliveryRepository.save(delivery);
+        } catch (DuplicateKeyException e) {
+            if (request.notificationKey() != null && !request.notificationKey().isBlank()) {
+                return deliveryRepository.findByNotificationKey(request.notificationKey())
+                    .orElseThrow(() -> e);
+            }
+            throw e;
+        }
+    }
+
+    public boolean isChannelConfigured(String channel) {
+        NotificationChannel target = channels.get(channel == null ? "" : channel.toUpperCase());
+        return target != null && target.isConfigured();
+    }
+
+    /**
+     * Send one notification immediately through the shared channel and record a
+     * delivery row. Used for auth verification mail, where the caller needs a
+     * synchronous success/failure answer and the body (a live verification code)
+     * must not be persisted in the outbox. Alert mail uses {@link #enqueue}
+     * instead, which keeps the body for bounded retries.
+     *
+     * @return true when the channel accepted the message
+     */
+    public boolean sendNow(NotificationRequest request) {
+        String channelName = request.channel() == null ? "EMAIL" : request.channel().toUpperCase();
+        NotificationChannel channel = channels.get(channelName);
+        if (channel == null || !channel.isConfigured()) {
+            throw new NotificationDeliveryException("channel is not configured: " + channelName);
+        }
+        Instant now = Instant.now();
+        try {
+            channel.send(new NotificationMessage(
+                request.recipient(),
+                request.subject(),
+                request.textBody(),
+                request.htmlBody(),
+                request.inlineLogo()));
+            recordImmediate(request, channelName, DeliveryStatus.SENT, null, now);
+            metrics.delivered();
+            return true;
+        } catch (RuntimeException e) {
+            recordImmediate(request, channelName, DeliveryStatus.FAILED,
+                e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage(), now);
+            metrics.deliveryFailed();
+            return false;
+        }
+    }
+
+    private void recordImmediate(NotificationRequest request, String channel,
+                                 DeliveryStatus status, String error, Instant now) {
+        String key = request.notificationKey();
+        if (key != null && !key.isBlank()) {
+            NotificationDelivery existing = deliveryRepository.findByNotificationKey(key).orElse(null);
+            if (existing != null) {
+                mongoTemplate.updateFirst(
+                    new Query(Criteria.where("_id").is(existing.getId())),
+                    new Update()
+                        .set("status", status)
+                        .set("attempts", 1)
+                        .set("lastError", truncate(error, 500))
+                        .set("body", null)
+                        .set("htmlBody", null)
+                        .set("inlineLogo", false)
+                        .set("nextAttemptAt", null)
+                        .set("updatedAt", now)
+                        .set("sentAt", status == DeliveryStatus.SENT ? now : null),
+                    NotificationDelivery.class);
+                return;
+            }
+        }
+        NotificationDelivery delivery = NotificationDelivery.builder()
+            .orgId(request.orgId())
+            .alertId(request.sourceId())
+            .channel(channel)
+            .recipient(request.recipient())
+            .subject(request.subject())
+            // Deliberately do not persist the auth code or HTML body.
+            .notificationKey(key)
+            .status(status)
+            .attempts(1)
+            .lastError(truncate(error, 500))
+            .createdAt(now)
+            .updatedAt(now)
+            .sentAt(status == DeliveryStatus.SENT ? now : null)
+            .build();
+        try {
+            deliveryRepository.save(delivery);
+        } catch (DuplicateKeyException e) {
+            recordImmediate(request, channel, status, error, now);
         }
     }
 
@@ -147,7 +262,12 @@ public class NotificationDeliveryService {
             return false;
         }
         try {
-            channel.send(new NotificationMessage(delivery.getRecipient(), delivery.getSubject(), delivery.getBody()));
+            channel.send(new NotificationMessage(
+                delivery.getRecipient(),
+                delivery.getSubject(),
+                delivery.getBody(),
+                delivery.getHtmlBody(),
+                delivery.isInlineLogo()));
             markSent(delivery.getId(), leaseOwner);
             metrics.delivered();
             return true;
@@ -202,7 +322,7 @@ public class NotificationDeliveryService {
             delivery.getId(), attempts, maxAttempts, error);
     }
 
-    private long backoffSeconds(int attempts) {
+    long backoffSeconds(int attempts) {
         long multiplier = 1L << Math.min(attempts - 1, 10);
         return Math.min(3600, retryBaseSeconds * multiplier);
     }
