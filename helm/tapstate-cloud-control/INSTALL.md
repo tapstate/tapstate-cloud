@@ -138,6 +138,30 @@ kubectl create secret generic tapstate-cloud-control-feishu-bot \
 # For awsdev, use namespace tapstate and its own feishu-bot.env. Restart the
 # Control Plane after the update so the environment-backed Secret values reload.
 
+# ---- Optional: SMTP for alert email ----
+# Credentials only; the relay host/port and the enable switch are non-sensitive
+# values in values.yaml (config.notifications.*). Omit the Secret entirely for
+# an unauthenticated relay.
+# smtp.env contains username=<smtp user> and password=<smtp password>.
+kubectl create secret generic tapstate-cloud-control-smtp \
+  -n tapstate-cloud-control \
+  --from-env-file=/secure/path/smtp.env
+# Enable it in the environment values:
+#   config:
+#     notifications:
+#       emailEnabled: "true"
+#       smtpHost: email-smtp.ap-southeast-1.amazonaws.com
+#       smtpPort: "587"          # STARTTLS
+#       smtpStarttls: "true"
+#       smtpSslEnable: "false"
+#       emailFrom: no-reply@tapstate.com
+# For implicit TLS on 465 set smtpStarttls: "false" and smtpSslEnable: "true".
+# The control-plane egress policy must allow the chosen SMTP port, and the
+# sending domain must be authenticated (SPF/DKIM) before production use.
+# After changing the Secret or values, restart the Control Plane so the
+# environment-backed values reload. Alert delivery status is visible in
+# Console -> Deliveries; failures are not reported as sent.
+
 # ---- Shared sample database password ----
 # Keep this file outside the repository with owner-only permissions.
 # The Secret must be in the same namespace as the Control Plane release.

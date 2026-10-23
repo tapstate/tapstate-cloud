@@ -67,6 +67,16 @@ tapstate:
     # Fixed operator release token for the it profile; never use in production.
     cluster-version:
       release-token: it-release-token
+    events:
+      ingest-token: it-event-token
+      retention-days: 30
+      max-page-size: 100
+    notifications:
+      # Keep the scheduler out of the way: ITs assert the durable outbox row
+      # rather than racing a background worker that has no SMTP transport.
+      poll-interval-ms: 3600000
+      email:
+        enabled: false
     iac:
       provider: aws
       # Mock by default keeps the existing fast IT suite cloud-free; the real

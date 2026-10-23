@@ -4,6 +4,7 @@ import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
 import com.github.tomakehurst.wiremock.junit5.WireMockExtension;
 import com.stripe.Stripe;
 import io.tapstate.cloud.cluster.ClusterService;
+import io.tapstate.cloud.event.EventCenterService;
 import io.tapstate.cloud.mdb.MdbAllocationService;
 import io.tapstate.cloud.payment.PaymentGateway;
 import io.tapstate.cloud.payment.stripe.StripeCustomerService;
@@ -122,7 +123,8 @@ class SubscriptionTrialWillEndIT {
                 clusterVersionService, specConfigService, stripeProductService, stripePaymentService);
         webhookEventService = new StripeWebhookEventService(
                 stripeEventRepository, subscriptionRepository, subscriptionService,
-                subscriptionStateMachineService, stripePaymentService, config);
+                subscriptionStateMachineService, stripePaymentService, config,
+                mock(EventCenterService.class));
 
         StripeStub.checkout(stripe);
 

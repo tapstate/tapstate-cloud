@@ -5,6 +5,9 @@ import io.tapstate.cloud.cluster.ClusterPartialWriter;
 import io.tapstate.cloud.cluster.ClusterRepository;
 import io.tapstate.cloud.cluster.ClusterState;
 import io.tapstate.cloud.cluster.ProvisionErrorCode;
+import io.tapstate.cloud.event.EventCenterService;
+import io.tapstate.cloud.event.EventIngestRequest;
+import io.tapstate.cloud.event.EventSeverity;
 import io.tapstate.cloud.progress.DeploymentOpType;
 import io.tapstate.cloud.progress.DeploymentStep;
 import io.tapstate.cloud.progress.DeploymentStepRecorder;
@@ -16,6 +19,7 @@ import org.springframework.stereotype.Component;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -77,17 +81,20 @@ public class StrandedProvisioningReconciler {
     private final DeploymentStepRecorder recorder;
     private final ClusterPartialWriter clusterPartialWriter;
     private final ClusterStateMachineService clusterStateMachineService;
+    private final EventCenterService eventCenterService;
 
     public StrandedProvisioningReconciler(ClusterRepository clusterRepository,
                                          DeploymentStepRepository stepRepository,
                                          DeploymentStepRecorder recorder,
                                          ClusterPartialWriter clusterPartialWriter,
-                                         ClusterStateMachineService clusterStateMachineService) {
+                                         ClusterStateMachineService clusterStateMachineService,
+                                         EventCenterService eventCenterService) {
         this.clusterRepository = clusterRepository;
         this.stepRepository = stepRepository;
         this.recorder = recorder;
         this.clusterPartialWriter = clusterPartialWriter;
         this.clusterStateMachineService = clusterStateMachineService;
+        this.eventCenterService = eventCenterService;
     }
 
     /**
@@ -154,6 +161,10 @@ public class StrandedProvisioningReconciler {
             log.warn("[Provision Reconcile] cluster={} stranded run failed ({}, lastActivity={})",
                 clusterId, result.accepted() ? "PROVISIONING_FAILED" : "already moved: " + result.newState(),
                 lastActivity);
+            if (result.accepted()) {
+                record(cluster, "scheduled.provisioning.failed", EventSeverity.WARNING,
+                    "Cluster " + clusterId + " provisioning was stranded and marked failed");
+            }
             return result.accepted();
         } catch (Exception e) {
             log.error("[Provision Reconcile] failing stranded cluster {} failed: {}",
@@ -176,12 +187,34 @@ public class StrandedProvisioningReconciler {
             log.warn("[Provision Reconcile] cluster={} pending run restarted ({}, lastActivity={})",
                 clusterId, result.accepted() ? "PROVISIONING" : "already moved: " + result.newState(),
                 lastActivity);
+            if (result.accepted()) {
+                record(cluster, "scheduled.provisioning.restarted", EventSeverity.INFO,
+                    "Cluster " + clusterId + " provisioning was restarted by the reconciler");
+            }
             return result.accepted();
         } catch (Exception e) {
             log.error("[Provision Reconcile] restarting pending cluster {} failed: {}",
                 clusterId, e.getMessage());
             return false;
         }
+    }
+
+    private void record(Cluster cluster, String type, EventSeverity severity, String subject) {
+        if (cluster.getOrgId() == null) {
+            return;
+        }
+        Instant now = Instant.now();
+        String clusterId = cluster.getId().toHexString();
+        eventCenterService.recordBestEffort(new EventIngestRequest(
+            cluster.getOrgId().toHexString(),
+            "scheduled",
+            type,
+            severity,
+            subject,
+            "system:provisioning-reconciler",
+            now,
+            type + ":" + clusterId + ":" + now.getEpochSecond() / 60,
+            Map.of("clusterId", clusterId)));
     }
 
     /**

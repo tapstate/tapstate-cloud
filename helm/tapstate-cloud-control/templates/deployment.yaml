@@ -152,6 +152,47 @@ spec:
             - name: TAPSTATE_CLOUD_TAWK_RETRY_INTERVAL_MS
               value: {{ .Values.config.tawkRetryIntervalMs | quote }}
 
+            # ========== Alert email delivery (SMTP) ==========
+            # Opt-in: leave emailEnabled=false and smtpHost empty to keep email
+            # delivery disabled. The username/password Secret is optional for
+            # unauthenticated relays.
+            - name: TAPSTATE_CLOUD_NOTIFICATIONS_EMAIL_ENABLED
+              value: {{ .Values.config.notifications.emailEnabled | quote }}
+            - name: TAPSTATE_CLOUD_NOTIFICATIONS_EMAIL_FROM
+              value: {{ .Values.config.notifications.emailFrom | quote }}
+            - name: TAPSTATE_CLOUD_NOTIFICATIONS_MAX_ATTEMPTS
+              value: {{ .Values.config.notifications.maxAttempts | quote }}
+            - name: TAPSTATE_CLOUD_NOTIFICATIONS_RETRY_BASE_SECONDS
+              value: {{ .Values.config.notifications.retryBaseSeconds | quote }}
+            - name: TAPSTATE_CLOUD_NOTIFICATIONS_LEASE_SECONDS
+              value: {{ .Values.config.notifications.leaseSeconds | quote }}
+            - name: TAPSTATE_CLOUD_NOTIFICATIONS_POLL_INTERVAL_MS
+              value: {{ .Values.config.notifications.pollIntervalMs | quote }}
+            {{- with .Values.config.notifications.smtpHost }}
+            - name: SPRING_MAIL_HOST
+              value: {{ . | quote }}
+            {{- end }}
+            - name: SPRING_MAIL_PORT
+              value: {{ .Values.config.notifications.smtpPort | quote }}
+            - name: SPRING_MAIL_PROPERTIES_MAIL_SMTP_AUTH
+              value: {{ .Values.config.notifications.smtpAuth | quote }}
+            - name: SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_ENABLE
+              value: {{ .Values.config.notifications.smtpStarttls | quote }}
+            - name: SPRING_MAIL_PROPERTIES_MAIL_SMTP_SSL_ENABLE
+              value: {{ .Values.config.notifications.smtpSslEnable | quote }}
+            - name: SPRING_MAIL_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.emailSmtp.name }}
+                  key: {{ .Values.secrets.emailSmtp.usernameKey }}
+                  optional: true
+            - name: SPRING_MAIL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.emailSmtp.name }}
+                  key: {{ .Values.secrets.emailSmtp.passwordKey }}
+                  optional: true
+
             # ========== Secrets from k3s Secret — Tawk and Feishu ==========
             - name: TAWK_WEBHOOK_SECRET
               valueFrom:
