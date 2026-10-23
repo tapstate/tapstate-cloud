@@ -1,5 +1,6 @@
 package io.tapstate.cloud.notification;
 
+import io.swagger.v3.oas.annotations.Operation;
 import io.tapstate.cloud.common.CurrentUser;
 import io.tapstate.cloud.common.api.ApiResponse;
 import io.tapstate.cloud.common.api.AppErrorCode;
@@ -26,6 +27,7 @@ public class NotificationController extends BaseController {
     private final NotificationDeliveryRepository deliveryRepository;
     private final OrgAccessService orgAccessService;
 
+    @Operation(operationId = "listNotificationDeliveries")
     @GetMapping
     public ResponseEntity<ApiResponse<List<NotificationDeliveryResponse>>> list(@PathVariable String orgId) {
         String email = CurrentUser.getEmail();
@@ -39,6 +41,7 @@ public class NotificationController extends BaseController {
         return ok(rows.stream().map(NotificationDeliveryResponse::from).toList());
     }
 
+    @Operation(operationId = "getNotificationDelivery")
     @GetMapping("/{deliveryId}")
     public ResponseEntity<ApiResponse<NotificationDeliveryResponse>> get(
             @PathVariable String orgId,

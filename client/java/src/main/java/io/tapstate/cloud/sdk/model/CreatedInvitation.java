@@ -37,17 +37,17 @@ import java.util.StringJoiner;
 @jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", comments = "Generator version: 7.25.0")
 public class CreatedInvitation {
   public static final String JSON_PROPERTY_INVITATION = "invitation";
-  @jakarta.annotation.Nonnull
+  @jakarta.annotation.Nullable
   private InvitationView invitation;
 
   public static final String JSON_PROPERTY_TOKEN = "token";
-  @jakarta.annotation.Nonnull
+  @jakarta.annotation.Nullable
   private String token;
 
   public CreatedInvitation() {
   }
 
-  public CreatedInvitation invitation(@jakarta.annotation.Nonnull InvitationView invitation) {
+  public CreatedInvitation invitation(@jakarta.annotation.Nullable InvitationView invitation) {
     
     this.invitation = invitation;
     return this;
@@ -57,43 +57,43 @@ public class CreatedInvitation {
    * Get invitation
    * @return invitation
    */
-  @jakarta.annotation.Nonnull
-  @JsonProperty(value = JSON_PROPERTY_INVITATION, required = true)
-  @JsonInclude(value = JsonInclude.Include.ALWAYS)
+  @jakarta.annotation.Nullable
+  @JsonProperty(value = JSON_PROPERTY_INVITATION, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
 
   public InvitationView getInvitation() {
     return invitation;
   }
 
 
-  @JsonProperty(value = JSON_PROPERTY_INVITATION, required = true)
-  @JsonInclude(value = JsonInclude.Include.ALWAYS)
-  public void setInvitation(@jakarta.annotation.Nonnull InvitationView invitation) {
+  @JsonProperty(value = JSON_PROPERTY_INVITATION, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+  public void setInvitation(@jakarta.annotation.Nullable InvitationView invitation) {
     this.invitation = invitation;
   }
 
-  public CreatedInvitation token(@jakarta.annotation.Nonnull String token) {
+  public CreatedInvitation token(@jakarta.annotation.Nullable String token) {
     
     this.token = token;
     return this;
   }
 
   /**
-   * High-entropy invitation token; returned only at creation.
+   * Get token
    * @return token
    */
-  @jakarta.annotation.Nonnull
-  @JsonProperty(value = JSON_PROPERTY_TOKEN, required = true)
-  @JsonInclude(value = JsonInclude.Include.ALWAYS)
+  @jakarta.annotation.Nullable
+  @JsonProperty(value = JSON_PROPERTY_TOKEN, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
 
   public String getToken() {
     return token;
   }
 
 
-  @JsonProperty(value = JSON_PROPERTY_TOKEN, required = true)
-  @JsonInclude(value = JsonInclude.Include.ALWAYS)
-  public void setToken(@jakarta.annotation.Nonnull String token) {
+  @JsonProperty(value = JSON_PROPERTY_TOKEN, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+  public void setToken(@jakarta.annotation.Nullable String token) {
     this.token = token;
   }
 

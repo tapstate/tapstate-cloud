@@ -1,5 +1,6 @@
 package io.tapstate.cloud.event;
 
+import io.swagger.v3.oas.annotations.Operation;
 import io.tapstate.cloud.common.CurrentUser;
 import io.tapstate.cloud.common.api.ApiResponse;
 import io.tapstate.cloud.common.api.AppErrorCode;
@@ -25,6 +26,7 @@ public class EventController extends BaseController {
     private final EventCenterService eventCenterService;
     private final OrgAccessService orgAccessService;
 
+    @Operation(operationId = "listEvents")
     @GetMapping("/events")
     public ResponseEntity<ApiResponse<EventPageResponse>> list(
             @PathVariable String orgId,
@@ -46,6 +48,7 @@ public class EventController extends BaseController {
         return ok(new EventPageResponse(items, page.nextCursor()));
     }
 
+    @Operation(operationId = "getEvent")
     @GetMapping("/events/{eventId}")
     public ResponseEntity<ApiResponse<EventResponse>> get(
             @PathVariable String orgId,

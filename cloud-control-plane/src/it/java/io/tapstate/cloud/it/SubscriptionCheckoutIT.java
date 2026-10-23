@@ -2,7 +2,7 @@ package io.tapstate.cloud.it;
 
 import io.tapstate.cloud.sdk.ApiClient;
 import io.tapstate.cloud.sdk.ApiException;
-import io.tapstate.cloud.sdk.api.SubscriptionApi;
+import io.tapstate.cloud.sdk.api.SpecCatalogApi;
 import io.tapstate.cloud.sdk.model.CheckoutResponse;
 import io.tapstate.cloud.sdk.model.CreateCheckoutRequest;
 import io.tapstate.cloud.sdk.model.FinalizeProvisioningRequest;
@@ -82,7 +82,7 @@ class SubscriptionCheckoutIT extends RealEnvIT {
         // Anonymous client — the Console renders pricing before sign-in.
         ApiClient anonymous = new ApiClient();
         anonymous.setBasePath(BASE_URL);
-        SubscriptionApi publicApi = new SubscriptionApi(anonymous);
+        SpecCatalogApi publicApi = new SpecCatalogApi(anonymous);
 
         List<SpecWithPricingResponse> specs = publicApi.listSpecs().getData();
 
@@ -119,7 +119,7 @@ class SubscriptionCheckoutIT extends RealEnvIT {
         String orgId = orgId();
 
         ApiException bad = assertThrows(ApiException.class, () ->
-            subscriptionApi.createCheckoutSession(orgId,
+            subscriptionApi.createCheckout(orgId,
                 new CreateCheckoutRequest().specKey("no-such-spec")));
         assertEquals(400, bad.getCode(),
             "an unknown spec key must be rejected with 400, body=" + bad.getResponseBody());
@@ -138,7 +138,7 @@ class SubscriptionCheckoutIT extends RealEnvIT {
 
         String specKey = pricedSpecKey();
 
-        CheckoutResponse checkout = subscriptionApi.createCheckoutSession(orgId,
+        CheckoutResponse checkout = subscriptionApi.createCheckout(orgId,
             new CreateCheckoutRequest()
                 .specKey(specKey)
                 .clientRequestId("it-" + System.nanoTime()))
@@ -173,7 +173,7 @@ class SubscriptionCheckoutIT extends RealEnvIT {
         loginAsConfiguredUser();
         String orgId = orgId();
 
-        CheckoutResponse checkout = subscriptionApi.createCheckoutSession(orgId,
+        CheckoutResponse checkout = subscriptionApi.createCheckout(orgId,
             new CreateCheckoutRequest()
                 .specKey(pricedSpecKey())
                 .clientRequestId("it-" + System.nanoTime()))
@@ -224,7 +224,7 @@ class SubscriptionCheckoutIT extends RealEnvIT {
         loginAsConfiguredUser();
         String orgId = orgId();
 
-        CheckoutResponse checkout = subscriptionApi.createCheckoutSession(orgId,
+        CheckoutResponse checkout = subscriptionApi.createCheckout(orgId,
             new CreateCheckoutRequest()
                 .specKey(pricedSpecKey())
                 .clientRequestId("it-" + System.nanoTime()))
@@ -253,7 +253,7 @@ class SubscriptionCheckoutIT extends RealEnvIT {
         loginAsConfiguredUser();
         String orgId = orgId();
 
-        CheckoutResponse checkout = subscriptionApi.createCheckoutSession(orgId,
+        CheckoutResponse checkout = subscriptionApi.createCheckout(orgId,
             new CreateCheckoutRequest()
                 .specKey(pricedSpecKey())
                 .clientRequestId("it-" + System.nanoTime()))
@@ -283,7 +283,7 @@ class SubscriptionCheckoutIT extends RealEnvIT {
         loginAsConfiguredUser();
         String orgId = orgId();
 
-        CheckoutResponse checkout = subscriptionApi.createCheckoutSession(orgId,
+        CheckoutResponse checkout = subscriptionApi.createCheckout(orgId,
             new CreateCheckoutRequest()
                 .specKey(pricedSpecKey())
                 .clientRequestId("it-" + System.nanoTime()))
@@ -335,7 +335,7 @@ class SubscriptionCheckoutIT extends RealEnvIT {
     private String pricedSpecKey() throws Exception {
         ApiClient anonymous = new ApiClient();
         anonymous.setBasePath(BASE_URL);
-        List<SpecWithPricingResponse> specs = new SubscriptionApi(anonymous).listSpecs().getData();
+        List<SpecWithPricingResponse> specs = new SpecCatalogApi(anonymous).listSpecs().getData();
         assumeTrue(specs != null && !specs.isEmpty(),
             "/v1/api/specs is empty — no priced spec to check out");
         return specs.get(0).getKey();

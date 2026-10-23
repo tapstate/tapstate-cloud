@@ -31,7 +31,7 @@ import java.net.URLEncoder;
 import java.util.StringJoiner;
 
 /**
- * ApiResponseListInvitationView
+ * Global API response envelope
  */
 @JsonPropertyOrder({
   ApiResponseListInvitationView.JSON_PROPERTY_OP_ID,
@@ -67,7 +67,7 @@ public class ApiResponseListInvitationView {
   }
 
   /**
-   * Get opId
+   * Request correlation ID — unique per request
    * @return opId
    */
   @jakarta.annotation.Nullable
@@ -92,7 +92,7 @@ public class ApiResponseListInvitationView {
   }
 
   /**
-   * Get code
+   * Business result code — &#39;ok&#39; on success, error code on failure
    * @return code
    */
   @jakarta.annotation.Nullable
@@ -117,7 +117,7 @@ public class ApiResponseListInvitationView {
   }
 
   /**
-   * Get msg
+   * Detailed message — success info or failure reason
    * @return msg
    */
   @jakarta.annotation.Nullable
@@ -150,7 +150,7 @@ public class ApiResponseListInvitationView {
   }
 
   /**
-   * Get data
+   * Response payload — object or array, null on void responses
    * @return data
    */
   @jakarta.annotation.Nullable

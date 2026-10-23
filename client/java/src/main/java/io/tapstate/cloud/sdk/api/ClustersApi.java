@@ -201,6 +201,89 @@ public class ClustersApi extends BaseApi {
   }
 
   /**
+   * Retry cleanup failure
+   * Retries resource cleanup for a Cluster whose previous cleanup attempt failed (cleanupErrorCode is non-null). Common causes: CloudFormation stack locked by another operation, AWS API throttling, or IAM drift. Requires the user to fix the root cause before retrying.  Idempotent: returns current Cluster state if no cleanup failure exists (cleanupErrorCode is null).  Returns 500 if cleanup still fails — AWS error details are persisted on the Cluster document.
+   * @param orgId Organization UUID (required)
+   * @param clusterId Cluster UUID (required)
+   * @return ApiResponseClusterResponse
+   * @throws ApiException if fails to make API call
+   */
+  public ApiResponseClusterResponse retryCleanup(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull String clusterId) throws ApiException {
+    return this.retryCleanup(orgId, clusterId, Collections.emptyMap());
+  }
+
+
+  /**
+   * Retry cleanup failure
+   * Retries resource cleanup for a Cluster whose previous cleanup attempt failed (cleanupErrorCode is non-null). Common causes: CloudFormation stack locked by another operation, AWS API throttling, or IAM drift. Requires the user to fix the root cause before retrying.  Idempotent: returns current Cluster state if no cleanup failure exists (cleanupErrorCode is null).  Returns 500 if cleanup still fails — AWS error details are persisted on the Cluster document.
+   * @param orgId Organization UUID (required)
+   * @param clusterId Cluster UUID (required)
+   * @param additionalHeaders additionalHeaders for this call
+   * @return ApiResponseClusterResponse
+   * @throws ApiException if fails to make API call
+   */
+  public ApiResponseClusterResponse retryCleanup(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull String clusterId, Map<String, String> additionalHeaders) throws ApiException {
+    Object localVarPostBody = null;
+    
+    // verify the required parameter 'orgId' is set
+    if (orgId == null) {
+      throw new ApiException(400, "Missing the required parameter 'orgId' when calling retryCleanup");
+    }
+    
+    // verify the required parameter 'clusterId' is set
+    if (clusterId == null) {
+      throw new ApiException(400, "Missing the required parameter 'clusterId' when calling retryCleanup");
+    }
+    
+    // create path and map variables
+    String localVarPath = "/v1/api/orgs/{orgId}/clusters/{clusterId}/retry-cleanup"
+      .replaceAll("\\{" + "orgId" + "\\}", apiClient.escapeString(apiClient.parameterToString(orgId)))
+      .replaceAll("\\{" + "clusterId" + "\\}", apiClient.escapeString(apiClient.parameterToString(clusterId)));
+
+    StringJoiner localVarQueryStringJoiner = new StringJoiner("&");
+    String localVarQueryParameterBaseName;
+    List<Pair> localVarQueryParams = new ArrayList<Pair>();
+    List<Pair> localVarCollectionQueryParams = new ArrayList<Pair>();
+    Map<String, String> localVarHeaderParams = new HashMap<String, String>();
+    Map<String, String> localVarCookieParams = new HashMap<String, String>();
+    Map<String, Object> localVarFormParams = new HashMap<String, Object>();
+
+    
+    localVarHeaderParams.putAll(additionalHeaders);
+
+    
+    
+    final String[] localVarAccepts = {
+      "*/*"
+    };
+    final String localVarAccept = apiClient.selectHeaderAccept(localVarAccepts);
+
+    final String[] localVarContentTypes = {
+      
+    };
+    final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
+
+    String[] localVarAuthNames = new String[] { "session-cookie" };
+
+    TypeReference<ApiResponseClusterResponse> localVarReturnType = new TypeReference<ApiResponseClusterResponse>() {};
+    return apiClient.invokeAPI(
+        localVarPath,
+        "POST",
+        localVarQueryParams,
+        localVarCollectionQueryParams,
+        localVarQueryStringJoiner.toString(),
+        localVarPostBody,
+        localVarHeaderParams,
+        localVarCookieParams,
+        localVarFormParams,
+        localVarAccept,
+        localVarContentType,
+        localVarAuthNames,
+        localVarReturnType
+    );
+  }
+
+  /**
    * Retry provisioning_failed Cluster
    * Retries a Cluster that previously failed provisioning (state &#x3D; PROVISIONING_FAILED).  StateMachine cleanup flow: clears residual resources from the failed attempt → re-triggers the full provisioning pipeline from PROVISIONING_PENDING.  Returns 409 if the Cluster is not in PROVISIONING_FAILED state.
    * @param orgId Organization UUID (required)
@@ -286,36 +369,36 @@ public class ClustersApi extends BaseApi {
   /**
    * Stabilize the Cluster egress IPv4 address
    * Attaches a Cluster-owned Elastic IP to a live Cluster. The public address and DNS record change when the operation completes; the EC2 runtime is not replaced.
-   * @param orgId  (required)
-   * @param clusterId  (required)
+   * @param orgId Organization UUID (required)
+   * @param clusterId Cluster UUID (required)
    * @return ApiResponseClusterResponse
    * @throws ApiException if fails to make API call
    */
-  public ApiResponseClusterResponse stabilizeClusterEgressAddress(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull String clusterId) throws ApiException {
-    return this.stabilizeClusterEgressAddress(orgId, clusterId, Collections.emptyMap());
+  public ApiResponseClusterResponse stabilizeEgressAddress(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull String clusterId) throws ApiException {
+    return this.stabilizeEgressAddress(orgId, clusterId, Collections.emptyMap());
   }
 
 
   /**
    * Stabilize the Cluster egress IPv4 address
    * Attaches a Cluster-owned Elastic IP to a live Cluster. The public address and DNS record change when the operation completes; the EC2 runtime is not replaced.
-   * @param orgId  (required)
-   * @param clusterId  (required)
+   * @param orgId Organization UUID (required)
+   * @param clusterId Cluster UUID (required)
    * @param additionalHeaders additionalHeaders for this call
    * @return ApiResponseClusterResponse
    * @throws ApiException if fails to make API call
    */
-  public ApiResponseClusterResponse stabilizeClusterEgressAddress(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull String clusterId, Map<String, String> additionalHeaders) throws ApiException {
+  public ApiResponseClusterResponse stabilizeEgressAddress(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull String clusterId, Map<String, String> additionalHeaders) throws ApiException {
     Object localVarPostBody = null;
     
     // verify the required parameter 'orgId' is set
     if (orgId == null) {
-      throw new ApiException(400, "Missing the required parameter 'orgId' when calling stabilizeClusterEgressAddress");
+      throw new ApiException(400, "Missing the required parameter 'orgId' when calling stabilizeEgressAddress");
     }
     
     // verify the required parameter 'clusterId' is set
     if (clusterId == null) {
-      throw new ApiException(400, "Missing the required parameter 'clusterId' when calling stabilizeClusterEgressAddress");
+      throw new ApiException(400, "Missing the required parameter 'clusterId' when calling stabilizeEgressAddress");
     }
     
     // create path and map variables

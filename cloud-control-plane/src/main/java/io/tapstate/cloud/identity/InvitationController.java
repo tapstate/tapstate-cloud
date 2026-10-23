@@ -32,7 +32,7 @@ public class InvitationController extends BaseController {
     private final InvitationService invitationService;
 
     @PostMapping
-    @Operation(summary = "Create an organization invitation", description = "Only the organization owner may create a seven-day, single-use invitation. The returned token is shown once.")
+    @Operation(operationId = "createInvitation", summary = "Create an organization invitation", description = "Only the organization owner may create a seven-day, single-use invitation. The returned token is shown once.")
     public ResponseEntity<ApiResponse<CreatedInvitation>> create(
             @PathVariable String orgId, @Valid @RequestBody CreateInvitationRequest request) {
         String ownerEmail = CurrentUser.getEmail();
@@ -44,7 +44,7 @@ public class InvitationController extends BaseController {
     }
 
     @GetMapping
-    @Operation(summary = "List organization invitations", description = "Returns invitation status without disclosing invitation tokens.")
+    @Operation(operationId = "listInvitations", summary = "List organization invitations", description = "Returns invitation status without disclosing invitation tokens.")
     public ResponseEntity<ApiResponse<List<InvitationService.InvitationView>>> list(@PathVariable String orgId) {
         String ownerEmail = CurrentUser.getEmail();
         if (ownerEmail == null) {
@@ -54,7 +54,7 @@ public class InvitationController extends BaseController {
     }
 
     @DeleteMapping("/{invitationId}")
-    @Operation(summary = "Revoke an organization invitation", description = "Revokes an unused invitation owned by the specified organization.")
+    @Operation(operationId = "revokeInvitation", summary = "Revoke an organization invitation", description = "Revokes an unused invitation owned by the specified organization.")
     public ResponseEntity<ApiResponse<InvitationService.InvitationView>> revoke(
             @PathVariable String orgId, @PathVariable String invitationId) {
         String ownerEmail = CurrentUser.getEmail();

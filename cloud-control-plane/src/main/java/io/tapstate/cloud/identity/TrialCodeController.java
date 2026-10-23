@@ -18,7 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/v1/api/trial-codes")
 @RequiredArgsConstructor
-@Tag(name = "Auth", description = "Cloud Console authentication and trial access")
+@Tag(name = "Auth", description = "Cloud Console authentication, session management and trial access")
 public class TrialCodeController extends BaseController {
     private final InvitationService invitations;
 

@@ -23,17 +23,16 @@ import io.tapstate.cloud.sdk.Pair;
 import io.tapstate.cloud.sdk.model.AcceptInvitationRequest;
 import io.tapstate.cloud.sdk.model.AccessCode;
 import io.tapstate.cloud.sdk.model.ApiResponseAccessType;
-import io.tapstate.cloud.sdk.model.ApiResponseListIdentityView;
 import io.tapstate.cloud.sdk.model.ApiResponseLoginResult;
 import io.tapstate.cloud.sdk.model.ApiResponseOAuthStartResult;
 import io.tapstate.cloud.sdk.model.ApiResponseRegistrationPolicy;
 import io.tapstate.cloud.sdk.model.ApiResponseTrialCode;
+import io.tapstate.cloud.sdk.model.ApiResponseUserResponse;
 import io.tapstate.cloud.sdk.model.ApiResponseVoid;
 import io.tapstate.cloud.sdk.model.EmailCodeRequest;
 import io.tapstate.cloud.sdk.model.EmailRegistrationRequest;
 import io.tapstate.cloud.sdk.model.LoginRequest;
 import io.tapstate.cloud.sdk.model.OAuthStartRequest;
-import io.tapstate.cloud.sdk.model.ReauthenticationRequest;
 import io.tapstate.cloud.sdk.model.RegisterRequest;
 
 
@@ -56,8 +55,8 @@ public class AuthApi extends BaseApi {
   }
 
   /**
-   * Accept an invitation as an existing user
-   * Adds the authenticated user to the invitation&#39;s organization without creating a duplicate account.
+   * Accept an organization invitation
+   * Adds the authenticated existing account to the invitation&#39;s organization.
    * @param acceptInvitationRequest  (required)
    * @return ApiResponseLoginResult
    * @throws ApiException if fails to make API call
@@ -68,8 +67,8 @@ public class AuthApi extends BaseApi {
 
 
   /**
-   * Accept an invitation as an existing user
-   * Adds the authenticated user to the invitation&#39;s organization without creating a duplicate account.
+   * Accept an organization invitation
+   * Adds the authenticated existing account to the invitation&#39;s organization.
    * @param acceptInvitationRequest  (required)
    * @param additionalHeaders additionalHeaders for this call
    * @return ApiResponseLoginResult
@@ -183,7 +182,7 @@ public class AuthApi extends BaseApi {
     };
     final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
 
-    String[] localVarAuthNames = new String[] {  };
+    String[] localVarAuthNames = new String[] { "session-cookie" };
 
     TypeReference<ApiResponseAccessType> localVarReturnType = new TypeReference<ApiResponseAccessType>() {};
     return apiClient.invokeAPI(
@@ -205,7 +204,7 @@ public class AuthApi extends BaseApi {
 
   /**
    * Issue a single-use trial code
-   * Restricted to the configured trial issuer. The raw code is returned once.
+   * 
    * @return ApiResponseTrialCode
    * @throws ApiException if fails to make API call
    */
@@ -216,7 +215,7 @@ public class AuthApi extends BaseApi {
 
   /**
    * Issue a single-use trial code
-   * Restricted to the configured trial issuer. The raw code is returned once.
+   * 
    * @param additionalHeaders additionalHeaders for this call
    * @return ApiResponseTrialCode
    * @throws ApiException if fails to make API call
@@ -256,73 +255,6 @@ public class AuthApi extends BaseApi {
     return apiClient.invokeAPI(
         localVarPath,
         "POST",
-        localVarQueryParams,
-        localVarCollectionQueryParams,
-        localVarQueryStringJoiner.toString(),
-        localVarPostBody,
-        localVarHeaderParams,
-        localVarCookieParams,
-        localVarFormParams,
-        localVarAccept,
-        localVarContentType,
-        localVarAuthNames,
-        localVarReturnType
-    );
-  }
-
-  /**
-   * List linked sign-in identities
-   * 
-   * @return ApiResponseListIdentityView
-   * @throws ApiException if fails to make API call
-   */
-  public ApiResponseListIdentityView listIdentities() throws ApiException {
-    return this.listIdentities(Collections.emptyMap());
-  }
-
-
-  /**
-   * List linked sign-in identities
-   * 
-   * @param additionalHeaders additionalHeaders for this call
-   * @return ApiResponseListIdentityView
-   * @throws ApiException if fails to make API call
-   */
-  public ApiResponseListIdentityView listIdentities(Map<String, String> additionalHeaders) throws ApiException {
-    Object localVarPostBody = null;
-    
-    // create path and map variables
-    String localVarPath = "/v1/api/auth/identities";
-
-    StringJoiner localVarQueryStringJoiner = new StringJoiner("&");
-    String localVarQueryParameterBaseName;
-    List<Pair> localVarQueryParams = new ArrayList<Pair>();
-    List<Pair> localVarCollectionQueryParams = new ArrayList<Pair>();
-    Map<String, String> localVarHeaderParams = new HashMap<String, String>();
-    Map<String, String> localVarCookieParams = new HashMap<String, String>();
-    Map<String, Object> localVarFormParams = new HashMap<String, Object>();
-
-    
-    localVarHeaderParams.putAll(additionalHeaders);
-
-    
-    
-    final String[] localVarAccepts = {
-      "*/*"
-    };
-    final String localVarAccept = apiClient.selectHeaderAccept(localVarAccepts);
-
-    final String[] localVarContentTypes = {
-      
-    };
-    final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
-
-    String[] localVarAuthNames = new String[] { "session-cookie" };
-
-    TypeReference<ApiResponseListIdentityView> localVarReturnType = new TypeReference<ApiResponseListIdentityView>() {};
-    return apiClient.invokeAPI(
-        localVarPath,
-        "GET",
         localVarQueryParams,
         localVarCollectionQueryParams,
         localVarQueryStringJoiner.toString(),
@@ -546,82 +478,8 @@ public class AuthApi extends BaseApi {
   }
 
   /**
-   * Reauthenticate before linking a provider identity
-   * 
-   * @param reauthenticationRequest  (required)
-   * @return ApiResponseVoid
-   * @throws ApiException if fails to make API call
-   */
-  public ApiResponseVoid reauthenticate(@jakarta.annotation.Nonnull ReauthenticationRequest reauthenticationRequest) throws ApiException {
-    return this.reauthenticate(reauthenticationRequest, Collections.emptyMap());
-  }
-
-
-  /**
-   * Reauthenticate before linking a provider identity
-   * 
-   * @param reauthenticationRequest  (required)
-   * @param additionalHeaders additionalHeaders for this call
-   * @return ApiResponseVoid
-   * @throws ApiException if fails to make API call
-   */
-  public ApiResponseVoid reauthenticate(@jakarta.annotation.Nonnull ReauthenticationRequest reauthenticationRequest, Map<String, String> additionalHeaders) throws ApiException {
-    Object localVarPostBody = reauthenticationRequest;
-    
-    // verify the required parameter 'reauthenticationRequest' is set
-    if (reauthenticationRequest == null) {
-      throw new ApiException(400, "Missing the required parameter 'reauthenticationRequest' when calling reauthenticate");
-    }
-    
-    // create path and map variables
-    String localVarPath = "/v1/api/auth/identities/reauthenticate";
-
-    StringJoiner localVarQueryStringJoiner = new StringJoiner("&");
-    String localVarQueryParameterBaseName;
-    List<Pair> localVarQueryParams = new ArrayList<Pair>();
-    List<Pair> localVarCollectionQueryParams = new ArrayList<Pair>();
-    Map<String, String> localVarHeaderParams = new HashMap<String, String>();
-    Map<String, String> localVarCookieParams = new HashMap<String, String>();
-    Map<String, Object> localVarFormParams = new HashMap<String, Object>();
-
-    
-    localVarHeaderParams.putAll(additionalHeaders);
-
-    
-    
-    final String[] localVarAccepts = {
-      "*/*"
-    };
-    final String localVarAccept = apiClient.selectHeaderAccept(localVarAccepts);
-
-    final String[] localVarContentTypes = {
-      "application/json"
-    };
-    final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
-
-    String[] localVarAuthNames = new String[] { "session-cookie" };
-
-    TypeReference<ApiResponseVoid> localVarReturnType = new TypeReference<ApiResponseVoid>() {};
-    return apiClient.invokeAPI(
-        localVarPath,
-        "POST",
-        localVarQueryParams,
-        localVarCollectionQueryParams,
-        localVarQueryStringJoiner.toString(),
-        localVarPostBody,
-        localVarHeaderParams,
-        localVarCookieParams,
-        localVarFormParams,
-        localVarAccept,
-        localVarContentType,
-        localVarAuthNames,
-        localVarReturnType
-    );
-  }
-
-  /**
    * Reject open registration
-   * New accounts require an organization invitation and email verification.
+   * Open registration is disabled. New accounts require an organization invitation and email verification.
    * @param registerRequest  (required)
    * @throws ApiException if fails to make API call
    */
@@ -632,7 +490,7 @@ public class AuthApi extends BaseApi {
 
   /**
    * Reject open registration
-   * New accounts require an organization invitation and email verification.
+   * Open registration is disabled. New accounts require an organization invitation and email verification.
    * @param registerRequest  (required)
    * @param additionalHeaders additionalHeaders for this call
    * @throws ApiException if fails to make API call
@@ -671,7 +529,7 @@ public class AuthApi extends BaseApi {
     };
     final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
 
-    String[] localVarAuthNames = new String[] {  };
+    String[] localVarAuthNames = new String[] { "session-cookie" };
 
     apiClient.invokeAPI(
         localVarPath,
@@ -692,7 +550,7 @@ public class AuthApi extends BaseApi {
 
   /**
    * Complete email registration
-   * Verifies the one-time code and creates the account and organization membership. An invitation is required while trial-code registration is enabled.
+   * Verifies the one-time code and creates the account and organization membership. A valid invitation is required while trial-code registration is enabled.
    * @param emailRegistrationRequest  (required)
    * @return ApiResponseLoginResult
    * @throws ApiException if fails to make API call
@@ -704,7 +562,7 @@ public class AuthApi extends BaseApi {
 
   /**
    * Complete email registration
-   * Verifies the one-time code and creates the account and organization membership. An invitation is required while trial-code registration is enabled.
+   * Verifies the one-time code and creates the account and organization membership. A valid invitation is required while trial-code registration is enabled.
    * @param emailRegistrationRequest  (required)
    * @param additionalHeaders additionalHeaders for this call
    * @return ApiResponseLoginResult
@@ -744,7 +602,7 @@ public class AuthApi extends BaseApi {
     };
     final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
 
-    String[] localVarAuthNames = new String[] {  };
+    String[] localVarAuthNames = new String[] { "session-cookie" };
 
     TypeReference<ApiResponseLoginResult> localVarReturnType = new TypeReference<ApiResponseLoginResult>() {};
     return apiClient.invokeAPI(
@@ -811,7 +669,7 @@ public class AuthApi extends BaseApi {
     };
     final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
 
-    String[] localVarAuthNames = new String[] {  };
+    String[] localVarAuthNames = new String[] { "session-cookie" };
 
     TypeReference<ApiResponseRegistrationPolicy> localVarReturnType = new TypeReference<ApiResponseRegistrationPolicy>() {};
     return apiClient.invokeAPI(
@@ -832,8 +690,8 @@ public class AuthApi extends BaseApi {
   }
 
   /**
-   * Request an email verification code
-   * Sends a short-lived, one-time code. The response does not disclose whether the address already has an account.
+   * Send an email verification code
+   * Requests an email code for a valid invitation, or for open self-registration when trial codes are not required.
    * @param emailCodeRequest  (required)
    * @return ApiResponseVoid
    * @throws ApiException if fails to make API call
@@ -844,8 +702,8 @@ public class AuthApi extends BaseApi {
 
 
   /**
-   * Request an email verification code
-   * Sends a short-lived, one-time code. The response does not disclose whether the address already has an account.
+   * Send an email verification code
+   * Requests an email code for a valid invitation, or for open self-registration when trial codes are not required.
    * @param emailCodeRequest  (required)
    * @param additionalHeaders additionalHeaders for this call
    * @return ApiResponseVoid
@@ -885,7 +743,7 @@ public class AuthApi extends BaseApi {
     };
     final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
 
-    String[] localVarAuthNames = new String[] {  };
+    String[] localVarAuthNames = new String[] { "session-cookie" };
 
     TypeReference<ApiResponseVoid> localVarReturnType = new TypeReference<ApiResponseVoid>() {};
     return apiClient.invokeAPI(
@@ -906,8 +764,8 @@ public class AuthApi extends BaseApi {
   }
 
   /**
-   * Start Google or GitHub OAuth sign-in
-   * Stores only a hash of the invitation in the server session and returns the provider authorization path.
+   * Start Google or GitHub sign-in
+   * Stores a hashed invitation or identity-link intent in the server session and returns the provider authorization path.
    * @param provider  (required)
    * @param oauthStartRequest  (required)
    * @return ApiResponseOAuthStartResult
@@ -919,8 +777,8 @@ public class AuthApi extends BaseApi {
 
 
   /**
-   * Start Google or GitHub OAuth sign-in
-   * Stores only a hash of the invitation in the server session and returns the provider authorization path.
+   * Start Google or GitHub sign-in
+   * Stores a hashed invitation or identity-link intent in the server session and returns the provider authorization path.
    * @param provider  (required)
    * @param oauthStartRequest  (required)
    * @param additionalHeaders additionalHeaders for this call

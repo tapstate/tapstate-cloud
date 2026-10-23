@@ -34,49 +34,14 @@ import java.util.StringJoiner;
 })
 @jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", comments = "Generator version: 7.25.0")
 public class AccessType {
-  /**
-   * Gets or Sets type
-   */
-  public enum TypeEnum {
-    TRIAL(String.valueOf("trial")),
-    
-    ORGANIZATION(String.valueOf("organization"));
-
-    private String value;
-
-    TypeEnum(String value) {
-      this.value = value;
-    }
-
-    @JsonValue
-    public String getValue() {
-      return value;
-    }
-
-    @Override
-    public String toString() {
-      return String.valueOf(value);
-    }
-
-    @JsonCreator
-    public static TypeEnum fromValue(String value) {
-      for (TypeEnum b : TypeEnum.values()) {
-        if (b.value.equals(value)) {
-          return b;
-        }
-      }
-      throw new IllegalArgumentException("Unexpected value '" + value + "'");
-    }
-  }
-
   public static final String JSON_PROPERTY_TYPE = "type";
   @jakarta.annotation.Nullable
-  private TypeEnum type;
+  private String type;
 
   public AccessType() {
   }
 
-  public AccessType type(@jakarta.annotation.Nullable TypeEnum type) {
+  public AccessType type(@jakarta.annotation.Nullable String type) {
     
     this.type = type;
     return this;
@@ -90,14 +55,14 @@ public class AccessType {
   @JsonProperty(value = JSON_PROPERTY_TYPE, required = false)
   @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
 
-  public TypeEnum getType() {
+  public String getType() {
     return type;
   }
 
 
   @JsonProperty(value = JSON_PROPERTY_TYPE, required = false)
   @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
-  public void setType(@jakarta.annotation.Nullable TypeEnum type) {
+  public void setType(@jakarta.annotation.Nullable String type) {
     this.type = type;
   }
 

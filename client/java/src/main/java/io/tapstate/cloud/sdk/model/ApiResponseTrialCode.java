@@ -28,15 +28,20 @@ import java.net.URLEncoder;
 import java.util.StringJoiner;
 
 /**
- * ApiResponseTrialCode
+ * Global API response envelope
  */
 @JsonPropertyOrder({
+  ApiResponseTrialCode.JSON_PROPERTY_OP_ID,
   ApiResponseTrialCode.JSON_PROPERTY_CODE,
   ApiResponseTrialCode.JSON_PROPERTY_MSG,
   ApiResponseTrialCode.JSON_PROPERTY_DATA
 })
 @jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", comments = "Generator version: 7.25.0")
 public class ApiResponseTrialCode {
+  public static final String JSON_PROPERTY_OP_ID = "opId";
+  @jakarta.annotation.Nullable
+  private String opId;
+
   public static final String JSON_PROPERTY_CODE = "code";
   @jakarta.annotation.Nullable
   private String code;
@@ -52,6 +57,31 @@ public class ApiResponseTrialCode {
   public ApiResponseTrialCode() {
   }
 
+  public ApiResponseTrialCode opId(@jakarta.annotation.Nullable String opId) {
+    
+    this.opId = opId;
+    return this;
+  }
+
+  /**
+   * Request correlation ID — unique per request
+   * @return opId
+   */
+  @jakarta.annotation.Nullable
+  @JsonProperty(value = JSON_PROPERTY_OP_ID, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+
+  public String getOpId() {
+    return opId;
+  }
+
+
+  @JsonProperty(value = JSON_PROPERTY_OP_ID, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+  public void setOpId(@jakarta.annotation.Nullable String opId) {
+    this.opId = opId;
+  }
+
   public ApiResponseTrialCode code(@jakarta.annotation.Nullable String code) {
     
     this.code = code;
@@ -59,7 +89,7 @@ public class ApiResponseTrialCode {
   }
 
   /**
-   * Get code
+   * Business result code — &#39;ok&#39; on success, error code on failure
    * @return code
    */
   @jakarta.annotation.Nullable
@@ -84,7 +114,7 @@ public class ApiResponseTrialCode {
   }
 
   /**
-   * Get msg
+   * Detailed message — success info or failure reason
    * @return msg
    */
   @jakarta.annotation.Nullable
@@ -109,7 +139,7 @@ public class ApiResponseTrialCode {
   }
 
   /**
-   * Get data
+   * Response payload — object or array, null on void responses
    * @return data
    */
   @jakarta.annotation.Nullable
@@ -137,20 +167,22 @@ public class ApiResponseTrialCode {
       return false;
     }
     ApiResponseTrialCode apiResponseTrialCode = (ApiResponseTrialCode) o;
-    return Objects.equals(this.code, apiResponseTrialCode.code) &&
+    return Objects.equals(this.opId, apiResponseTrialCode.opId) &&
+        Objects.equals(this.code, apiResponseTrialCode.code) &&
         Objects.equals(this.msg, apiResponseTrialCode.msg) &&
         Objects.equals(this.data, apiResponseTrialCode.data);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(code, msg, data);
+    return Objects.hash(opId, code, msg, data);
   }
 
   @Override
   public String toString() {
     StringBuilder sb = new StringBuilder();
     sb.append("class ApiResponseTrialCode {\n");
+    sb.append("    opId: ").append(toIndentedString(opId)).append("\n");
     sb.append("    code: ").append(toIndentedString(code)).append("\n");
     sb.append("    msg: ").append(toIndentedString(msg)).append("\n");
     sb.append("    data: ").append(toIndentedString(data)).append("\n");
@@ -197,6 +229,16 @@ public class ApiResponseTrialCode {
     }
 
     StringJoiner joiner = new StringJoiner("&");
+
+    // add `opId` to the URL query string
+    if (getOpId() != null) {
+      try {
+        joiner.add(String.format(java.util.Locale.ROOT, "%sopId%s=%s", prefix, suffix, URLEncoder.encode(String.valueOf(getOpId()), "UTF-8").replaceAll("\\+", "%20")));
+      } catch (UnsupportedEncodingException e) {
+        // Should never happen, UTF-8 is always supported
+        throw new RuntimeException(e);
+      }
+    }
 
     // add `code` to the URL query string
     if (getCode() != null) {

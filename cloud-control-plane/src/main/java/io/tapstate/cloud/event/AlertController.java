@@ -1,5 +1,6 @@
 package io.tapstate.cloud.event;
 
+import io.swagger.v3.oas.annotations.Operation;
 import io.tapstate.cloud.common.CurrentUser;
 import io.tapstate.cloud.common.api.ApiResponse;
 import io.tapstate.cloud.common.api.AppErrorCode;
@@ -25,6 +26,7 @@ public class AlertController extends BaseController {
     private final AlertQueryService alertQueryService;
     private final OrgAccessService orgAccessService;
 
+    @Operation(operationId = "listAlerts")
     @GetMapping
     public ResponseEntity<ApiResponse<List<AlertResponse>>> list(
             @PathVariable String orgId,
@@ -40,6 +42,7 @@ public class AlertController extends BaseController {
         return ok(body);
     }
 
+    @Operation(operationId = "getAlert")
     @GetMapping("/{alertId}")
     public ResponseEntity<ApiResponse<AlertResponse>> get(
             @PathVariable String orgId,

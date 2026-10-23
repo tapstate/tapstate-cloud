@@ -53,7 +53,7 @@ public class CreateCheckoutRequest {
   }
 
   /**
-   * Platform spec key to purchase
+   * Get specKey
    * @return specKey
    */
   @jakarta.annotation.Nonnull
@@ -78,7 +78,7 @@ public class CreateCheckoutRequest {
   }
 
   /**
-   * Idempotency key — a retry with the same value must not create a second Subscription
+   * Get clientRequestId
    * @return clientRequestId
    */
   @jakarta.annotation.Nullable

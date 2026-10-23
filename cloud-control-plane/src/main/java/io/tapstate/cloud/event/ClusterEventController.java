@@ -52,6 +52,7 @@ public class ClusterEventController extends BaseController {
 
     @PostMapping
     @Operation(
+        operationId = "ingestClusterEvent",
         summary = "Push a runtime Cluster event into the event center",
         description = "Accepts task failures/interruptions, data validation results and other runtime " +
                       "occurrences. The event is stored, then evaluated against the organization's " +

@@ -58,7 +58,7 @@ public class CheckoutResponse {
   }
 
   /**
-   * The PENDING_PAYMENT Subscription created by this call
+   * PENDING_PAYMENT Subscription UUID
    * @return subscriptionId
    */
   @jakarta.annotation.Nullable
@@ -83,7 +83,7 @@ public class CheckoutResponse {
   }
 
   /**
-   * Subscription status — always PENDING_PAYMENT here
+   * Subscription status (PENDING_PAYMENT)
    * @return status
    */
   @jakarta.annotation.Nullable
@@ -108,7 +108,7 @@ public class CheckoutResponse {
   }
 
   /**
-   * Stripe-hosted Checkout URL the caller redirects the user to
+   * Stripe-hosted Checkout redirect URL — Console redirects the user here
    * @return checkoutUrl
    */
   @jakarta.annotation.Nullable

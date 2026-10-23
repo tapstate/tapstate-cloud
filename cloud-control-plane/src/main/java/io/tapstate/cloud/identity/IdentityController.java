@@ -1,5 +1,6 @@
 package io.tapstate.cloud.identity;
 
+import io.swagger.v3.oas.annotations.Operation;
 import io.tapstate.cloud.common.CurrentUser;
 import io.tapstate.cloud.common.api.ApiResponse;
 import io.tapstate.cloud.common.api.AppErrorCode;
@@ -30,6 +31,7 @@ public class IdentityController extends BaseController {
     private final UserRepository users;
     private final PasswordEncoder passwordEncoder;
 
+    @Operation(operationId = "listIdentities")
     @GetMapping
     public ResponseEntity<ApiResponse<List<IdentityView>>> list(HttpServletRequest request) {
         String email = CurrentUser.getEmail();
