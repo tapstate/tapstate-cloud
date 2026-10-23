@@ -22,6 +22,7 @@ import io.tapstate.cloud.sdk.Pair;
 
 import io.tapstate.cloud.sdk.model.ApiResponseEventPageResponse;
 import io.tapstate.cloud.sdk.model.ApiResponseEventResponse;
+import io.tapstate.cloud.sdk.model.ApiResponseListString;
 
 
 import java.util.ArrayList;
@@ -108,6 +109,84 @@ public class EventControllerApi extends BaseApi {
     String[] localVarAuthNames = new String[] { "session-cookie" };
 
     TypeReference<ApiResponseEventResponse> localVarReturnType = new TypeReference<ApiResponseEventResponse>() {};
+    return apiClient.invokeAPI(
+        localVarPath,
+        "GET",
+        localVarQueryParams,
+        localVarCollectionQueryParams,
+        localVarQueryStringJoiner.toString(),
+        localVarPostBody,
+        localVarHeaderParams,
+        localVarCookieParams,
+        localVarFormParams,
+        localVarAccept,
+        localVarContentType,
+        localVarAuthNames,
+        localVarReturnType
+    );
+  }
+
+  /**
+   * 
+   * 
+   * @param orgId  (required)
+   * @param q  (optional)
+   * @return ApiResponseListString
+   * @throws ApiException if fails to make API call
+   */
+  public ApiResponseListString listEventTypes(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nullable String q) throws ApiException {
+    return this.listEventTypes(orgId, q, Collections.emptyMap());
+  }
+
+
+  /**
+   * 
+   * 
+   * @param orgId  (required)
+   * @param q  (optional)
+   * @param additionalHeaders additionalHeaders for this call
+   * @return ApiResponseListString
+   * @throws ApiException if fails to make API call
+   */
+  public ApiResponseListString listEventTypes(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nullable String q, Map<String, String> additionalHeaders) throws ApiException {
+    Object localVarPostBody = null;
+    
+    // verify the required parameter 'orgId' is set
+    if (orgId == null) {
+      throw new ApiException(400, "Missing the required parameter 'orgId' when calling listEventTypes");
+    }
+    
+    // create path and map variables
+    String localVarPath = "/v1/api/orgs/{orgId}/events/types"
+      .replaceAll("\\{" + "orgId" + "\\}", apiClient.escapeString(apiClient.parameterToString(orgId)));
+
+    StringJoiner localVarQueryStringJoiner = new StringJoiner("&");
+    String localVarQueryParameterBaseName;
+    List<Pair> localVarQueryParams = new ArrayList<Pair>();
+    List<Pair> localVarCollectionQueryParams = new ArrayList<Pair>();
+    Map<String, String> localVarHeaderParams = new HashMap<String, String>();
+    Map<String, String> localVarCookieParams = new HashMap<String, String>();
+    Map<String, Object> localVarFormParams = new HashMap<String, Object>();
+
+    localVarQueryParams.addAll(apiClient.parameterToPair("q", q));
+    
+    localVarHeaderParams.putAll(additionalHeaders);
+
+    
+    
+    final String[] localVarAccepts = {
+      "*/*"
+    };
+    final String localVarAccept = apiClient.selectHeaderAccept(localVarAccepts);
+
+    final String[] localVarContentTypes = {
+      
+    };
+    final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
+
+    String[] localVarAuthNames = new String[] { "session-cookie" };
+
+    TypeReference<ApiResponseListString> localVarReturnType = new TypeReference<ApiResponseListString>() {};
     return apiClient.invokeAPI(
         localVarPath,
         "GET",

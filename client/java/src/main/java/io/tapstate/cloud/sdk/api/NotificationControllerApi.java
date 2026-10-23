@@ -20,7 +20,7 @@ import io.tapstate.cloud.sdk.BaseApi;
 import io.tapstate.cloud.sdk.Configuration;
 import io.tapstate.cloud.sdk.Pair;
 
-import io.tapstate.cloud.sdk.model.ApiResponseListNotificationDeliveryResponse;
+import io.tapstate.cloud.sdk.model.ApiResponseNotificationDeliveryPage;
 import io.tapstate.cloud.sdk.model.ApiResponseNotificationDeliveryResponse;
 
 
@@ -129,11 +129,13 @@ public class NotificationControllerApi extends BaseApi {
    * 
    * 
    * @param orgId  (required)
-   * @return ApiResponseListNotificationDeliveryResponse
+   * @param page  (optional, default to 0)
+   * @param size  (optional, default to 20)
+   * @return ApiResponseNotificationDeliveryPage
    * @throws ApiException if fails to make API call
    */
-  public ApiResponseListNotificationDeliveryResponse listNotificationDeliveries(@jakarta.annotation.Nonnull String orgId) throws ApiException {
-    return this.listNotificationDeliveries(orgId, Collections.emptyMap());
+  public ApiResponseNotificationDeliveryPage listNotificationDeliveries(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nullable Integer page, @jakarta.annotation.Nullable Integer size) throws ApiException {
+    return this.listNotificationDeliveries(orgId, page, size, Collections.emptyMap());
   }
 
 
@@ -141,11 +143,13 @@ public class NotificationControllerApi extends BaseApi {
    * 
    * 
    * @param orgId  (required)
+   * @param page  (optional, default to 0)
+   * @param size  (optional, default to 20)
    * @param additionalHeaders additionalHeaders for this call
-   * @return ApiResponseListNotificationDeliveryResponse
+   * @return ApiResponseNotificationDeliveryPage
    * @throws ApiException if fails to make API call
    */
-  public ApiResponseListNotificationDeliveryResponse listNotificationDeliveries(@jakarta.annotation.Nonnull String orgId, Map<String, String> additionalHeaders) throws ApiException {
+  public ApiResponseNotificationDeliveryPage listNotificationDeliveries(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nullable Integer page, @jakarta.annotation.Nullable Integer size, Map<String, String> additionalHeaders) throws ApiException {
     Object localVarPostBody = null;
     
     // verify the required parameter 'orgId' is set
@@ -165,6 +169,8 @@ public class NotificationControllerApi extends BaseApi {
     Map<String, String> localVarCookieParams = new HashMap<String, String>();
     Map<String, Object> localVarFormParams = new HashMap<String, Object>();
 
+    localVarQueryParams.addAll(apiClient.parameterToPair("page", page));
+    localVarQueryParams.addAll(apiClient.parameterToPair("size", size));
     
     localVarHeaderParams.putAll(additionalHeaders);
 
@@ -182,7 +188,7 @@ public class NotificationControllerApi extends BaseApi {
 
     String[] localVarAuthNames = new String[] { "session-cookie" };
 
-    TypeReference<ApiResponseListNotificationDeliveryResponse> localVarReturnType = new TypeReference<ApiResponseListNotificationDeliveryResponse>() {};
+    TypeReference<ApiResponseNotificationDeliveryPage> localVarReturnType = new TypeReference<ApiResponseNotificationDeliveryPage>() {};
     return apiClient.invokeAPI(
         localVarPath,
         "GET",

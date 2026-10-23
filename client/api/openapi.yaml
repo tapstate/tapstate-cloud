@@ -44,8 +44,6 @@ tags:
     exchange_code; /auth/exchange (handled by ExchangeController) atomically redeems
     it for a resolve JWT. JWKS endpoint publishes public key for runtime offline JWT
     verification.
-- name: Auth
-  description: Cloud Console authentication, session management and trial access
 - name: Cluster Versions
   description: "Published Cluster versions — listing for console, publish/delist for\
     \ operators"
@@ -59,6 +57,8 @@ tags:
   description: Health check endpoints
 - name: Organizations
   description: Organization management — isolation boundary for Clusters
+- name: Auth
+  description: "Cloud Console authentication, session management and trial access"
 - name: Subscription
   description: Organization subscriptions — each subscription provisions one Cluster
     + one MDB allocation
@@ -1416,6 +1416,29 @@ paths:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseEventResponse"
+  /v1/api/orgs/{orgId}/events/types:
+    get:
+      tags:
+      - event-controller
+      operationId: listEventTypes
+      parameters:
+      - name: orgId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: q
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseListString"
   /v1/api/orgs/{orgId}/deliveries:
     get:
       tags:
@@ -1427,13 +1450,27 @@ paths:
         required: true
         schema:
           type: string
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int32
+          default: 0
+      - name: size
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int32
+          default: 20
       responses:
         "200":
           description: OK
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/ApiResponseListNotificationDeliveryResponse"
+                $ref: "#/components/schemas/ApiResponseNotificationDeliveryPage"
   /v1/api/orgs/{orgId}/deliveries/{deliveryId}:
     get:
       tags:
@@ -3066,7 +3103,7 @@ components:
             $ref: "#/components/schemas/EventResponse"
         nextCursor:
           type: string
-    ApiResponseListNotificationDeliveryResponse:
+    ApiResponseListString:
       type: object
       description: Global API response envelope
       properties:
@@ -3085,7 +3122,41 @@ components:
           type: array
           description: "Response payload — object or array, null on void responses"
           items:
+            type: string
+    ApiResponseNotificationDeliveryPage:
+      type: object
+      description: Global API response envelope
+      properties:
+        opId:
+          type: string
+          description: Request correlation ID — unique per request
+          example: 3f2a1b4c-5d6e-7f8a-9b0c-1d2e3f4a5b6c
+        code:
+          type: string
+          description: "Business result code — 'ok' on success, error code on failure"
+          example: ok
+        msg:
+          type: string
+          description: Detailed message — success info or failure reason
+        data:
+          $ref: "#/components/schemas/NotificationDeliveryPage"
+          description: "Response payload — object or array, null on void responses"
+    NotificationDeliveryPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
             $ref: "#/components/schemas/NotificationDeliveryResponse"
+        page:
+          type: integer
+          format: int32
+        size:
+          type: integer
+          format: int32
+        total:
+          type: integer
+          format: int64
     NotificationDeliveryResponse:
       type: object
       properties:
