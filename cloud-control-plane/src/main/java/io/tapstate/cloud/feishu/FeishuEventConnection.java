@@ -18,7 +18,9 @@ import org.springframework.stereotype.Component;
 @ConditionalOnProperty(name = "FEISHU_LONG_CONNECTION_ENABLED", havingValue = "true")
 public class FeishuEventConnection {
     private final Client client;
+    private boolean closed;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public FeishuEventConnection(FeishuInviteController commands,
             @Value("${FEISHU_BOT_APP_ID}") String appId,
             @Value("${FEISHU_BOT_APP_SECRET}") String appSecret) {
@@ -37,13 +39,31 @@ public class FeishuEventConnection {
         client = new Client.Builder(appId, appSecret).eventHandler(dispatcher).build();
     }
 
+    FeishuEventConnection(Client client) {
+        this.client = client;
+    }
+
     @EventListener(ApplicationReadyEvent.class)
     public void start() {
-        Thread.ofVirtual().name("feishu-event-connection").start(client::start);
+        Thread.ofVirtual().name("feishu-event-connection").start(() -> {
+            synchronized (this) {
+                if (!closed) client.start();
+            }
+        });
     }
 
     @PreDestroy
-    public void close() {
+    public synchronized void close() {
+        closed = true;
         client.close();
+        // SDK 2.8.7 close() leaves its protected executor alive. Keep this
+        // compatibility cleanup pinned to that version and covered by a test.
+        try {
+            var field = Client.class.getDeclaredField("executor");
+            field.setAccessible(true);
+            ((java.util.concurrent.ExecutorService) field.get(client)).shutdownNow();
+        } catch (ReflectiveOperationException incompatibleSdk) {
+            throw new IllegalStateException("Feishu SDK executor lifecycle contract changed", incompatibleSdk);
+        }
     }
 }
