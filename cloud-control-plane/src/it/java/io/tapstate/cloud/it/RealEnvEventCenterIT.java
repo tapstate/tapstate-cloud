@@ -190,7 +190,7 @@ class RealEnvEventCenterIT extends RealEnvIT {
         for (int attempt = 0; attempt < 40; attempt++) {
             HttpResponse<String> response = get("/v1/api/orgs/" + orgId + "/deliveries");
             assertEquals(200, response.statusCode(), response.body());
-            for (JsonNode row : JSON.readTree(response.body()).get("data")) {
+            for (JsonNode row : deliveryItems(JSON.readTree(response.body()).get("data"))) {
                 if (!alertId.equals(row.get("alertId").asText())
                         || !mailbox.equals(row.get("recipient").asText())) {
                     continue;
@@ -209,6 +209,15 @@ class RealEnvEventCenterIT extends RealEnvIT {
         }
         throw new AssertionError("no delivery row for " + mailbox + " after 120s; states seen=" + seen
             + " last=" + last);
+    }
+
+    /**
+     * The deployed control plane may still serve the pre-pagination delivery
+     * list while this branch is being verified, so accept both shapes. The
+     * paged shape is asserted by {@code EventCenterIT} against a local app.
+     */
+    private JsonNode deliveryItems(JsonNode data) {
+        return data.isArray() ? data : data.get("items");
     }
 
     private HttpResponse<String> get(String path) throws Exception {

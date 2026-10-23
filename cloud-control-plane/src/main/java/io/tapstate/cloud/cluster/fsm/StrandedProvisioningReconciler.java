@@ -8,11 +8,17 @@ import io.tapstate.cloud.cluster.ProvisionErrorCode;
 import io.tapstate.cloud.event.EventCenterService;
 import io.tapstate.cloud.event.EventIngestRequest;
 import io.tapstate.cloud.event.EventSeverity;
+import io.tapstate.cloud.mdb.MdbAllocation;
+import io.tapstate.cloud.mdb.MdbAllocationRepository;
+import io.tapstate.cloud.mdb.MdbAllocationStatus;
+import io.tapstate.cloud.mdb.fsm.MdbAllocationEventType;
+import io.tapstate.cloud.mdb.fsm.MdbAllocationStateMachineService;
 import io.tapstate.cloud.progress.DeploymentOpType;
 import io.tapstate.cloud.progress.DeploymentStep;
 import io.tapstate.cloud.progress.DeploymentStepRecorder;
 import io.tapstate.cloud.progress.DeploymentStepRepository;
 import lombok.extern.slf4j.Slf4j;
+import org.bson.types.ObjectId;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -20,7 +26,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 /**
  * Converges a Cluster whose provisioning driver is gone.
@@ -82,19 +87,25 @@ public class StrandedProvisioningReconciler {
     private final ClusterPartialWriter clusterPartialWriter;
     private final ClusterStateMachineService clusterStateMachineService;
     private final EventCenterService eventCenterService;
+    private final MdbAllocationRepository mdbAllocationRepository;
+    private final MdbAllocationStateMachineService mdbAllocationFsm;
 
     public StrandedProvisioningReconciler(ClusterRepository clusterRepository,
                                          DeploymentStepRepository stepRepository,
                                          DeploymentStepRecorder recorder,
                                          ClusterPartialWriter clusterPartialWriter,
                                          ClusterStateMachineService clusterStateMachineService,
-                                         EventCenterService eventCenterService) {
+                                         EventCenterService eventCenterService,
+                                         MdbAllocationRepository mdbAllocationRepository,
+                                         MdbAllocationStateMachineService mdbAllocationFsm) {
         this.clusterRepository = clusterRepository;
         this.stepRepository = stepRepository;
         this.recorder = recorder;
         this.clusterPartialWriter = clusterPartialWriter;
         this.clusterStateMachineService = clusterStateMachineService;
         this.eventCenterService = eventCenterService;
+        this.mdbAllocationRepository = mdbAllocationRepository;
+        this.mdbAllocationFsm = mdbAllocationFsm;
     }
 
     /**
@@ -109,21 +120,21 @@ public class StrandedProvisioningReconciler {
         int restarted = 0;
 
         for (Cluster cluster : clusterRepository.findByState(ClusterState.PROVISIONING)) {
-            Optional<Instant> lastActivity = lastStepActivity(cluster);
-            if (lastActivity.isEmpty() || !lastActivity.get().isBefore(deadline)) {
+            Instant lastActivity = lastActivityFor(cluster);
+            if (!lastActivity.isBefore(deadline)) {
                 continue;
             }
-            if (failStranded(cluster, lastActivity.get())) {
+            if (failStranded(cluster, lastActivity)) {
                 failed++;
             }
         }
 
         for (Cluster cluster : clusterRepository.findByState(ClusterState.PROVISIONING_PENDING)) {
-            Optional<Instant> lastActivity = lastStepActivity(cluster);
-            if (lastActivity.isEmpty() || !lastActivity.get().isBefore(deadline)) {
+            Instant lastActivity = lastActivityFor(cluster);
+            if (!lastActivity.isBefore(deadline)) {
                 continue;
             }
-            if (restartPending(cluster, lastActivity.get())) {
+            if (restartPending(cluster, lastActivity)) {
                 restarted++;
             }
         }
@@ -178,6 +189,12 @@ public class StrandedProvisioningReconciler {
      * Safe by construction: the process that schedules the run persists
      * {@code PROVISIONING} before any cloud resource is created, so a Cluster still
      * in {@code PROVISIONING_PENDING} has nothing to compensate.
+     * <p>
+     * The MdbAllocation that the subscription flow created in parallel can be
+     * stranded for the same reason — its async Atlas worker also starts before
+     * the enclosing transaction commits. We always re-drive the linked
+     * allocation to PROVISIONING when we restart the Cluster, so the parallel
+     * Atlas + IaC workers are launched together again.
      */
     private boolean restartPending(Cluster cluster, Instant lastActivity) {
         String clusterId = cluster.getId().toHexString();
@@ -187,6 +204,12 @@ public class StrandedProvisioningReconciler {
             log.warn("[Provision Reconcile] cluster={} pending run restarted ({}, lastActivity={})",
                 clusterId, result.accepted() ? "PROVISIONING" : "already moved: " + result.newState(),
                 lastActivity);
+
+            // Also restart the parallel MdbAllocation flow if it is still pending.
+            if (result.accepted() && cluster.getMdbAllocationId() != null) {
+                tryRestartMdbAllocation(cluster.getMdbAllocationId());
+            }
+
             if (result.accepted()) {
                 record(cluster, "scheduled.provisioning.restarted", EventSeverity.INFO,
                     "Cluster " + clusterId + " provisioning was restarted by the reconciler");
@@ -196,6 +219,30 @@ public class StrandedProvisioningReconciler {
             log.error("[Provision Reconcile] restarting pending cluster {} failed: {}",
                 clusterId, e.getMessage());
             return false;
+        }
+    }
+
+    /**
+     * If the linked MdbAllocation is still PROVISIONING_PENDING (never had its
+     * async Atlas worker start — the same race condition that stranded the
+     * Cluster), fire START_PROVISION here.
+     */
+    private void tryRestartMdbAllocation(ObjectId allocationId) {
+        MdbAllocation alloc = mdbAllocationRepository.findById(allocationId).orElse(null);
+        if (alloc == null) {
+            return;
+        }
+        if (alloc.getStatus() != MdbAllocationStatus.PROVISIONING_PENDING) {
+            return;
+        }
+        try {
+            mdbAllocationFsm.transition(allocationId, MdbAllocationEventType.START_PROVISION,
+                "system:provisioning-reconciler");
+            log.warn("[Provision Reconcile] mdbAllocation={} pending run restarted → PROVISIONING",
+                allocationId.toHexString());
+        } catch (Exception e) {
+            log.error("[Provision Reconcile] restarting mdbAllocation {} failed: {}",
+                allocationId.toHexString(), e.getMessage());
         }
     }
 
@@ -218,23 +265,33 @@ public class StrandedProvisioningReconciler {
     }
 
     /**
-     * Most recent activity of this Cluster's INSTALL steps, or empty when the
-     * Cluster has no step records at all — a Cluster from before the progress
-     * records existed, whose provisioning state cannot be judged from here.
+     * Most recent activity of this Cluster's INSTALL steps, falling back to the
+     * Cluster's own {@code updatedAt} when no step records exist.
+     * <p>
+     * The step records are the authoritative liveness signal — they are written
+     * only by the provisioning worker and never by C2 heartbeats. But when a
+     * worker dies so early that it never wrote a single step (for example,
+     * because the transition was still in an uncommitted transaction when it
+     * started), the Cluster itself still carries an {@code updatedAt} from the
+     * state-machine transition, which is enough to detect abandonment.
      */
-    private Optional<Instant> lastStepActivity(Cluster cluster) {
-        if (cluster.getSubscriptionId() == null) {
-            return Optional.empty();
-        }
-        List<DeploymentStep> steps = stepRepository.findBySubscriptionIdAndOpTypeOrderBySequenceAsc(
-            cluster.getSubscriptionId(), DeploymentOpType.INSTALL);
-        Instant latest = null;
-        for (DeploymentStep step : steps) {
-            Instant stamp = step.getUpdatedAt() != null ? step.getUpdatedAt() : step.getCreatedAt();
-            if (stamp != null && (latest == null || stamp.isAfter(latest))) {
-                latest = stamp;
+    private Instant lastActivityFor(Cluster cluster) {
+        if (cluster.getSubscriptionId() != null) {
+            List<DeploymentStep> steps = stepRepository.findBySubscriptionIdAndOpTypeOrderBySequenceAsc(
+                cluster.getSubscriptionId(), DeploymentOpType.INSTALL);
+            Instant latest = null;
+            for (DeploymentStep step : steps) {
+                Instant stamp = step.getUpdatedAt() != null ? step.getUpdatedAt() : step.getCreatedAt();
+                if (stamp != null && (latest == null || stamp.isAfter(latest))) {
+                    latest = stamp;
+                }
+            }
+            if (latest != null) {
+                return latest;
             }
         }
-        return Optional.ofNullable(latest);
+        // No step records — fall back to the Cluster's last update time.
+        Instant fallback = cluster.getUpdatedAt() != null ? cluster.getUpdatedAt() : cluster.getCreatedAt();
+        return fallback != null ? fallback : Instant.EPOCH;
     }
 }

@@ -506,24 +506,44 @@ public class AwsComputeInfrastructure implements ComputeInfrastructure {
         try {
             // Authorize the narrow rules first so a revocation hiccup cannot lock
             // the control plane out of a node still being provisioned.
+            // A resumed run re-observes the same egress ranges, so an already
+            // present rule is success, not a conflict.
             List<software.amazon.awssdk.services.ec2.model.IpRange> ranges = cidrs.stream()
                 .map(cidr -> software.amazon.awssdk.services.ec2.model.IpRange.builder()
                     .cidrIp(cidr).build())
                 .toList();
-            ec2.authorizeSecurityGroupIngress(b -> b
-                .groupId(securityGroupId)
-                .ipPermissions(sshPermission(ranges)));
+            try {
+                ec2.authorizeSecurityGroupIngress(b -> b
+                    .groupId(securityGroupId)
+                    .ipPermissions(sshPermission(ranges)));
+            } catch (software.amazon.awssdk.services.ec2.model.Ec2Exception e) {
+                if (!"InvalidPermission.Duplicate".equals(ec2ErrorCode(e))) {
+                    throw e;
+                }
+            }
 
-            ec2.revokeSecurityGroupIngress(b -> b
-                .groupId(securityGroupId)
-                .ipPermissions(sshPermission(
-                    List.of(software.amazon.awssdk.services.ec2.model.IpRange.builder()
-                        .cidrIp("0.0.0.0/0").build()))));
+            try {
+                ec2.revokeSecurityGroupIngress(b -> b
+                    .groupId(securityGroupId)
+                    .ipPermissions(sshPermission(
+                        List.of(software.amazon.awssdk.services.ec2.model.IpRange.builder()
+                            .cidrIp("0.0.0.0/0").build()))));
+            } catch (software.amazon.awssdk.services.ec2.model.Ec2Exception e) {
+                // A resumed run already dropped the wide-open rule; nothing to undo.
+                if (!"InvalidPermission.NotFound".equals(ec2ErrorCode(e))) {
+                    throw e;
+                }
+            }
             log.info("[AwsIaC] SSH ingress restricted sg={} cidrs={}", securityGroupId, cidrs);
         } catch (software.amazon.awssdk.services.ec2.model.Ec2Exception e) {
             throw new IacException(AppErrorCode.IAC_COMPUTE_PROVISION_FAILED, e,
                 "failed to restrict SSH ingress: " + e.getMessage());
         }
+    }
+
+    /** AWS error code of an EC2 failure, or {@code null} when absent. */
+    private static String ec2ErrorCode(software.amazon.awssdk.services.ec2.model.Ec2Exception e) {
+        return e.awsErrorDetails() != null ? e.awsErrorDetails().errorCode() : null;
     }
 
     /** Build the single port-22 permission carrying the given ranges. */

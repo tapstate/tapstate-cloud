@@ -193,11 +193,20 @@ public class ClusterProvisioningService {
                 clusterId, cluster.getRegion(), domain, tlsCertificate.getId().toHexString());
 
             // 1. Generate the per-Cluster SSH key and protect the private part.
+            // A resumed run must reuse the stored key: the node may already exist
+            // with the previous public key baked into its authorized_keys, and a
+            // rotated key can never authenticate against it.
             var generated = runStep(cluster, DeploymentOperation.GENERATE_SSH_KEY,
                 "SSH key pair generated", () -> {
+                    String masterKey = properties.getCrypto().getMasterKey();
+                    if (cluster.getSshPrivateKeyEnc() != null && !cluster.getSshPrivateKeyEnc().isBlank()
+                            && cluster.getSshPublicKey() != null && !cluster.getSshPublicKey().isBlank()) {
+                        return new SshKeyPairGenerator.GeneratedSshKeyPair(
+                            cluster.getSshPublicKey(),
+                            keyCrypto.decrypt(cluster.getSshPrivateKeyEnc(), masterKey));
+                    }
                     var keyPair = keyPairGenerator.generate();
-                    String encryptedKey = keyCrypto.encrypt(
-                        keyPair.privateKeyPem(), properties.getCrypto().getMasterKey());
+                    String encryptedKey = keyCrypto.encrypt(keyPair.privateKeyPem(), masterKey);
                     cluster.setSshPublicKey(keyPair.openSshPublicKey());
                     cluster.setSshPrivateKeyEnc(encryptedKey);
                     persist(cluster, new Update().set("sshPublicKey", cluster.getSshPublicKey())
