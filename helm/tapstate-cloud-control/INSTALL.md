@@ -213,3 +213,19 @@ curl http://localhost:30180/health
 helm upgrade tapstate-cloud-control ./helm/tapstate-cloud-control \
   -f helm/tapstate-cloud-control/values-awsprod.yaml \
   -n tapstate-cloud-control
+
+### Trial invitation bot command
+
+The existing application bot accepts the exact command `\u751f\u6210\u9080\u8bf7\u94fe\u63a5` (the Chinese phrase for generate invitation link) when mentioned
+by the configured operator. It replies in the originating chat with a single-use
+trial registration link valid for seven days. This does not invite an organization member.
+
+Configure the application's `im.message.receive_v1` subscription and the scope
+`im:message.group_at_msg:readonly`. Use the environment's HTTPS callback
+`/v1/api/webhooks/feishu`. Add `event-encrypt-key`, `event-verification-token`, and
+`invite-operator-open-id` to the existing Feishu Secret through a private env file.
+The operator open ID must be resolved for this application, since open IDs differ
+between applications. The existing configured trial issuer email remains required.
+Keep the event encryption key stable: it also derives retry-stable invitation codes.
+Callback requests require a valid signature and a timestamp within five minutes;
+URL verification uses the same signed callback. No test message is sent on startup.
