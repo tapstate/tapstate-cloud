@@ -148,22 +148,24 @@ kubectl create secret generic tapstate-cloud-control-feishu-bot \
 # For awsdev, use namespace tapstate and its own feishu-bot.env. Restart the
 # Control Plane after the update so the environment-backed Secret values reload.
 
-# ---- Optional: SMTP for alert email ----
-# Credentials only; the relay host/port and the enable switch are non-sensitive
-# values in values.yaml (config.notifications.*). Omit the Secret entirely for
-# an unauthenticated relay.
-# smtp.env contains username=<smtp user> and password=<smtp password>.
+# ---- Optional: SMTP for auth and alert email ----
+# One Secret is shared by auth verification and alert email. It holds the relay
+# host plus the SMTP username/password.
+# smtp.env contains host=<smtp host>, username=<smtp user>,
+# password=<smtp password>.
 kubectl create secret generic tapstate-cloud-control-smtp \
   -n tapstate-cloud-control \
   --from-env-file=/secure/path/smtp.env
-# Enable it in the environment values:
+# Transport is shared through config.smtp*; alert delivery only needs its own
+# opt-in switch and sender:
 #   config:
+#     smtpPort: "587"
+#     smtpAuth: "true"
+#     smtpStarttls: "true"
+#     smtpSslEnable: "false"
+#     authMailFrom: no-reply@tapstate.com
 #     notifications:
 #       emailEnabled: "true"
-#       smtpHost: email-smtp.ap-southeast-1.amazonaws.com
-#       smtpPort: "587"          # STARTTLS
-#       smtpStarttls: "true"
-#       smtpSslEnable: "false"
 #       emailFrom: no-reply@tapstate.com
 # For implicit TLS on 465 set smtpStarttls: "false" and smtpSslEnable: "true".
 # The control-plane egress policy must allow the chosen SMTP port, and the
