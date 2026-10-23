@@ -20,7 +20,6 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonTypeName;
 import com.fasterxml.jackson.annotation.JsonValue;
-import io.tapstate.cloud.sdk.model.NotificationDeliveryResponse;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -34,13 +33,13 @@ import java.util.StringJoiner;
  * Global API response envelope
  */
 @JsonPropertyOrder({
-  ApiResponseListNotificationDeliveryResponse.JSON_PROPERTY_OP_ID,
-  ApiResponseListNotificationDeliveryResponse.JSON_PROPERTY_CODE,
-  ApiResponseListNotificationDeliveryResponse.JSON_PROPERTY_MSG,
-  ApiResponseListNotificationDeliveryResponse.JSON_PROPERTY_DATA
+  ApiResponseListString.JSON_PROPERTY_OP_ID,
+  ApiResponseListString.JSON_PROPERTY_CODE,
+  ApiResponseListString.JSON_PROPERTY_MSG,
+  ApiResponseListString.JSON_PROPERTY_DATA
 })
 @jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", comments = "Generator version: 7.25.0")
-public class ApiResponseListNotificationDeliveryResponse {
+public class ApiResponseListString {
   public static final String JSON_PROPERTY_OP_ID = "opId";
   @jakarta.annotation.Nullable
   private String opId;
@@ -55,12 +54,12 @@ public class ApiResponseListNotificationDeliveryResponse {
 
   public static final String JSON_PROPERTY_DATA = "data";
   @jakarta.annotation.Nullable
-  private List<NotificationDeliveryResponse> data = new ArrayList<>();
+  private List<String> data = new ArrayList<>();
 
-  public ApiResponseListNotificationDeliveryResponse() {
+  public ApiResponseListString() {
   }
 
-  public ApiResponseListNotificationDeliveryResponse opId(@jakarta.annotation.Nullable String opId) {
+  public ApiResponseListString opId(@jakarta.annotation.Nullable String opId) {
     
     this.opId = opId;
     return this;
@@ -85,7 +84,7 @@ public class ApiResponseListNotificationDeliveryResponse {
     this.opId = opId;
   }
 
-  public ApiResponseListNotificationDeliveryResponse code(@jakarta.annotation.Nullable String code) {
+  public ApiResponseListString code(@jakarta.annotation.Nullable String code) {
     
     this.code = code;
     return this;
@@ -110,7 +109,7 @@ public class ApiResponseListNotificationDeliveryResponse {
     this.code = code;
   }
 
-  public ApiResponseListNotificationDeliveryResponse msg(@jakarta.annotation.Nullable String msg) {
+  public ApiResponseListString msg(@jakarta.annotation.Nullable String msg) {
     
     this.msg = msg;
     return this;
@@ -135,13 +134,13 @@ public class ApiResponseListNotificationDeliveryResponse {
     this.msg = msg;
   }
 
-  public ApiResponseListNotificationDeliveryResponse data(@jakarta.annotation.Nullable List<NotificationDeliveryResponse> data) {
+  public ApiResponseListString data(@jakarta.annotation.Nullable List<String> data) {
     
     this.data = data;
     return this;
   }
 
-  public ApiResponseListNotificationDeliveryResponse addDataItem(NotificationDeliveryResponse dataItem) {
+  public ApiResponseListString addDataItem(String dataItem) {
     if (this.data == null) {
       this.data = new ArrayList<>();
     }
@@ -157,14 +156,14 @@ public class ApiResponseListNotificationDeliveryResponse {
   @JsonProperty(value = JSON_PROPERTY_DATA, required = false)
   @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
 
-  public List<NotificationDeliveryResponse> getData() {
+  public List<String> getData() {
     return data;
   }
 
 
   @JsonProperty(value = JSON_PROPERTY_DATA, required = false)
   @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
-  public void setData(@jakarta.annotation.Nullable List<NotificationDeliveryResponse> data) {
+  public void setData(@jakarta.annotation.Nullable List<String> data) {
     this.data = data;
   }
 
@@ -177,11 +176,11 @@ public class ApiResponseListNotificationDeliveryResponse {
     if (o == null || getClass() != o.getClass()) {
       return false;
     }
-    ApiResponseListNotificationDeliveryResponse apiResponseListNotificationDeliveryResponse = (ApiResponseListNotificationDeliveryResponse) o;
-    return Objects.equals(this.opId, apiResponseListNotificationDeliveryResponse.opId) &&
-        Objects.equals(this.code, apiResponseListNotificationDeliveryResponse.code) &&
-        Objects.equals(this.msg, apiResponseListNotificationDeliveryResponse.msg) &&
-        Objects.equals(this.data, apiResponseListNotificationDeliveryResponse.data);
+    ApiResponseListString apiResponseListString = (ApiResponseListString) o;
+    return Objects.equals(this.opId, apiResponseListString.opId) &&
+        Objects.equals(this.code, apiResponseListString.code) &&
+        Objects.equals(this.msg, apiResponseListString.msg) &&
+        Objects.equals(this.data, apiResponseListString.data);
   }
 
   @Override
@@ -192,7 +191,7 @@ public class ApiResponseListNotificationDeliveryResponse {
   @Override
   public String toString() {
     StringBuilder sb = new StringBuilder();
-    sb.append("class ApiResponseListNotificationDeliveryResponse {\n");
+    sb.append("class ApiResponseListString {\n");
     sb.append("    opId: ").append(toIndentedString(opId)).append("\n");
     sb.append("    code: ").append(toIndentedString(code)).append("\n");
     sb.append("    msg: ").append(toIndentedString(msg)).append("\n");
@@ -274,9 +273,13 @@ public class ApiResponseListNotificationDeliveryResponse {
     // add `data` to the URL query string
     if (getData() != null) {
       for (int i = 0; i < getData().size(); i++) {
-        if (getData().get(i) != null) {
-          joiner.add(getData().get(i).toUrlQueryString(String.format(java.util.Locale.ROOT, "%sdata%s%s", prefix, suffix,
-              "".equals(suffix) ? "" : String.format(java.util.Locale.ROOT, "%s%d%s", containerPrefix, i, containerSuffix))));
+        try {
+          joiner.add(String.format(java.util.Locale.ROOT, "%sdata%s%s=%s", prefix, suffix,
+              "".equals(suffix) ? "" : String.format(java.util.Locale.ROOT, "%s%d%s", containerPrefix, i, containerSuffix),
+              URLEncoder.encode(String.valueOf(getData().get(i)), "UTF-8").replaceAll("\\+", "%20")));
+        } catch (UnsupportedEncodingException e) {
+          // Should never happen, UTF-8 is always supported
+          throw new RuntimeException(e);
         }
       }
     }
