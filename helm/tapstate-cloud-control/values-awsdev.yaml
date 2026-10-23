@@ -43,6 +43,17 @@ config:
   logLevelCloud: DEBUG
   tawkPropertyId: 6ad811f9c0b97c34b365a428
 
+  # Alert email delivery. The SMTP username/password live in the pre-created
+  # tapstate-cloud-control-smtp Secret in the tapstate namespace.
+  notifications:
+    emailEnabled: "true"
+    emailFrom: "no-reply@tapstate.com"
+    smtpHost: "email-smtp.ap-southeast-1.amazonaws.com"
+    smtpPort: "587"
+    smtpAuth: "true"
+    smtpStarttls: "true"
+    smtpSslEnable: "false"
+
 service:
   type: NodePort
   port: 8080
