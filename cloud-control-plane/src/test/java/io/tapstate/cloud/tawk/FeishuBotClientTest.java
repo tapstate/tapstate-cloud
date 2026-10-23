@@ -21,7 +21,7 @@ import org.springframework.web.client.RestClient;
 
 class FeishuBotClientTest {
 
-    private static final String TOKEN_ENDPOINT = "https://accounts.feishu.cn/oauth/v3/token";
+    private static final String TOKEN_ENDPOINT = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal";
     private static final String MESSAGE_ENDPOINT = "https://open.feishu.cn/open-apis/im/v1/messages"
         + "?receive_id_type=chat_id";
 
@@ -53,11 +53,10 @@ class FeishuBotClientTest {
 
         server.expect(requestTo(TOKEN_ENDPOINT))
             .andExpect(method(HttpMethod.POST))
-            .andExpect(jsonPath("$.grant_type").value("client_credentials"))
-            .andExpect(jsonPath("$.client_id").value("app-id"))
-            .andExpect(jsonPath("$.client_secret").value("app-secret"))
+            .andExpect(jsonPath("$.app_id").value("app-id"))
+            .andExpect(jsonPath("$.app_secret").value("app-secret"))
             .andRespond(withSuccess(
-                "{\"code\":0,\"access_token\":\"access-token\",\"expires_in\":7200}",
+                "{\"code\":0,\"tenant_access_token\":\"access-token\",\"expire\":7200}",
                 MediaType.APPLICATION_JSON));
         for (int i = 0; i < 2; i++) {
             server.expect(requestTo(MESSAGE_ENDPOINT))
@@ -79,24 +78,38 @@ class FeishuBotClientTest {
     }
 
     @Test
-    void treatsFeishuUuidConflictAsPreviouslyDelivered() {
+    void clearsCachedTokenOnGenericInvalidTokenError() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
         FeishuBotClient client = new FeishuBotClient(
             builder.build(), "app-id", "app-secret", "oc_tapstate_launch",
             TOKEN_ENDPOINT, MESSAGE_ENDPOINT);
 
+        // First call: cache a valid token.
         server.expect(requestTo(TOKEN_ENDPOINT))
             .andRespond(withSuccess(
-                "{\"code\":0,\"access_token\":\"access-token\",\"expires_in\":7200}",
+                "{\"code\":0,\"tenant_access_token\":\"access-token\",\"expire\":7200}",
                 MediaType.APPLICATION_JSON));
+        // IM message rejected with code 20005 (generic invalid access_token).
         server.expect(requestTo(MESSAGE_ENDPOINT))
             .andExpect(header("Authorization", "Bearer access-token"))
-            .andExpect(jsonPath("$.uuid").exists())
             .andRespond(withSuccess(
-                "{\"code\":60012,\"msg\":\"Uuid unique\"}",
+                "{\"code\":20005,\"msg\":\"invalid access_token\"}",
+                MediaType.APPLICATION_JSON));
+        // Second call must request a fresh token (cache was cleared), then succeed.
+        server.expect(requestTo(TOKEN_ENDPOINT))
+            .andRespond(withSuccess(
+                "{\"code\":0,\"tenant_access_token\":\"fresh-token\",\"expire\":7200}",
+                MediaType.APPLICATION_JSON));
+        server.expect(requestTo(MESSAGE_ENDPOINT))
+            .andExpect(header("Authorization", "Bearer fresh-token"))
+            .andRespond(withSuccess(
+                "{\"code\":0,\"data\":{\"message_id\":\"om_stub\"}}",
                 MediaType.APPLICATION_JSON));
 
+        // First attempt fails with access_token_rejected.
+        assertFalse(client.send("property-1", "event-1", "notification").delivered());
+        // Second attempt succeeds after cache-clear + fresh token.
         assertTrue(client.send("property-1", "event-1", "notification").delivered());
         server.verify();
     }

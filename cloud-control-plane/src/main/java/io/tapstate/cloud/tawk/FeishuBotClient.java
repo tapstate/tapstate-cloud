@@ -27,7 +27,7 @@ import org.springframework.web.client.RestClientResponseException;
 @Slf4j
 public class FeishuBotClient {
 
-    private static final String TOKEN_ENDPOINT = "https://accounts.feishu.cn/oauth/v3/token";
+    private static final String TOKEN_ENDPOINT = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal";
     private static final String MESSAGE_ENDPOINT = "https://open.feishu.cn/open-apis/im/v1/messages"
         + "?receive_id_type=chat_id";
     private static final long TOKEN_REFRESH_SKEW_SECONDS = 60;
@@ -111,10 +111,11 @@ public class FeishuBotClient {
             if (isSuccess(response)) {
                 return DeliveryResult.success();
             }
-            if (hasErrorCode(response, 60012)) {
-                return DeliveryResult.success();
-            }
-            if (hasErrorCode(response, 99991663)) {
+            // 99991663: tenant_access_token invalid; 20005: generic invalid access_token.
+            // Clear the cached token so the next attempt fetches a fresh one.
+            // Note: Feishu IM v1 handles uuid idempotency internally — duplicate
+            // message_id/uuid within the 1-hour window returns code=0, no error.
+            if (hasErrorCode(response, 99991663) || hasErrorCode(response, 20005)) {
                 cachedAccessToken = null;
                 return DeliveryResult.failed("access_token_rejected");
             }
@@ -146,9 +147,8 @@ public class FeishuBotClient {
             }
 
             Map<String, Object> requestBody = new LinkedHashMap<>();
-            requestBody.put("grant_type", "client_credentials");
-            requestBody.put("client_id", appId);
-            requestBody.put("client_secret", appSecret);
+            requestBody.put("app_id", appId);
+            requestBody.put("app_secret", appSecret);
             try {
                 Map<String, Object> response = restClient.post()
                     .uri(tokenEndpoint)
@@ -159,8 +159,8 @@ public class FeishuBotClient {
                 if (!isSuccess(response)) {
                     return TokenResult.failed("token_rejected");
                 }
-                Object token = response.get("access_token");
-                Object expiresIn = response.get("expires_in");
+                Object token = response.get("tenant_access_token");
+                Object expiresIn = response.get("expire");
                 if (!(token instanceof String accessToken) || accessToken.isBlank()
                         || !(expiresIn instanceof Number expires) || expires.longValue() <= 0) {
                     return TokenResult.failed("token_response_invalid");

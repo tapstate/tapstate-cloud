@@ -61,6 +61,14 @@ kubectl create secret generic tapstate-cloud-control-cluster-version \
   --from-literal=release-token="$(openssl rand -hex 32)"
 
 # ---- Optional: Tawk to Feishu feedback notifications ----
+# ⚠️ Breaking change (PR #154): this release replaces the old Feishu custom
+# webhook bot (FEISHU_BOT_WEBHOOK_URL + FEISHU_BOT_SIGNING_SECRET) with the
+# Feishu application bot below. If you previously configured a webhook secret
+# and env vars, delete those first, then create the new feishu-bot Secret.
+# All deployment env vars have optional: true, so the Control Plane stays up
+# after upgrade — but notifications will silently stop until the new Secret
+# is created.
+#
 # Create one Tawk webhook in each environment's existing Property. Use the
 # environment's HTTPS callback URL and select Chat Start and New Ticket. Keep
 # both env files outside Git with owner-only permissions; never put their values
