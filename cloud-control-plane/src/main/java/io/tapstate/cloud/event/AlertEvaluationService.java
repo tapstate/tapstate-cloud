@@ -48,6 +48,7 @@ public class AlertEvaluationService {
                 .actor(event.getActor())
                 .status(QuietHours.isQuiet(policy, now) ? AlertStatus.SUPPRESSED : AlertStatus.PENDING)
                 .dedupeKey(dedupeKey(policy, event))
+                .details(event.getPayload())
                 .createdAt(now)
                 .build();
             try {

@@ -68,6 +68,9 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-oauth2-client</artifactId>
     </dependency>
+    <!-- Email delivery (auth verification + alert notifications). Transport
+         settings come from spring.mail.* and are only used when
+         tapstate.cloud.notifications.email.enabled=true. -->
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-mail</artifactId>
@@ -75,12 +78,6 @@
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-data-mongodb</artifactId>
-    </dependency>
-    <!-- Email alert delivery. Transport settings come from spring.mail.* and
-         are only used when tapstate.cloud.notifications.email.enabled=true. -->
-    <dependency>
-      <groupId>org.springframework.boot</groupId>
-      <artifactId>spring-boot-starter-mail</artifactId>
     </dependency>
 
     <!-- Spring Session MongoDB — HttpSessions persist in the control-plane MongoDB

@@ -39,7 +39,7 @@ class EmailDeliveryRetryTest {
     void setUp() {
         channel = new FakeChannel();
         service = new NotificationDeliveryService(
-            deliveryRepository, mongoTemplate, List.of(channel), metrics, 3, 10, 60);
+            deliveryRepository, mongoTemplate, List.of(channel), new EmailTemplateRenderer(), metrics, 3, 10, 60);
     }
 
     @Test
@@ -102,6 +102,18 @@ class EmailDeliveryRetryTest {
         assertThat(sent).isEqualTo(1);
         assertThat(channel.sent).isEqualTo(1);
         assertThat(capturedSet().get("status")).isEqualTo(DeliveryStatus.SENT);
+    }
+
+    @Test
+    @DisplayName("retry delay doubles per attempt and is capped at one hour")
+    void backoffIsExponentialAndCapped() {
+        assertThat(service.backoffSeconds(1)).isEqualTo(10);
+        assertThat(service.backoffSeconds(2)).isEqualTo(20);
+        assertThat(service.backoffSeconds(3)).isEqualTo(40);
+        assertThat(service.backoffSeconds(4)).isEqualTo(80);
+        assertThat(service.backoffSeconds(5)).isEqualTo(160);
+        assertThat(service.backoffSeconds(6)).isEqualTo(320);
+        assertThat(service.backoffSeconds(10)).isEqualTo(3600);
     }
 
     @Test

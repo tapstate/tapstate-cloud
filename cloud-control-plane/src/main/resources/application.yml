@@ -32,6 +32,8 @@ spring:
           auth: ${SMTP_AUTH:true}
           starttls:
             enable: ${SMTP_STARTTLS:true}
+          ssl:
+            enable: ${SMTP_SSL_ENABLE:false}
 
   # ========== Session ==========
   # HTTP sessions are backed by the control-plane MongoDB (collection

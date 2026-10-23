@@ -106,6 +106,7 @@ public class SecurityConfig {
                 // C2 status-report endpoints — runtime SDK authenticates with Bearer sdk-static-token
                     // (validated inside the controller, NOT via Spring Session)
                     "/v1/api/clusters/*/status-report",
+                    "/v1/api/clusters/*/events",
                     "/v1/api/clusters/*/egress-address",
                     "/v1/api/clusters/*/sample-sources/**"
                 ).permitAll()

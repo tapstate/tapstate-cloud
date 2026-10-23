@@ -17,8 +17,6 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
-import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -35,12 +33,10 @@ import java.util.UUID;
 @Slf4j
 public class NotificationDeliveryService {
 
-    private static final DateTimeFormatter TIME_FORMAT =
-        DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss 'UTC'").withZone(ZoneOffset.UTC);
-
     private final NotificationDeliveryRepository deliveryRepository;
     private final MongoTemplate mongoTemplate;
     private final Map<String, NotificationChannel> channels;
+    private final EmailTemplateRenderer emailTemplates;
     private final io.tapstate.cloud.event.EventCenterMetrics metrics;
     private final int maxAttempts;
     private final long retryBaseSeconds;
@@ -50,6 +46,7 @@ public class NotificationDeliveryService {
             NotificationDeliveryRepository deliveryRepository,
             MongoTemplate mongoTemplate,
             List<NotificationChannel> channels,
+            EmailTemplateRenderer emailTemplates,
             io.tapstate.cloud.event.EventCenterMetrics metrics,
             @Value("${tapstate.cloud.notifications.max-attempts:5}") int maxAttempts,
             @Value("${tapstate.cloud.notifications.retry-base-seconds:30}") long retryBaseSeconds,
@@ -60,6 +57,7 @@ public class NotificationDeliveryService {
         for (NotificationChannel channel : channels) {
             this.channels.put(channel.name().toUpperCase(), channel);
         }
+        this.emailTemplates = emailTemplates;
         this.metrics = metrics;
         this.maxAttempts = Math.max(1, maxAttempts);
         this.retryBaseSeconds = Math.max(1, retryBaseSeconds);
@@ -67,30 +65,141 @@ public class NotificationDeliveryService {
     }
 
     /**
-     * Fan an alert out to every policy recipient. The unique index makes a
+     * Fan an alert out to every policy recipient. The idempotency key makes a
      * repeated policy evaluation a no-op for rows that already exist.
      */
     public void createDeliveries(AlertRecord alert, AlertPolicy policy) {
+        RenderedEmail rendered = emailTemplates.renderAlert(alert);
         for (String recipient : policy.getRecipients()) {
-            NotificationDelivery delivery = NotificationDelivery.builder()
-                .orgId(alert.getOrgId())
-                .alertId(alert.getId())
-                .channel(policy.getChannel())
-                .recipient(recipient)
-                .subject(subject(alert))
-                .body(body(alert))
-                .status(DeliveryStatus.PENDING)
-                .attempts(0)
-                .nextAttemptAt(Instant.now())
-                .createdAt(Instant.now())
-                .updatedAt(Instant.now())
-                .build();
-            try {
-                deliveryRepository.save(delivery);
-            } catch (DuplicateKeyException e) {
-                log.debug("Delivery already exists for alert {} recipient {} — skipping",
-                    alert.getId(), recipient);
+            enqueue(new NotificationRequest(
+                alert.getOrgId(),
+                alert.getId(),
+                policy.getChannel(),
+                recipient,
+                rendered.subject(),
+                rendered.textBody(),
+                rendered.htmlBody(),
+                rendered.inlineLogo(),
+                "alert:" + alert.getId() + ":" + policy.getChannel() + ":" + recipient));
+        }
+    }
+
+    /**
+     * Put any email on the same durable outbox used by alert notifications.
+     * This is the single send path for auth verification, trial mail and alert
+     * mail; callers only render the message.
+     */
+    public NotificationDelivery enqueue(NotificationRequest request) {
+        String channel = request.channel() == null ? "EMAIL" : request.channel().toUpperCase();
+        if (request.notificationKey() != null && !request.notificationKey().isBlank()) {
+            var existing = deliveryRepository.findByNotificationKey(request.notificationKey());
+            if (existing.isPresent()) {
+                return existing.get();
             }
+        }
+        Instant now = Instant.now();
+        NotificationDelivery delivery = NotificationDelivery.builder()
+            .orgId(request.orgId())
+            .alertId(request.sourceId())
+            .channel(channel)
+            .recipient(request.recipient())
+            .subject(request.subject())
+            .body(request.textBody())
+            .htmlBody(request.htmlBody())
+            .inlineLogo(request.inlineLogo())
+            .notificationKey(request.notificationKey())
+            .status(DeliveryStatus.PENDING)
+            .attempts(0)
+            .nextAttemptAt(now)
+            .createdAt(now)
+            .updatedAt(now)
+            .build();
+        try {
+            return deliveryRepository.save(delivery);
+        } catch (DuplicateKeyException e) {
+            if (request.notificationKey() != null && !request.notificationKey().isBlank()) {
+                return deliveryRepository.findByNotificationKey(request.notificationKey())
+                    .orElseThrow(() -> e);
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * Send one notification immediately through the shared channel and record a
+     * delivery row. Used for auth verification mail, where the caller needs a
+     * synchronous success/failure answer and the body (a live verification code)
+     * must not be persisted in the outbox. Alert mail uses {@link #enqueue}
+     * instead, which keeps the body for bounded retries.
+     *
+     * @return true when the channel accepted the message
+     */
+    public boolean sendNow(NotificationRequest request) {
+        String channelName = request.channel() == null ? "EMAIL" : request.channel().toUpperCase();
+        NotificationChannel channel = channels.get(channelName);
+        if (channel == null || !channel.isConfigured()) {
+            throw new NotificationDeliveryException("channel is not configured: " + channelName);
+        }
+        Instant now = Instant.now();
+        try {
+            channel.send(new NotificationMessage(
+                request.recipient(),
+                request.subject(),
+                request.textBody(),
+                request.htmlBody(),
+                request.inlineLogo()));
+            recordImmediate(request, channelName, DeliveryStatus.SENT, null, now);
+            metrics.delivered();
+            return true;
+        } catch (RuntimeException e) {
+            recordImmediate(request, channelName, DeliveryStatus.FAILED,
+                e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage(), now);
+            metrics.deliveryFailed();
+            return false;
+        }
+    }
+
+    private void recordImmediate(NotificationRequest request, String channel,
+                                 DeliveryStatus status, String error, Instant now) {
+        String key = request.notificationKey();
+        if (key != null && !key.isBlank()) {
+            NotificationDelivery existing = deliveryRepository.findByNotificationKey(key).orElse(null);
+            if (existing != null) {
+                mongoTemplate.updateFirst(
+                    new Query(Criteria.where("_id").is(existing.getId())),
+                    new Update()
+                        .set("status", status)
+                        .set("attempts", 1)
+                        .set("lastError", truncate(error, 500))
+                        .set("body", null)
+                        .set("htmlBody", null)
+                        .set("inlineLogo", false)
+                        .set("nextAttemptAt", null)
+                        .set("updatedAt", now)
+                        .set("sentAt", status == DeliveryStatus.SENT ? now : null),
+                    NotificationDelivery.class);
+                return;
+            }
+        }
+        NotificationDelivery delivery = NotificationDelivery.builder()
+            .orgId(request.orgId())
+            .alertId(request.sourceId())
+            .channel(channel)
+            .recipient(request.recipient())
+            .subject(request.subject())
+            // Deliberately do not persist the auth code or HTML body.
+            .notificationKey(key)
+            .status(status)
+            .attempts(1)
+            .lastError(truncate(error, 500))
+            .createdAt(now)
+            .updatedAt(now)
+            .sentAt(status == DeliveryStatus.SENT ? now : null)
+            .build();
+        try {
+            deliveryRepository.save(delivery);
+        } catch (DuplicateKeyException e) {
+            recordImmediate(request, channel, status, error, now);
         }
     }
 
@@ -147,7 +256,12 @@ public class NotificationDeliveryService {
             return false;
         }
         try {
-            channel.send(new NotificationMessage(delivery.getRecipient(), delivery.getSubject(), delivery.getBody()));
+            channel.send(new NotificationMessage(
+                delivery.getRecipient(),
+                delivery.getSubject(),
+                delivery.getBody(),
+                delivery.getHtmlBody(),
+                delivery.isInlineLogo()));
             markSent(delivery.getId(), leaseOwner);
             metrics.delivered();
             return true;
@@ -202,7 +316,7 @@ public class NotificationDeliveryService {
             delivery.getId(), attempts, maxAttempts, error);
     }
 
-    private long backoffSeconds(int attempts) {
+    long backoffSeconds(int attempts) {
         long multiplier = 1L << Math.min(attempts - 1, 10);
         return Math.min(3600, retryBaseSeconds * multiplier);
     }
@@ -215,34 +329,6 @@ public class NotificationDeliveryService {
             new Criteria().andOperator(
                 Criteria.where("status").is(DeliveryStatus.SENDING),
                 Criteria.where("leaseUntil").lte(now)));
-    }
-
-    private String subject(AlertRecord alert) {
-        return truncate("[Tapstate Cloud][" + alert.getSeverity() + "] " + alert.getSubject(), 300);
-    }
-
-    private String body(AlertRecord alert) {
-        String text = """
-            A Tapstate Cloud alert matched an alert policy.
-
-            Policy: %s
-            Severity: %s
-            Event type: %s
-            Subject: %s
-            Actor: %s
-            Alert ID: %s
-            Time: %s
-
-            This is an automated message. Do not reply.
-            """.formatted(
-            alert.getPolicyName(),
-            alert.getSeverity(),
-            alert.getEventType(),
-            alert.getSubject(),
-            alert.getActor() == null ? "-" : alert.getActor(),
-            alert.getId() == null ? "-" : alert.getId().toHexString(),
-            alert.getCreatedAt() == null ? "-" : TIME_FORMAT.format(alert.getCreatedAt()));
-        return truncate(text, 4000);
     }
 
     private static String truncate(String value, int max) {

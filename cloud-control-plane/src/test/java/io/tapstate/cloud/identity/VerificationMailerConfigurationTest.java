@@ -1,16 +1,18 @@
 package io.tapstate.cloud.identity;
 
-import jakarta.mail.Session;
-import jakarta.mail.internet.MimeMessage;
+import io.tapstate.cloud.notification.EmailTemplateRenderer;
+import io.tapstate.cloud.notification.NotificationDeliveryService;
+import io.tapstate.cloud.notification.NotificationRequest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.springframework.mail.javamail.JavaMailSender;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.util.Properties;
-
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -18,16 +20,33 @@ import static org.mockito.Mockito.when;
 class VerificationMailerConfigurationTest {
 
     @Mock
-    private JavaMailSender mailSender;
+    private NotificationDeliveryService notifications;
 
     @Test
-    void sendsVerificationCodeWhenHtmlContainsLiteralPercentSigns() {
-        MimeMessage message = new MimeMessage(Session.getInstance(new Properties()));
-        when(mailSender.createMimeMessage()).thenReturn(message);
+    void sendsVerificationCodeThroughTheNotificationService() {
+        when(notifications.sendNow(any())).thenReturn(true);
         VerificationCodeMailer mailer = new VerificationMailerConfiguration()
-            .smtpVerificationCodeMailer(mailSender, "no-reply@example.com");
+            .notificationVerificationCodeMailer(notifications, new EmailTemplateRenderer());
 
         assertDoesNotThrow(() -> mailer.send("guest@example.com", "123456"));
-        verify(mailSender).send(message);
+
+        ArgumentCaptor<NotificationRequest> captor = ArgumentCaptor.forClass(NotificationRequest.class);
+        verify(notifications).sendNow(captor.capture());
+        NotificationRequest request = captor.getValue();
+        assertTrue("guest@example.com".equals(request.recipient()));
+        assertTrue("EMAIL".equals(request.channel()));
+        assertTrue(request.textBody().contains("123456"));
+        assertTrue(request.htmlBody().contains("123456"));
+        assertTrue(request.inlineLogo());
+        assertTrue(request.notificationKey().startsWith("auth-verification:"));
+    }
+
+    @Test
+    void failsWhenTheNotificationServiceRejectsTheMessage() {
+        when(notifications.sendNow(any())).thenReturn(false);
+        VerificationCodeMailer mailer = new VerificationMailerConfiguration()
+            .notificationVerificationCodeMailer(notifications, new EmailTemplateRenderer());
+
+        assertThrows(IllegalStateException.class, () -> mailer.send("guest@example.com", "123456"));
     }
 }

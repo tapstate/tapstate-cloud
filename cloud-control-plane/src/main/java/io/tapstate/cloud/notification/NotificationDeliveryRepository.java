@@ -15,4 +15,6 @@ public interface NotificationDeliveryRepository extends MongoRepository<Notifica
     List<NotificationDelivery> findTop50ByOrgIdAndRecipientOrderByCreatedAtDesc(ObjectId orgId, String recipient);
 
     Optional<NotificationDelivery> findByIdAndOrgId(ObjectId id, ObjectId orgId);
+
+    Optional<NotificationDelivery> findByNotificationKey(String notificationKey);
 }
