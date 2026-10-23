@@ -114,6 +114,9 @@ public class InvitationService {
         if (invitation.getConsumedAt() != null) {
             throw new BusinessException(AppErrorCode.INVITATION_CONSUMED, 409);
         }
+        if (invitation.getRevokedAt() != null) {
+            throw new BusinessException(AppErrorCode.INVITATION_REVOKED, 410);
+        }
         Instant now = Instant.now();
         OrganizationInvitation revoked = mongoTemplate.findAndModify(
             Query.query(Criteria.where("_id").is(invitation.getId()).and("orgId").is(organizationId)
@@ -121,6 +124,9 @@ public class InvitationService {
             new Update().set("revokedAt", now), FindAndModifyOptions.options().returnNew(true),
             OrganizationInvitation.class);
         invitation = revoked != null ? revoked : invitations.findById(invitation.getId()).orElse(invitation);
+        if (invitation.getRevokedAt() != null) {
+            throw new BusinessException(AppErrorCode.INVITATION_REVOKED, 410);
+        }
         if (invitation.getConsumedAt() != null) {
             throw new BusinessException(AppErrorCode.INVITATION_CONSUMED, 409);
         }
