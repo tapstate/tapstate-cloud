@@ -10,14 +10,16 @@ import io.tapstate.cloud.org.OrgAccessService;
 import io.tapstate.cloud.org.Organization;
 import lombok.RequiredArgsConstructor;
 import org.bson.types.ObjectId;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.util.List;
 
 @RestController
 @RequestMapping("/v1/api/orgs/{orgId}/deliveries")
@@ -29,16 +31,26 @@ public class NotificationController extends BaseController {
 
     @Operation(operationId = "listNotificationDeliveries")
     @GetMapping
-    public ResponseEntity<ApiResponse<List<NotificationDeliveryResponse>>> list(@PathVariable String orgId) {
+    public ResponseEntity<ApiResponse<NotificationDeliveryPage>> list(
+            @PathVariable String orgId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
         String email = CurrentUser.getEmail();
         if (email == null) {
             return fail(AppErrorCode.UNAUTHORIZED, HttpStatus.UNAUTHORIZED);
         }
         Organization org = orgAccessService.requireMember(orgId, email);
-        List<NotificationDelivery> rows = orgAccessService.isAdmin(org, email)
-            ? deliveryRepository.findTop50ByOrgIdOrderByCreatedAtDesc(org.getId())
-            : deliveryRepository.findTop50ByOrgIdAndRecipientOrderByCreatedAtDesc(org.getId(), email);
-        return ok(rows.stream().map(NotificationDeliveryResponse::from).toList());
+        int safeSize = Math.min(Math.max(size, 1), 100);
+        int safePage = Math.max(page, 0);
+        Pageable pageable = PageRequest.of(safePage, safeSize);
+        Page<NotificationDelivery> rows = orgAccessService.isAdmin(org, email)
+            ? deliveryRepository.findByOrgIdOrderByCreatedAtDesc(org.getId(), pageable)
+            : deliveryRepository.findByOrgIdAndRecipientOrderByCreatedAtDesc(org.getId(), email, pageable);
+        return ok(new NotificationDeliveryPage(
+            rows.getContent().stream().map(NotificationDeliveryResponse::from).toList(),
+            safePage,
+            safeSize,
+            rows.getTotalElements()));
     }
 
     @Operation(operationId = "getNotificationDelivery")

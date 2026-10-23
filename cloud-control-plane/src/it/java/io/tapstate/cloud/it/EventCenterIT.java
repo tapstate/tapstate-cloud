@@ -73,8 +73,12 @@ class EventCenterIT extends BaseIT {
         HttpResponse<String> deliveries = get("/v1/api/orgs/" + orgId + "/deliveries",
             Map.of("Cookie", cookie()));
         assertEquals(200, deliveries.statusCode(), deliveries.body());
-        JsonNode deliveryRows = JSON.readTree(deliveries.body()).get("data");
+        JsonNode deliveryPage = JSON.readTree(deliveries.body()).get("data");
+        JsonNode deliveryRows = deliveryPage.get("items");
         assertEquals(1, deliveryRows.size());
+        assertEquals(0, deliveryPage.get("page").asInt());
+        assertEquals(20, deliveryPage.get("size").asInt(), "the default page size is 20 rows");
+        assertTrue(deliveryPage.get("total").asInt() >= 1);
         assertEquals("PENDING", deliveryRows.get(0).get("status").asText());
     }
 
