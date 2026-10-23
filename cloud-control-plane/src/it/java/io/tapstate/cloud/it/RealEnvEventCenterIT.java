@@ -50,17 +50,17 @@ class RealEnvEventCenterIT extends RealEnvIT {
             "ALERT_TEST_MAILBOX/CP_EMAIL is required to verify delivery — skipping");
 
         loginAsConfiguredUser();
-        String orgId = resolveOrgId();
+        String orgId = resolveOwnedOrgId();
         String suffix = Long.toString(System.nanoTime());
         String token = "realenv-" + suffix;
         String clusterId = seedCluster(orgId, token);
         String policyId = null;
-        String matchedType = "cluster.task.failed";
-        String unmatchedType = "cluster.validation.succeeded";
+        String matchedType = "cluster.task.failed-" + suffix;
+        String unmatchedType = "cluster.validation.succeeded-" + suffix;
         String dedupeKey = "realenv-" + suffix;
 
         try {
-            policyId = createPolicy(orgId, mailbox);
+            policyId = createPolicy(orgId, mailbox, matchedType);
 
             // --- 1. The Cluster pushes an event with its own SDK token ---
             String event = """
@@ -91,12 +91,13 @@ class RealEnvEventCenterIT extends RealEnvIT {
                 """.formatted(unmatchedType, suffix);
             assertEquals(200, pushEvent(clusterId, token, unmatched).statusCode());
             assertEquals(1, events(orgId, unmatchedType).size());
-            JsonNode alerts = alerts(orgId);
+            JsonNode alerts = alertsForPolicy(orgId, policyId);
             assertEquals(1, alerts.size(), "only the policy-matching event may create an alert");
             assertEquals("CRITICAL", alerts.get(0).get("severity").asText());
+            String alertId = alerts.get(0).get("id").asText();
 
             // --- 4. The notification worker delivers through the real SMTP transport ---
-            JsonNode sent = awaitDelivery(orgId, mailbox);
+            JsonNode sent = awaitDelivery(orgId, alertId, mailbox);
             assertEquals("SENT", sent.get("status").asText(),
                 "the alert email was not delivered: " + sent);
             assertEquals(0, sent.get("attempts").asInt(),
@@ -117,11 +118,29 @@ class RealEnvEventCenterIT extends RealEnvIT {
 
     // ---- HTTP helpers ----
 
-    private String createPolicy(String orgId, String mailbox) throws Exception {
+    /**
+     * The shared real-env account already belongs to an organization and cannot
+     * create another, so ride the organization it owns. {@code CP_ORG_ID} wins
+     * when supplied.
+     */
+    private String resolveOwnedOrgId() throws Exception {
+        if (ORG_ID != null && !ORG_ID.isBlank()) {
+            return ORG_ID;
+        }
+        for (var org : orgsApi.listMyOrganizations().getData()) {
+            if (USER_EMAIL.equalsIgnoreCase(org.getOwnerEmail())) {
+                return org.getId();
+            }
+        }
+        throw new IllegalStateException(
+            "the configured account owns no organization; set CP_ORG_ID to an org it administers");
+    }
+
+    private String createPolicy(String orgId, String mailbox, String eventType) throws Exception {
         String policy = """
-            {"name":"Real environment event center","enabled":true,"eventTypes":["cluster.task.*"],
+            {"name":"Real environment event center","enabled":true,"eventTypes":["%s"],
              "minSeverity":"INFO","recipients":["%s"],"channel":"EMAIL","cooldownSeconds":0}
-            """.formatted(mailbox);
+            """.formatted(eventType, mailbox);
         HttpResponse<String> response = post("/v1/api/orgs/" + orgId + "/alert-policies", policy);
         assertEquals(201, response.statusCode(), response.body());
         return JSON.readTree(response.body()).get("data").get("id").asText();
@@ -152,21 +171,28 @@ class RealEnvEventCenterIT extends RealEnvIT {
         return JSON.readTree(response.body()).get("data").get("items");
     }
 
-    private JsonNode alerts(String orgId) throws Exception {
+    private JsonNode alertsForPolicy(String orgId, String policyId) throws Exception {
         HttpResponse<String> response = get("/v1/api/orgs/" + orgId + "/alerts");
         assertEquals(200, response.statusCode(), response.body());
-        return JSON.readTree(response.body()).get("data");
+        List<JsonNode> ours = new ArrayList<>();
+        for (JsonNode row : JSON.readTree(response.body()).get("data")) {
+            if (policyId.equals(row.get("policyId").asText())) {
+                ours.add(row);
+            }
+        }
+        return JSON.valueToTree(ours);
     }
 
-    /** Poll the delivery list until the worker reports SENT for {@code mailbox}. */
-    private JsonNode awaitDelivery(String orgId, String mailbox) throws Exception {
+    /** Poll the delivery list until the worker reports SENT for this alert and mailbox. */
+    private JsonNode awaitDelivery(String orgId, String alertId, String mailbox) throws Exception {
         JsonNode last = null;
         List<String> seen = new ArrayList<>();
         for (int attempt = 0; attempt < 40; attempt++) {
             HttpResponse<String> response = get("/v1/api/orgs/" + orgId + "/deliveries");
             assertEquals(200, response.statusCode(), response.body());
             for (JsonNode row : JSON.readTree(response.body()).get("data")) {
-                if (!mailbox.equals(row.get("recipient").asText())) {
+                if (!alertId.equals(row.get("alertId").asText())
+                        || !mailbox.equals(row.get("recipient").asText())) {
                     continue;
                 }
                 last = row;
