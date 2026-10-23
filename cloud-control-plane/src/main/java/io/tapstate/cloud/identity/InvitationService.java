@@ -69,6 +69,28 @@ public class InvitationService {
         return new IssuedInvitation(view(invitation), token);
     }
 
+    /** Issues a stable trial invitation for a verified bot command, without storing its plaintext token. */
+    public IssuedInvitation createBotTrialCode(String issuerEmail, String token) {
+        if (trialIssuerEmail == null || trialIssuerEmail.isBlank()
+                || !normalizeEmail(trialIssuerEmail).equals(normalizeEmail(issuerEmail))) {
+            throw new BusinessException(AppErrorCode.UNAUTHORIZED, HttpStatus.FORBIDDEN.value());
+        }
+        String tokenHash = hash(token);
+        Instant now = Instant.now();
+        Query query = Query.query(Criteria.where("tokenHash").is(tokenHash));
+        Update insert = new Update().setOnInsert("tokenHash", tokenHash)
+            .setOnInsert("purpose", "trial").setOnInsert("createdByEmail", normalizeEmail(issuerEmail))
+            .setOnInsert("createdAt", now).setOnInsert("expiresAt", now.plus(7, ChronoUnit.DAYS));
+        OrganizationInvitation invitation;
+        try {
+            invitation = mongoTemplate.findAndModify(query, insert,
+                FindAndModifyOptions.options().upsert(true).returnNew(true), OrganizationInvitation.class);
+        } catch (org.springframework.dao.DuplicateKeyException duplicate) {
+            invitation = invitations.findByTokenHash(tokenHash).orElseThrow(() -> duplicate);
+        }
+        return new IssuedInvitation(view(invitation), token);
+    }
+
     public boolean isTrial(OrganizationInvitation invitation) {
         return "trial".equals(invitation.getPurpose());
     }

@@ -99,6 +99,7 @@ public class SecurityConfig {
                     "/v1/api/auth/exchange",
                     "/v1/api/jwks.json",
                     "/v1/api/webhooks/tawk",
+                    "/v1/api/webhooks/feishu",
                     // External event ingestion — authenticated by a deployment token
                     // inside the controller, not by a user session.
                     "/v1/api/internal/events",
