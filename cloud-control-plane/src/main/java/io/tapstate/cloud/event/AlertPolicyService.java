@@ -2,10 +2,7 @@ package io.tapstate.cloud.event;
 
 import io.tapstate.cloud.common.api.AppErrorCode;
 import io.tapstate.cloud.common.api.BusinessException;
-import io.tapstate.cloud.identity.UserRepository;
-import io.tapstate.cloud.org.MemberRepository;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.bson.types.ObjectId;
 import org.springframework.stereotype.Service;
 
@@ -22,7 +19,6 @@ import java.util.Locale;
  */
 @Service
 @RequiredArgsConstructor
-@Slf4j
 public class AlertPolicyService {
 
     static final int MAX_POLICIES_PER_ORG = 50;
@@ -31,8 +27,6 @@ public class AlertPolicyService {
     static final long MAX_COOLDOWN_SECONDS = 86_400;
 
     private final AlertPolicyRepository policyRepository;
-    private final MemberRepository memberRepository;
-    private final UserRepository userRepository;
 
     public List<AlertPolicy> list(ObjectId orgId) {
         return policyRepository.findByOrgIdOrderByCreatedAtDesc(orgId);
@@ -48,7 +42,7 @@ public class AlertPolicyService {
             .enabled(request.enabled() == null || request.enabled())
             .eventTypes(validateEventTypes(request.eventTypes()))
             .minSeverity(request.minSeverity() == null ? EventSeverity.INFO : request.minSeverity())
-            .recipients(validateRecipients(orgId, request.recipients()))
+            .recipients(validateRecipients(request.recipients()))
             .channel(validateChannel(request.channel()))
             .cooldownSeconds(validateCooldown(request.cooldownSeconds()))
             .quietHoursStart(request.quietHoursStart())
@@ -74,7 +68,7 @@ public class AlertPolicyService {
             policy.setMinSeverity(request.minSeverity());
         }
         if (request.recipients() != null) {
-            policy.setRecipients(validateRecipients(orgId, request.recipients()));
+            policy.setRecipients(validateRecipients(request.recipients()));
         }
         if (request.channel() != null) {
             policy.setChannel(validateChannel(request.channel()));
@@ -144,7 +138,11 @@ public class AlertPolicyService {
         return List.copyOf(unique);
     }
 
-    private List<String> validateRecipients(ObjectId orgId, List<String> recipients) {
+    /**
+     * Alert recipients are addresses, not accounts: an administrator may route
+     * alerts to any valid mailbox, including one outside the organization.
+     */
+    private List<String> validateRecipients(List<String> recipients) {
         if (recipients == null || recipients.isEmpty()) {
             throw invalid("at least one recipient is required");
         }
@@ -156,15 +154,6 @@ public class AlertPolicyService {
             String email = raw.trim().toLowerCase(Locale.ROOT);
             if (!email.matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")) {
                 throw invalid("invalid recipient email: " + raw);
-            }
-            if (!memberRepository.existsByOrgIdAndUserEmail(orgId, email)) {
-                throw invalid("recipient is not a member of this organization: " + email);
-            }
-            boolean verified = userRepository.findByEmail(email)
-                .map(user -> user.isEmailVerified())
-                .orElse(false);
-            if (!verified) {
-                throw invalid("recipient email is not verified: " + email);
             }
             unique.add(email);
         }

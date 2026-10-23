@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 /**
  * The event center: one ingestion contract for user operations, scheduled jobs
@@ -172,6 +173,28 @@ public class EventCenterService {
             throw new BusinessException(AppErrorCode.EVENT_NOT_FOUND, 404, eventId);
         }
         return event;
+    }
+
+    /**
+     * Event types the caller can see, for a policy editor's typeahead.
+     * {@code query} is a literal prefix, never a caller-supplied regex.
+     */
+    public List<String> distinctTypes(String orgId, String viewerEmail, boolean admin, String query) {
+        ObjectId org = parseRequiredOrgId(orgId);
+        Criteria criteria = Criteria.where("orgId").is(org);
+        if (!admin) {
+            criteria = criteria.and("actor").is(viewerEmail);
+        }
+        if (query != null && !query.isBlank()) {
+            criteria = criteria.and("type").regex("^" + Pattern.quote(query.trim()));
+        }
+        List<String> types = mongoTemplate.findDistinct(
+            new Query(criteria), "type", PlatformEvent.class, String.class);
+        return types.stream()
+            .filter(type -> type != null && !type.isBlank())
+            .sorted(String.CASE_INSENSITIVE_ORDER)
+            .limit(100)
+            .toList();
     }
 
     /**

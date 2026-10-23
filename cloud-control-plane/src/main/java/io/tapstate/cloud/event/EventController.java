@@ -48,6 +48,20 @@ public class EventController extends BaseController {
         return ok(new EventPageResponse(items, page.nextCursor()));
     }
 
+    @Operation(operationId = "listEventTypes")
+    @GetMapping("/events/types")
+    public ResponseEntity<ApiResponse<List<String>>> types(
+            @PathVariable String orgId,
+            @RequestParam(required = false) String q) {
+        String email = CurrentUser.getEmail();
+        if (email == null) {
+            return fail(AppErrorCode.UNAUTHORIZED, HttpStatus.UNAUTHORIZED);
+        }
+        Organization org = orgAccessService.requireMember(orgId, email);
+        return ok(eventCenterService.distinctTypes(orgId, email,
+            orgAccessService.isAdmin(org, email), q));
+    }
+
     @Operation(operationId = "getEvent")
     @GetMapping("/events/{eventId}")
     public ResponseEntity<ApiResponse<EventResponse>> get(

@@ -45,7 +45,11 @@ on:
 
 jobs:
   real-env-smoke:
-    runs-on: ubuntu-latest
+    # Pinned: the MongoDB apt repository serves mongosh for 24.04 but has no
+    # package for 26.04 yet, and ubuntu-latest now resolves to 26.04 — the
+    # mongosh install step fails before any test runs. Move forward only after
+    # the repository publishes packages for the newer release.
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
 
     # Local mongo so spring-boot-maven-plugin pre-integration-test fork
