@@ -183,11 +183,11 @@ spec:
                   name: {{ .Values.secrets.feishuBot.name }}
                   key: event-verification-token
                   optional: true
-            - name: FEISHU_INVITE_OPERATOR_OPEN_ID
+            - name: FEISHU_INVITE_ALLOWED_CHAT_ID
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.secrets.feishuBot.name }}
-                  key: invite-operator-open-id
+                  key: invite-allowed-chat-id
                   optional: true
             - name: TAWK_WEBHOOK_SECRET
               valueFrom:

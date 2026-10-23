@@ -31,21 +31,21 @@ public class FeishuInviteController {
     private final FeishuBotClient bot;
     private final String encryptKey;
     private final String verificationToken;
-    private final String operatorId;
+    private final String allowedChatId;
     private final String issuerEmail;
     private final String consoleUrl;
 
     public FeishuInviteController(InvitationService invitations, FeishuBotClient bot,
             @Value("${FEISHU_EVENT_ENCRYPT_KEY:}") String encryptKey,
             @Value("${FEISHU_EVENT_VERIFICATION_TOKEN:}") String verificationToken,
-            @Value("${FEISHU_INVITE_OPERATOR_OPEN_ID:}") String operatorId,
+            @Value("${FEISHU_INVITE_ALLOWED_CHAT_ID:}") String allowedChatId,
             @Value("${tapstate.cloud.auth.trial-issuer-email:}") String issuerEmail,
             @Value("${tapstate.cloud.auth.console-url:http://localhost:5173}") String consoleUrl) {
         this.invitations = invitations;
         this.bot = bot;
         this.encryptKey = encryptKey;
         this.verificationToken = verificationToken;
-        this.operatorId = operatorId;
+        this.allowedChatId = allowedChatId;
         this.issuerEmail = issuerEmail;
         this.consoleUrl = consoleUrl;
     }
@@ -89,9 +89,9 @@ public class FeishuInviteController {
         JsonNode payload = event.path("event");
         JsonNode sender = payload.path("sender");
         JsonNode message = payload.path("message");
-        if (operatorId.isBlank() || issuerEmail.isBlank()
+        if (allowedChatId.isBlank() || issuerEmail.isBlank()
                 || !sender.path("sender_type").asText().equals("user")
-                || !sender.path("sender_id").path("open_id").asText().equals(operatorId)
+                || !message.path("chat_id").asText().equals(allowedChatId)
                 || !message.path("message_type").asText().equals("text")
                 || message.path("message_id").asText().isBlank()
                 || message.path("chat_id").asText().isBlank()
@@ -128,7 +128,7 @@ public class FeishuInviteController {
     private String stableToken(String messageId) throws Exception {
         Mac mac = Mac.getInstance("HmacSHA256");
         mac.init(new SecretKeySpec(encryptKey.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
-        byte[] bytes = mac.doFinal(("trial-invite:" + consoleUrl + ":" + operatorId + ":" + messageId).getBytes(StandardCharsets.UTF_8));
+        byte[] bytes = mac.doFinal(("trial-invite:" + consoleUrl + ":" + allowedChatId + ":" + messageId).getBytes(StandardCharsets.UTF_8));
         StringBuilder token = new StringBuilder();
         for (int i = 0; i < 12; i++) token.append(ALPHABET.charAt(bytes[i] & 31));
         return token.toString();

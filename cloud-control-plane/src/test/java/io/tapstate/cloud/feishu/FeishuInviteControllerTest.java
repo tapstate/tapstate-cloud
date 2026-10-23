@@ -18,13 +18,13 @@ class FeishuInviteControllerTest {
     private final InvitationService invitations = mock(InvitationService.class);
     private final FeishuBotClient bot = mock(FeishuBotClient.class);
     private final FeishuInviteController controller = new FeishuInviteController(
-        invitations, bot, "private-encrypt-key", "verification", "operator", "issuer@example.com", "https://console.test");
+        invitations, bot, "private-encrypt-key", "verification", "oc_source", "issuer@example.com", "https://console.test");
     private final ObjectMapper json = new ObjectMapper();
 
     private byte[] event(String sender, String text) throws Exception {
         return json.writeValueAsBytes(Map.of("header", Map.of("token", "verification", "event_type", "im.message.receive_v1"),
             "event", Map.of("sender", Map.of("sender_type", "user", "sender_id", Map.of("open_id", sender)),
-                "message", Map.of("message_id", "om_one", "chat_id", "oc_source", "message_type", "text",
+                "message", Map.of("message_id", "om_one", "chat_id", sender.equals("stranger") ? "oc_other" : "oc_source", "message_type", "text",
                     "mentions", new Object[] {Map.of("key", "@_user_1")},
                     "content", json.writeValueAsString(Map.of("text", "@_user_1 " + text))))));
     }
@@ -38,7 +38,7 @@ class FeishuInviteControllerTest {
         assertEquals(403, controller.receive(event("operator", "invite"), "0", "nonce", "bad").getStatusCode().value());
         verifyNoInteractions(invitations, bot);
     }
-    @Test void ignoresUnauthorizedSendersAndUnrecognizedCommands() throws Exception {
+    @Test void ignoresOtherChatsAndUnrecognizedCommands() throws Exception {
         receive(event("stranger", "\u751f\u6210\u9080\u8bf7\u94fe\u63a5"));
         receive(event("operator", "other"));
         verifyNoInteractions(invitations, bot);
@@ -52,7 +52,7 @@ class FeishuInviteControllerTest {
             .thenReturn(new FeishuBotClient.DeliveryResult(true, null));
         byte[] body = event("operator", "\u751f\u6210\u9080\u8bf7\u94fe\u63a5");
         assertEquals(200, receive(body).getStatusCode().value());
-        assertEquals(200, receive(body).getStatusCode().value());
+        assertEquals(200, receive(event("another-member", "\u751f\u6210\u9080\u8bf7\u94fe\u63a5")).getStatusCode().value());
         var tokens = ArgumentCaptor.forClass(String.class);
         verify(invitations, times(2)).createBotTrialCode(eq("issuer@example.com"), tokens.capture());
         assertEquals(tokens.getAllValues().get(0), tokens.getAllValues().get(1));
