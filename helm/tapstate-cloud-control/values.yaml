@@ -83,6 +83,12 @@ secrets:
     name: tapstate-cloud-control-jira
     apiEmailKey: api-email
     apiTokenKey: api-token
+  # Jira Administrator credentials belong to a dedicated JSM support site.
+  # The deployment references this Secret only when customer provisioning is enabled.
+  jiraCustomerAdmin:
+    name: tapstate-cloud-control-jira-customer-admin
+    apiEmailKey: admin-email
+    apiTokenKey: admin-token
 
 # ========== ConfigMap (non-sensitive config) ==========
 config:
@@ -100,6 +106,7 @@ config:
   jiraBaseUrl: ""
   jiraServiceDeskId: ""
   jiraRequestTypeId: ""
+  jiraCustomerProvisioningEnabled: "false"
   jiraCloseTransitionName: "Close Request"
   jiraConnectTimeoutSeconds: "3"
   jiraRequestTimeoutSeconds: "10"

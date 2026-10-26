@@ -90,7 +90,8 @@ public enum AppErrorCode implements ErrorCode {
 
     // ---------- Support tickets ----------
     TICKET_NOT_CONFIGURED("ticket.not-configured", "Support ticket service is not configured"),
-    TICKET_CUSTOMER_NOT_READY("ticket.customer-not-ready", "Your Cloud email is not uniquely registered as a Jira Service Management customer"),
+    TICKET_CUSTOMER_NOT_READY("ticket.customer-not-ready", "Your verified Cloud email could not be uniquely resolved as a Jira Service Management customer"),
+    TICKET_EMAIL_NOT_VERIFIED("ticket.email-not-verified", "Verify your Cloud account email before submitting a support request"),
     TICKET_INTEGRATION_FAILED("ticket.integration-failed", "Support ticket service is temporarily unavailable"),
     TICKET_REQUEST_REJECTED("ticket.request-rejected", "The support request was rejected; check the title and description"),
     TICKET_CLOSE_UNAVAILABLE("ticket.close-unavailable", "This support request cannot be closed in its current Jira workflow state"),

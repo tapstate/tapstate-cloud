@@ -91,6 +91,8 @@ spec:
               value: {{ .Values.config.jiraServiceDeskId | quote }}
             - name: TAPSTATE_CLOUD_JIRA_REQUEST_TYPE_ID
               value: {{ .Values.config.jiraRequestTypeId | quote }}
+            - name: TAPSTATE_CLOUD_JIRA_CUSTOMER_PROVISIONING_ENABLED
+              value: {{ .Values.config.jiraCustomerProvisioningEnabled | quote }}
             - name: TAPSTATE_CLOUD_JIRA_CLOSE_TRANSITION_NAME
               value: {{ .Values.config.jiraCloseTransitionName | quote }}
             - name: TAPSTATE_CLOUD_JIRA_CONNECT_TIMEOUT_SECONDS
@@ -259,6 +261,20 @@ spec:
                   name: {{ .Values.secrets.jira.name }}
                   key: {{ .Values.secrets.jira.apiTokenKey }}
                   optional: true
+            {{ if eq .Values.config.jiraCustomerProvisioningEnabled "true" }}
+            - name: TAPSTATE_CLOUD_JIRA_CUSTOMER_ADMIN_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.jiraCustomerAdmin.name }}
+                  key: {{ .Values.secrets.jiraCustomerAdmin.apiEmailKey }}
+                  optional: true
+            - name: TAPSTATE_CLOUD_JIRA_CUSTOMER_ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.jiraCustomerAdmin.name }}
+                  key: {{ .Values.secrets.jiraCustomerAdmin.apiTokenKey }}
+                  optional: true
+            {{ end }}
 
           resources:
             {{- toYaml .Values.resources | nindent 12 }}

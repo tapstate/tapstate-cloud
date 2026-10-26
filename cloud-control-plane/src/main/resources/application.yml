@@ -131,6 +131,11 @@ tapstate:
       request-type-id: ${TAPSTATE_CLOUD_JIRA_REQUEST_TYPE_ID:}
       api-email: ${TAPSTATE_CLOUD_JIRA_API_EMAIL:}
       api-token: ${TAPSTATE_CLOUD_JIRA_API_TOKEN:}
+      customer-provisioning:
+        # Requires a dedicated JSM support site and separate Jira administrator credentials.
+        enabled: ${TAPSTATE_CLOUD_JIRA_CUSTOMER_PROVISIONING_ENABLED:false}
+        admin-email: ${TAPSTATE_CLOUD_JIRA_CUSTOMER_ADMIN_EMAIL:}
+        admin-token: ${TAPSTATE_CLOUD_JIRA_CUSTOMER_ADMIN_TOKEN:}
       close-transition-name: ${TAPSTATE_CLOUD_JIRA_CLOSE_TRANSITION_NAME:Close Request}
       connect-timeout-seconds: ${TAPSTATE_CLOUD_JIRA_CONNECT_TIMEOUT_SECONDS:3}
       request-timeout-seconds: ${TAPSTATE_CLOUD_JIRA_REQUEST_TIMEOUT_SECONDS:10}

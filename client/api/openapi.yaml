@@ -1167,8 +1167,10 @@ paths:
           description: Request title or description is invalid or rejected by Jira
         "401":
           description: Not authenticated
+        "403":
+          description: Cloud account email is not verified
         "409":
-          description: Current Cloud email is not a unique Jira customer
+          description: Current Cloud email could not be resolved to one Jira customer
         "502":
           description: Jira Service Management is unavailable
         "503":

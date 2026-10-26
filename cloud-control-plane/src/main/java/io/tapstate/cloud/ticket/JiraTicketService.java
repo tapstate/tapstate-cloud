@@ -25,6 +25,7 @@ import java.util.Locale;
 public class JiraTicketService {
 
     private final JiraTicketClient jira;
+    private final JiraCustomerProvisioner customerProvisioner;
     private final CloudTicketRepository tickets;
     private final UserRepository users;
 
@@ -46,13 +47,12 @@ public class JiraTicketService {
                 || description == null || description.isBlank() || description.length() > 10000) {
             throw business(AppErrorCode.TICKET_REQUEST_REJECTED, 400);
         }
+        jira.requireConfiguration();
         User user = currentUser();
-        List<JiraTicketClient.Customer> customers = jira.findExactCustomers(user.getEmail());
-        if (customers.size() != 1) {
-            throw business(AppErrorCode.TICKET_CUSTOMER_NOT_READY, 409);
-        }
+        if (!user.isEmailVerified()) throw business(AppErrorCode.TICKET_EMAIL_NOT_VERIFIED, 403);
+        String requesterAccountId = resolveCustomerAccountId(user);
 
-        JsonNode created = jira.createRequest(customers.getFirst().accountId(), summary.trim(), description.trim());
+        JsonNode created = jira.createRequest(requesterAccountId, summary.trim(), description.trim());
         String jiraKey = created.path("issueKey").asText(null);
         if (jiraKey == null || jiraKey.isBlank()) {
             jiraKey = created.path("issue").path("key").asText(null);
@@ -76,6 +76,19 @@ public class JiraTicketService {
         }
 
         return toTicket(mapping, created, List.of(), description.trim());
+    }
+
+    private String resolveCustomerAccountId(User user) {
+        List<JiraTicketClient.Customer> customers = jira.findExactCustomers(user.getEmail());
+        if (customers.size() == 1) return customers.getFirst().accountId();
+        if (customers.size() > 1 || !customerProvisioner.isEnabled()) {
+            throw business(AppErrorCode.TICKET_CUSTOMER_NOT_READY, 409);
+        }
+
+        customerProvisioner.createOrAddCustomer(user.getEmail(), user.getDisplayName());
+        List<JiraTicketClient.Customer> provisioned = jira.findExactCustomers(user.getEmail());
+        if (provisioned.size() != 1) throw business(AppErrorCode.TICKET_CUSTOMER_NOT_READY, 409);
+        return provisioned.getFirst().accountId();
     }
 
     public Ticket get(String cloudTicketId) {
