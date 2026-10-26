@@ -28,7 +28,6 @@ import java.net.InetSocketAddress;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.interfaces.RSAPublicKey;
-import java.security.spec.AlgorithmParameterSpec;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.LinkedHashMap;
@@ -53,6 +52,13 @@ class CloudControlPlaneSdkTransportTest {
     private KeyPair rsaKeyPair;
     private String jwtKid;
 
+    /**
+     * Per-test forceStatus — set by each @Test before buildSdk().
+     * NOT static, so parallel execution (if ever enabled) cannot race.
+     * Protected for package-private access by inner handlers.
+     */
+    int forceStatus = 200;
+
     @BeforeEach
     void setUp() throws Exception {
         KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
@@ -61,6 +67,7 @@ class CloudControlPlaneSdkTransportTest {
         jwtKid = "test-rsa-key-1";
 
         exchangePostCount.set(0);
+        forceStatus = 200;
 
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
@@ -93,7 +100,7 @@ class CloudControlPlaneSdkTransportTest {
     @Test
     @DisplayName("C1 exchange: server returns 503 → one POST total, no Apache auto-retry")
     void exchange_503_onePostNoRetry() {
-        ExchangeHandler.forceStatus = 503;
+        forceStatus = 503;
 
         CloudControlPlaneSdk sdk = buildSdk();
 
@@ -109,7 +116,7 @@ class CloudControlPlaneSdkTransportTest {
     @Test
     @DisplayName("C1 exchange: server returns 429 → one POST total, no Apache auto-retry")
     void exchange_429_onePostNoRetry() {
-        ExchangeHandler.forceStatus = 429;
+        forceStatus = 429;
 
         CloudControlPlaneSdk sdk = buildSdk();
 
@@ -125,7 +132,7 @@ class CloudControlPlaneSdkTransportTest {
     @Test
     @DisplayName("C1 exchange: server returns 200 success → one POST, returns JwtExchangeResult")
     void exchange_200_onePostAndSuccess() {
-        ExchangeHandler.forceStatus = 200;
+        forceStatus = 200;
 
         CloudControlPlaneSdk sdk = buildSdk();
 
@@ -142,19 +149,14 @@ class CloudControlPlaneSdkTransportTest {
     /**
      * POST /v1/api/auth/exchange
      * <p>
-     * Three modes driven by {@link #forceStatus}:
+     * Three modes driven by the outer test instance's {@link #forceStatus}:
      * <ul>
      *   <li>503 / 429 — return that HTTP status with a JSON error envelope (no JWT required)</li>
      *   <li>200 — return a full ApiResponse envelope with a JWT signed by our test RSA key</li>
      * </ul>
      * Every POST increments {@link CloudControlPlaneSdkTransportTest#exchangePostCount}.
-     * <p>
-     * The handler is a static inner so it can read forceStatus without holding a
-     * reference to the outer test instance.
      */
     class ExchangeHandler implements HttpHandler {
-
-        static volatile int forceStatus = 200;
 
         private final ObjectMapper mapper = new ObjectMapper();
 
