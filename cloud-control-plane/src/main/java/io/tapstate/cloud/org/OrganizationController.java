@@ -12,6 +12,7 @@ import io.tapstate.cloud.common.api.BaseController;
 import io.tapstate.cloud.common.api.BusinessException;
 import io.tapstate.cloud.common.CurrentUser;
 import lombok.RequiredArgsConstructor;
+import org.bson.types.ObjectId;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -31,6 +32,7 @@ import java.util.Map;
 public class OrganizationController extends BaseController {
 
     private final OrganizationService organizationService;
+    private final OrganizationRepository organizationRepository;
 
     @GetMapping
     @Operation(
@@ -98,13 +100,17 @@ public class OrganizationController extends BaseController {
         if (userEmail == null) {
             return fail(AppErrorCode.UNAUTHORIZED, HttpStatus.UNAUTHORIZED);
         }
+        ObjectId orgObjectId;
+        try {
+            orgObjectId = new ObjectId(orgId);
+        } catch (IllegalArgumentException e) {
+            return fail(AppErrorCode.BAD_REQUEST, HttpStatus.BAD_REQUEST, orgId);
+        }
+        Organization org = organizationRepository.findById(orgObjectId)
+            .orElseThrow(() -> new BusinessException(AppErrorCode.ORG_NOT_FOUND, 404, orgId));
         if (!organizationService.isMember(orgId, userEmail)) {
             return fail(AppErrorCode.ORG_NOT_MEMBER, HttpStatus.FORBIDDEN, orgId);
         }
-        Organization org = organizationService.listUserOrganizations(userEmail).stream()
-            .filter(o -> o.getId().equals(orgId))
-            .findFirst()
-            .orElseThrow(() -> new BusinessException(AppErrorCode.ORG_NOT_FOUND, 404, orgId));
         return ok(OrganizationResponse.from(org));
     }
 
