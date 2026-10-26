@@ -58,6 +58,12 @@ service:
   port: 8080
   nodePort: 30180
 
+# awsdev uses ECR (ap-east-1); CronJob keeps the 12h pull token fresh
+ecrRotation:
+  enabled: true
+  awsRegion: ap-east-1
+  secretName: tapstate-ecr-pull
+
 ingress:
   enabled: false
 readinessProbe:

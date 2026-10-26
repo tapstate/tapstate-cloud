@@ -265,6 +265,49 @@ nodeSelector: {}
 tolerations: []
 affinity: {}
 
+# ========== ECR pull secret rotation ==========
+# Continuously refresh the ECR pull secret token (valid for 12 hours) so
+# pods created after a quiet period (rollout restart, node replacement) do
+# not hit ErrImagePull on an expired token. Off by default — only ECR-backed
+# envs (awsdev, awsprod) enable it; Harbor-backed (dev) and local k3s do not.
+# Set image.repository to an ECR URI (ends with dkr.ecr.<region>.amazonaws.com)
+# and enable this block.
+ecrRotation:
+  enabled: false
+  # 6h = half of the 12h ECR token lifetime; 2x safety margin
+  schedule: "0 */6 * * *"
+  awsRegion: ap-east-1
+  # Must match an already-created secret in the install namespace. ops
+  # pre-creates it with a bootstrap token so helm install itself does not
+  # depend on the CronJob to succeed first run.
+  secretName: tapstate-ecr-pull
+  # Refresher container — amazon/aws-cli:alpine + curl (curl is installed at
+  # entrypoint via apk; it hits the in-cluster K8s API to patch the secret).
+  image:
+    repository: amazon/aws-cli
+    tag: "alpine"
+    pullPolicy: IfNotPresent
+  # The CronJob reuses the existing AWS creds Secret the control-plane pod
+  # already mounts — it only calls ecr:GetAuthorizationToken, which this key
+  # already has. Replace with a pull-only key in production when you have one.
+  awsCredentials:
+    secretName: tapstate-cloud-control-aws-credentials
+    accessKeyIdKey: access-key-id
+    secretAccessKeyKey: secret-access-key
+  # CronJob runtime policy
+  concurrencyPolicy: Replace
+  restartPolicy: OnFailure
+  backoffLimit: 2
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "300m"
+      memory: "256Mi"
+
 # ========== Rolling update strategy ==========
 # Per ADR-0120: kubectl rollout restart tapstate-cloud-api
 strategy:
