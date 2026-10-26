@@ -162,6 +162,16 @@ public class MdbAllocationService {
                     allocation.getId(), allocation.getStatus());
                 return;
             }
+            case RECLAIM_FAILED -> {
+                // Operator-initiated retry after bounded retries were exhausted,
+                // or a fresh retry of a transient failure we want to override.
+                // FSM transitions RECLAIM_FAILED → DELETING on INITIATE_RECLAIM;
+                // the worker reads the persisted retry count and increments it.
+                mdbSmService.transition(allocation.getId(), MdbAllocationEventType.INITIATE_RECLAIM,
+                    "operator:reclaim-retry");
+                log.info("[MdbAllocationService] reclaimMdb: allocation {} retrying from RECLAIM_FAILED (retryCount={})",
+                    allocation.getId(), allocation.getReclaimRetryCount());
+            }
             case PROVISIONING_PENDING, PROVISIONING, READY -> {
                 mdbSmService.transition(allocation.getId(), MdbAllocationEventType.INITIATE_RECLAIM,
                     "subscription:reclaim");
