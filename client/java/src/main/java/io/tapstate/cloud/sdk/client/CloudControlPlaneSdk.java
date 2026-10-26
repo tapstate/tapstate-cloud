@@ -75,7 +75,7 @@ import java.util.Set;
  * <h3>Planned Function 3 — C2 status reporting</h3>
  * Runtime → GC heartbeat + infrastructure metrics (static-token auth, nonce replay protection).
  */
-public final class CloudControlPlaneSdk {
+public final class CloudControlPlaneSdk implements java.io.Closeable {
 
     private static final Logger log = LoggerFactory.getLogger(CloudControlPlaneSdk.class);
 
@@ -126,6 +126,13 @@ public final class CloudControlPlaneSdk {
 
     /** Runtime → GC C2 status-report (Function 3). Built lazily — only needed when callers invoke reportStatus(). */
     private C2StatusReportApi c2StatusReportApi;
+
+    /**
+     * All Apache HttpClient instances we own. Each ApiClient we build with a
+     * custom CloseableHttpClient needs explicit close() when the SDK is done —
+     * ApiClient has no close() hook of its own.
+     */
+    private final java.util.List<CloseableHttpClient> ownedHttpClients = new java.util.ArrayList<>();
     private final HttpClient addressClient = HttpClient.newBuilder()
         .connectTimeout(Duration.ofSeconds(5)).version(HttpClient.Version.HTTP_1_1)
         .followRedirects(HttpClient.Redirect.NEVER).build();
@@ -186,18 +193,30 @@ public final class CloudControlPlaneSdk {
         this.exchangeApi = exchangeApi;
         this.addressObjectMapper = exchangeApi.getApiClient().getObjectMapper();
         this.jwksCache = jwksCache;
+        // Track C1 Apache HttpClient for close() lifecycle. C2 lazy client is
+        // added later in getOrBuildC2Api().
+        ownedHttpClients.add(exchangeApi.getApiClient().getHttpClient());
+    }
+
+    /**
+     * Build an Apache HttpClient 5 with automatic retries DISABLED.
+     * <p>
+     * The default {@code HttpClients.createDefault()} installs
+     * {@code HttpRequestRetryExec} which replays any repeatable POST body after
+     * HTTP 503 or 429. That is unsafe for one-time credentials (C1 code exchange)
+     * and also interferes with the facade-level exponential-backoff retry
+     * policy we hand-roll for C2 status-report. Disabling automatic retries means
+     * all retry decisions are made at our layer, where we understand the semantics
+     * of each call.
+     */
+    private static CloseableHttpClient buildNoRetryHttpClient() {
+        return HttpClients.custom()
+                .disableAutomaticRetries()
+                .build();
     }
 
     private static ExchangeApi buildExchangeApi(String baseUrl) {
-        // C1 code exchange uses a one-time credential — Apache HttpClient 5's
-        // default HttpRequestRetryExec replays the same code after HTTP 503/429
-        // and GC responds exchange.code-consumed on the retry. Disable
-        // automatic retries ONLY for this path. C2 status-report has its own
-        // facade-level exponential-backoff retry policy, and JWKS GET is
-        // naturally idempotent — both keep the default HttpClients.createDefault().
-        CloseableHttpClient noRetryClient = HttpClients.custom()
-                .disableAutomaticRetries()
-                .build();
+        CloseableHttpClient noRetryClient = buildNoRetryHttpClient();
         ApiClient client = new ApiClient(noRetryClient);
         client.setBasePath(baseUrl);
         client.setUserAgent(USER_AGENT);
@@ -209,12 +228,15 @@ public final class CloudControlPlaneSdk {
         return new JwksKeyCache(jwksUrl, refreshInterval);
     }
 
-    /** Lazily-build a C2StatusReportApi backed by the same ApiClient baseUrl as ExchangeApi. */
+    /** Lazily-build a C2StatusReportApi backed by the same no-retry client as ExchangeApi. */
     private synchronized C2StatusReportApi getOrBuildC2Api() {
         if (c2StatusReportApi == null) {
-            ApiClient client = new ApiClient();
+            CloseableHttpClient noRetryClient = buildNoRetryHttpClient();
+            ApiClient client = new ApiClient(noRetryClient);
             client.setBasePath(baseUrl);
             client.setUserAgent(USER_AGENT);
+            // SDK instance tracks this client for close() lifecycle — ApiClient has no close() hook
+            ownedHttpClients.add(noRetryClient);
             c2StatusReportApi = new C2StatusReportApi(client);
         }
         return c2StatusReportApi;
@@ -680,6 +702,26 @@ public final class CloudControlPlaneSdk {
     /** Get the JWKS cache — package-private, for tests. */
     JwksKeyCache getJwksCache() {
         return jwksCache;
+    }
+
+    /**
+     * Close all Apache HttpClient instances owned by this SDK.
+     * <p>
+     * Each {@link CloseableHttpClient} owns a thread pool and connection pool.
+     * The auto-generated {@link ApiClient} has no close() hook of its own, so
+     * the SDK tracks them explicitly and shuts them down here. Safe to call
+     * multiple times.
+     */
+    @Override
+    public void close() {
+        for (CloseableHttpClient client : ownedHttpClients) {
+            try {
+                client.close();
+            } catch (Exception e) {
+                log.warn("Failed to close Apache HttpClient — resource may leak: {}", e.getMessage());
+            }
+        }
+        ownedHttpClients.clear();
     }
 
     // ========== Builder ==========
