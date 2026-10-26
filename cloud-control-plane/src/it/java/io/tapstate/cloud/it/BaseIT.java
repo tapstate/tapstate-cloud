@@ -473,13 +473,39 @@ public abstract class BaseIT {
      * Poll cluster state up to {@code maxAttempts} times, waiting {@code intervalMs} between polls.
      * Throws AssertionError if target state never observed.
      */
+    /**
+     * Poll the Cluster until it reaches {@code targetState}, a terminal failure state,
+     * or the deadline. Fails immediately on terminal failure states so the test does
+     * not wait the full deadline and discards the actual provision error message.
+     *
+     * Terminal failure states that short-circuit (only when waiting for READY; if the
+     * target IS one of these we return normally):
+     * <ul>
+     *   <li>{@code PROVISIONING_FAILED} — CloudFormation / Atlas failure during provisioning</li>
+     *   <li>{@code TERMINATED} while provisioning — a concurrent cancel</li>
+     * </ul>
+     */
     protected void waitForClusterState(String orgId, String clusterId,
                                         String targetState, int maxAttempts, int intervalMs) throws Exception {
+        java.util.Set<String> terminalFailures = java.util.Set.of(
+            "PROVISIONING_FAILED", "TERMINATED");
+        boolean waitingForReady = "READY".equals(targetState);
+
         for (int i = 0; i < maxAttempts; i++) {
             try {
                 var resp = clustersApi.getCluster(orgId, clusterId).getData();
                 String state = resp.getState().getValue();
                 if (targetState.equals(state)) return;
+                if (waitingForReady && terminalFailures.contains(state)) {
+                    // Surface the provisioning error code instead of waiting out the deadline.
+                    // SDK ClusterResponse has provisionErrorCode (enum) and cleanupErrorCode/DebugDetail.
+                    var code = resp.getProvisionErrorCode();
+                    String codeStr = code != null ? code.getValue() : "(null)";
+                    throw new AssertionError("Cluster " + clusterId + " reached terminal failure state: " + state
+                        + " (expected READY). provisionErrorCode=" + codeStr);
+                }
+            } catch (AssertionError a) {
+                throw a; // re-raise our own fail-fast
             } catch (Exception ignored) { /* keep polling */ }
             Thread.sleep(intervalMs);
         }
