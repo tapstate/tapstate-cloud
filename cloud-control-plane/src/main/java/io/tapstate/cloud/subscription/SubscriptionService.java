@@ -113,6 +113,19 @@ public class SubscriptionService {
         // ③ Resolve the latest ACTIVE Cluster version (same as legacy path)
         ClusterVersion clusterVersion = clusterVersionService.findClusterLastVersion();
 
+        // ③.5 Trial limit — one TRIAL or ACTIVE trial-subscription per org.
+        // A trial spec collects no card (if_required) so without this gate the
+        // same org can spin up unlimited free clusters by cycling checkout.
+        if (specConfig.hasTrial()) {
+            long existingTrial = subscriptionRepository.countByOrgIdAndStatusIn(
+                    new ObjectId(orgId),
+                    List.of(SubscriptionStatus.TRIAL, SubscriptionStatus.ACTIVE));
+            if (existingTrial > 0) {
+                throw new BusinessException(
+                        AppErrorCode.SUBSCRIPTION_TRIAL_ALREADY_USED, 409, orgId);
+            }
+        }
+
         // ④ Check idempotency — duplicate clientRequestId + orgId means same subscription
         if (clientRequestId != null && !clientRequestId.isBlank()) {
             ObjectId orgOid = new ObjectId(orgId);
@@ -137,6 +150,10 @@ public class SubscriptionService {
 
         // ⑥ Create PENDING_PAYMENT shell Subscription
         Instant now = Instant.now();
+        // Provisional period end — Stripe webhook will set the real date later.
+        // Trial spec: period end = trial expiry (trialDays from now).
+        // Paid spec: period end = 30 days from now (monthly billing cycle).
+        int periodDays = specConfig.hasTrial() ? specConfig.getTrialDays() : 30;
         Subscription subscription = Subscription.builder()
                 .orgId(new ObjectId(orgId))
                 .status(SubscriptionStatus.PENDING_PAYMENT)
@@ -144,7 +161,7 @@ public class SubscriptionService {
                 .specConfig(specConfig)          // snapshot!
                 .clientRequestId(clientRequestId)
                 .currentPeriodStart(now)
-                .currentPeriodEnd(now.plus(30, ChronoUnit.DAYS)) // provisional — Stripe sets real date later
+                .currentPeriodEnd(now.plus(periodDays, ChronoUnit.DAYS))
                 .build();
 
         // Write Stripe embed from channel ref

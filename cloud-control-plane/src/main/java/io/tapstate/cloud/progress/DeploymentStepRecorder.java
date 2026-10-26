@@ -40,27 +40,26 @@ public class DeploymentStepRecorder {
 
     /**
      * Insert every catalog operation of one category as PENDING. Already
-     * existing steps are kept, so repeated seeding is safe.
+     * existing steps are kept, so repeated seeding is safe — each step uses
+     * an upsert on its unique (subscriptionId, opType, operation) key.
      */
     public void seed(ObjectId orgId, ObjectId subscriptionId, DeploymentOpType opType) {
         safe(() -> {
             Instant now = Instant.now();
-            List<DeploymentStep> steps = new ArrayList<>();
             for (DeploymentOperation op : DeploymentOperation.byOpType(opType)) {
-                steps.add(DeploymentStep.builder()
-                    .orgId(orgId)
-                    .subscriptionId(subscriptionId)
-                    .opType(opType)
-                    .operation(op.code())
-                    .sequence(op.sequence())
-                    .weight(op.weight())
-                    .status(StepStatus.PENDING)
-                    .attempts(new ArrayList<>())
-                    .createdAt(now)
-                    .updatedAt(now)
-                    .build());
+                Update update = new Update()
+                    .setOnInsert("orgId", orgId)
+                    .setOnInsert("subscriptionId", subscriptionId)
+                    .setOnInsert("opType", opType)
+                    .setOnInsert("operation", op.code())
+                    .setOnInsert("sequence", op.sequence())
+                    .setOnInsert("weight", op.weight())
+                    .setOnInsert("status", StepStatus.PENDING)
+                    .setOnInsert("attempts", new ArrayList<StepAttempt>())
+                    .setOnInsert("createdAt", now)
+                    .setOnInsert("updatedAt", now);
+                mongoTemplate.upsert(uniqueQuery(subscriptionId, opType, op), update, DeploymentStep.class);
             }
-            mongoTemplate.insert(steps, DeploymentStep.class);
         }, "seed", subscriptionId, opType);
     }
 

@@ -94,6 +94,7 @@ public enum AppErrorCode implements ErrorCode {
     SUBSCRIPTION_CANNOT_CANCEL("subscription.cannot-cancel", "Subscription cannot be cancelled from current state"),
     SUBSCRIPTION_PENDING_PAYMENT("subscription.pending-payment", "Subscription is still pending payment — waiting for Stripe checkout"),
     SUBSCRIPTION_NOT_ACTIVE("subscription.not-active", "Subscription {0} must be ACTIVE for this operation"),
+    SUBSCRIPTION_TRIAL_ALREADY_USED("subscription.trial-already-used", "Organization {0} already has a TRIAL or ACTIVE subscription — one trial per org"),
 
     // ---------- Stripe integration ----------
     STRIPE_WEBHOOK_SIGNATURE_INVALID("stripe.webhook-signature-invalid", "Stripe webhook signature verification failed"),
