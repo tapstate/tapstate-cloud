@@ -16,6 +16,8 @@ import io.tapstate.cloud.sdk.api.C2StatusReportApi;
 import io.tapstate.cloud.sdk.api.ExchangeApi;
 import io.tapstate.cloud.sdk.model.ExchangeRequest;
 import io.tapstate.cloud.sdk.model.ExchangeResponse;
+import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
+import org.apache.hc.client5.http.impl.classic.HttpClients;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -187,8 +189,16 @@ public final class CloudControlPlaneSdk {
     }
 
     private static ExchangeApi buildExchangeApi(String baseUrl) {
-        // Fresh ApiClient per instance — never mutate Configuration global singleton.
-        ApiClient client = new ApiClient();
+        // C1 code exchange uses a one-time credential — Apache HttpClient 5's
+        // default HttpRequestRetryExec replays the same code after HTTP 503/429
+        // and GC responds exchange.code-consumed on the retry. Disable
+        // automatic retries ONLY for this path. C2 status-report has its own
+        // facade-level exponential-backoff retry policy, and JWKS GET is
+        // naturally idempotent — both keep the default HttpClients.createDefault().
+        CloseableHttpClient noRetryClient = HttpClients.custom()
+                .disableAutomaticRetries()
+                .build();
+        ApiClient client = new ApiClient(noRetryClient);
         client.setBasePath(baseUrl);
         client.setUserAgent(USER_AGENT);
         return new ExchangeApi(client);
