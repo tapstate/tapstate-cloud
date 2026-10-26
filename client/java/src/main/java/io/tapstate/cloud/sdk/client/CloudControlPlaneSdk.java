@@ -500,7 +500,7 @@ public final class CloudControlPlaneSdk {
 
     private void doReportStatus(String nonce, String runtimeVersion, Long uptimeMs,
                                 Integer activePipelines, String lastErrorAt,
-                                int attempt) throws ApiException {
+                                int attempt) throws ApiException, CloudControlPlaneException {
         var request = new io.tapstate.cloud.sdk.model.StatusReportRequest()
             .nonce(nonce)
             .runtimeVersion(runtimeVersion)
@@ -509,8 +509,9 @@ public final class CloudControlPlaneSdk {
             .lastErrorAt(lastErrorAt);
 
         io.tapstate.cloud.sdk.api.C2StatusReportApi api = getOrBuildC2Api();
+        io.tapstate.cloud.sdk.model.ApiResponseStatusReportResponse envelope;
         try {
-            api.report(clusterId, request, "Bearer " + sdkStaticToken);
+            envelope = api.report(clusterId, request, "Bearer " + sdkStaticToken);
         } catch (ApiException ae) {
             int code = ae.getCode();
             boolean retryable = code == 0 || code >= 500;
@@ -524,10 +525,40 @@ public final class CloudControlPlaneSdk {
                     throw ae;  // give up on interrupt
                 }
                 doReportStatus(nonce, runtimeVersion, uptimeMs, activePipelines, lastErrorAt, attempt + 1);
-            } else {
-                throw ae;  // propagate — call classifyC2Error to map
+                return;  // never reaches here after recursive retry / exception thrown
             }
+            throw ae;  // propagate — call classifyC2Error to map
         }
+
+        // ---- Envelope acceptance check ----
+        // HTTP 200 is NOT sufficient proof that GC acknowledged the report.
+        // GC returns HTTP 200 even on business-level rejection (e.g. synthetic
+        // test injection, duplicate nonce with a different error path, etc.) —
+        // the envelope's `code` and `data.status` are the acceptance contract.
+        if (envelope == null) {
+            throw new CloudControlPlaneException.C2BusinessRejected(
+                "C2 status-report: GC returned HTTP 200 but envelope was null — "
+                    + "missing code/data.status acceptance fields");
+        }
+        if (!"ok".equals(envelope.getCode())) {
+            throw new CloudControlPlaneException.C2BusinessRejected(
+                "C2 status-report: GC rejected the report (code=\"" + envelope.getCode()
+                    + "\", msg=\"" + envelope.getMsg() + "\"). HTTP 200 is insufficient — "
+                    + "business-level rejection cannot be retried safely.");
+        }
+        io.tapstate.cloud.sdk.model.StatusReportResponse data = envelope.getData();
+        if (data == null) {
+            throw new CloudControlPlaneException.C2BusinessRejected(
+                "C2 status-report: GC returned code=\"ok\" but data was null — "
+                    + "missing data.status acceptance field");
+        }
+        if (!"accepted".equals(data.getStatus())) {
+            throw new CloudControlPlaneException.C2BusinessRejected(
+                "C2 status-report: GC acknowledged (code=\"ok\") but status=\""
+                    + data.getStatus() + "\" instead of \"accepted\" — "
+                    + "GC rejected the content at the business level");
+        }
+        // Happy path — all acceptance checks passed
     }
 
     /**

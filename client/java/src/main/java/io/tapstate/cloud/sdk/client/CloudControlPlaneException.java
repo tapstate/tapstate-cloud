@@ -110,4 +110,15 @@ public class CloudControlPlaneException extends Exception {
             super("c2.transient", 0, msg, cause);
         }
     }
+
+    /** GC returned HTTP 200 but the envelope did NOT carry the expected acceptance
+     *  (code=ok + data.status=accepted). This is a business-level rejection —
+     *  the request reached GC, GC chose not to accept it, and retrying the
+     *  same nonce/content would not help. Terminal, no automatic retry. */
+    public static final class C2BusinessRejected extends CloudControlPlaneException {
+        private static final long serialVersionUID = 1L;
+        public C2BusinessRejected(String msg) {
+            super("c2.business-rejected", 200, msg);
+        }
+    }
 }
