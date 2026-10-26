@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.tapstate.cloud.common.api.AppErrorCode;
 import io.tapstate.cloud.common.api.BusinessException;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -35,6 +36,7 @@ public class JiraCustomerProvisioner {
     private static final int MAX_RESULTS = 50;
 
     private final boolean enabled;
+    private final boolean supportSiteIsolated;
     private final String baseUrl;
     private final String serviceDeskId;
     private final String adminEmail;
@@ -42,23 +44,36 @@ public class JiraCustomerProvisioner {
     private final Duration requestTimeout;
     private final HttpClient httpClient;
 
+    @Autowired
     public JiraCustomerProvisioner(
             @Value("${tapstate.cloud.jira.customer-provisioning.enabled:false}") boolean enabled,
+            @Value("${tapstate.cloud.jira.customer-provisioning.support-site-isolated:false}") boolean supportSiteIsolated,
             @Value("${tapstate.cloud.jira.base-url:}") String baseUrl,
             @Value("${tapstate.cloud.jira.service-desk-id:}") String serviceDeskId,
             @Value("${tapstate.cloud.jira.customer-provisioning.admin-email:}") String adminEmail,
             @Value("${tapstate.cloud.jira.customer-provisioning.admin-token:}") String adminToken,
             @Value("${tapstate.cloud.jira.connect-timeout-seconds:3}") long connectTimeoutSeconds,
             @Value("${tapstate.cloud.jira.request-timeout-seconds:10}") long requestTimeoutSeconds) {
+        this(enabled, supportSiteIsolated, baseUrl, serviceDeskId, adminEmail, adminToken, requestTimeoutSeconds,
+            createHttpClient(connectTimeoutSeconds));
+    }
+
+    JiraCustomerProvisioner(boolean enabled, boolean supportSiteIsolated, String baseUrl, String serviceDeskId,
+            String adminEmail, String adminToken, long requestTimeoutSeconds, HttpClient httpClient) {
         this.enabled = enabled;
+        this.supportSiteIsolated = supportSiteIsolated;
         this.baseUrl = baseUrl == null ? "" : baseUrl.trim();
         this.serviceDeskId = serviceDeskId == null ? "" : serviceDeskId.trim();
         this.adminEmail = adminEmail == null ? "" : adminEmail.trim();
         this.adminToken = adminToken == null ? "" : adminToken;
-        long connectSeconds = Math.max(1, Math.min(connectTimeoutSeconds, 15));
         long requestSeconds = Math.max(1, Math.min(requestTimeoutSeconds, 30));
         this.requestTimeout = Duration.ofSeconds(requestSeconds);
-        this.httpClient = HttpClient.newBuilder()
+        this.httpClient = httpClient;
+    }
+
+    private static HttpClient createHttpClient(long connectTimeoutSeconds) {
+        long connectSeconds = Math.max(1, Math.min(connectTimeoutSeconds, 15));
+        return HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(connectSeconds))
             .followRedirects(HttpClient.Redirect.NEVER)
             .build();
@@ -69,7 +84,7 @@ public class JiraCustomerProvisioner {
     }
 
     public boolean isConfigured() {
-        if (!enabled || baseUrl.isBlank() || serviceDeskId.isBlank()
+        if (!enabled || !supportSiteIsolated || baseUrl.isBlank() || serviceDeskId.isBlank()
                 || adminEmail.isBlank() || adminToken.isBlank()) return false;
         try {
             URI uri = URI.create(baseUrl);

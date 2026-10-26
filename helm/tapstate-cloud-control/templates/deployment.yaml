@@ -93,6 +93,8 @@ spec:
               value: {{ .Values.config.jiraRequestTypeId | quote }}
             - name: TAPSTATE_CLOUD_JIRA_CUSTOMER_PROVISIONING_ENABLED
               value: {{ .Values.config.jiraCustomerProvisioningEnabled | quote }}
+            - name: TAPSTATE_CLOUD_JIRA_CUSTOMER_PROVISIONING_SUPPORT_SITE_ISOLATED
+              value: {{ .Values.config.jiraCustomerProvisioningSupportSiteIsolated | quote }}
             - name: TAPSTATE_CLOUD_JIRA_CLOSE_TRANSITION_NAME
               value: {{ .Values.config.jiraCloseTransitionName | quote }}
             - name: TAPSTATE_CLOUD_JIRA_CONNECT_TIMEOUT_SECONDS

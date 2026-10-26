@@ -107,6 +107,7 @@ config:
   jiraServiceDeskId: ""
   jiraRequestTypeId: ""
   jiraCustomerProvisioningEnabled: "false"
+  jiraCustomerProvisioningSupportSiteIsolated: "false"
   jiraCloseTransitionName: "Close Request"
   jiraConnectTimeoutSeconds: "3"
   jiraRequestTimeoutSeconds: "10"

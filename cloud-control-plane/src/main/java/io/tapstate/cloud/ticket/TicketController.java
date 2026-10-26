@@ -44,7 +44,10 @@ public class TicketController extends BaseController {
     @ApiResponses({
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "Ticket created"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Request fields rejected"),
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "Cloud user is not a Jira customer")
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "Cloud account email is not verified"),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "Cloud email could not be uniquely resolved to a Jira customer"),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "502", description = "Jira Service Management is unavailable"),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "503", description = "Jira configuration is missing")
     })
     public ResponseEntity<ApiResponse<JiraTicketService.Ticket>> create(@RequestBody CreateTicketRequest request) {
         if (request == null) throw new BusinessException(AppErrorCode.TICKET_REQUEST_REJECTED, 400);

@@ -95,6 +95,9 @@ kubectl create secret generic tapstate-cloud-control-jira-customer-admin \
   --from-literal=admin-token='...'
 # Enable only after email verification is active in the Cloud deployment:
 #   config.jiraCustomerProvisioningEnabled: "true"
+#   config.jiraCustomerProvisioningSupportSiteIsolated: "true"
+# The second setting is an operator attestation that the configured Jira site is
+# dedicated to Tapstate Cloud support and contains no unrelated Jira projects.
 # For awsdev, create both Secrets in the tapstate namespace.
 
 # 3. Helm install (local k3s dev)

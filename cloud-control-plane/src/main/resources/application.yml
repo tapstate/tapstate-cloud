@@ -134,6 +134,7 @@ tapstate:
       customer-provisioning:
         # Requires a dedicated JSM support site and separate Jira administrator credentials.
         enabled: ${TAPSTATE_CLOUD_JIRA_CUSTOMER_PROVISIONING_ENABLED:false}
+        support-site-isolated: ${TAPSTATE_CLOUD_JIRA_CUSTOMER_PROVISIONING_SUPPORT_SITE_ISOLATED:false}
         admin-email: ${TAPSTATE_CLOUD_JIRA_CUSTOMER_ADMIN_EMAIL:}
         admin-token: ${TAPSTATE_CLOUD_JIRA_CUSTOMER_ADMIN_TOKEN:}
       close-transition-name: ${TAPSTATE_CLOUD_JIRA_CLOSE_TRANSITION_NAME:Close Request}
