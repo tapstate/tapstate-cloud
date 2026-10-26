@@ -3,6 +3,7 @@ package io.tapstate.cloud.common.api;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -36,6 +37,30 @@ public class GlobalExceptionHandler {
         log.warn("Business rejection status={} code={} params={}",
             e.getHttpStatus(), e.getErrorCode().getCode(), java.util.Arrays.toString(e.getParams()));
         return i18nBuild(HttpStatus.valueOf(e.getHttpStatus()), e.getErrorCode(), e.getParams());
+    }
+
+    /**
+     * Unreadable request body — malformed JSON, invalid enum, Jackson type errors.
+     * These are client errors (400), not system failures.
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiResponse<Void>> handleNotReadable(HttpMessageNotReadableException e) {
+        // Log the underlying cause briefly so we can spot a Jackson-config bug vs.
+        // a genuine client error. The message already has everything we need.
+        log.info("Bad request body: {}", e.getMessage());
+        return i18nBuild(HttpStatus.BAD_REQUEST, AppErrorCode.BAD_REQUEST,
+            extractCauseMessage(e));
+    }
+
+    private static String extractCauseMessage(HttpMessageNotReadableException e) {
+        // Jackson's InvalidFormatException / MismatchedInputException surfaces
+        // the actual problem in getMostSpecificCause().getMessage() — use that
+        // instead of the generic "JSON parse error: ..." wrapper.
+        Throwable cause = e.getMostSpecificCause();
+        if (cause != null && cause != e) {
+            return cause.getMessage();
+        }
+        return e.getMessage();
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
