@@ -17,11 +17,15 @@ import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.cloudformation.CloudFormationClient;
 import software.amazon.awssdk.services.cloudformation.CloudFormationClientBuilder;
 import software.amazon.awssdk.services.cloudformation.model.CloudFormationException;
+import software.amazon.awssdk.services.cloudformation.model.DescribeStackEventsRequest;
+import software.amazon.awssdk.services.cloudformation.model.DescribeStackEventsResponse;
 import software.amazon.awssdk.services.cloudformation.model.DescribeStacksResponse;
 import software.amazon.awssdk.services.cloudformation.model.Output;
 import software.amazon.awssdk.services.cloudformation.model.Parameter;
 import software.amazon.awssdk.services.cloudformation.model.Stack;
+import software.amazon.awssdk.services.cloudformation.model.StackEvent;
 import software.amazon.awssdk.services.cloudformation.model.StackStatus;
+import software.amazon.awssdk.services.cloudformation.model.ResourceStatus;
 import software.amazon.awssdk.services.ec2.Ec2Client;
 import software.amazon.awssdk.services.ec2.model.Address;
 import software.amazon.awssdk.services.ec2.model.DomainType;
@@ -221,12 +225,74 @@ public class AwsComputeInfrastructure implements ComputeInfrastructure {
             }
             if (failure.contains(status)) {
                 throw new IacException(failureCode,
-                    "stack " + status + ": " + abbreviate(stack.stackStatusReason()));
+                    describeFailure(stackName, cf, status));
             }
             sleep(POLL_INTERVAL);
         }
         throw new IacException(failureCode,
             "stack did not finish within " + timeout + " (" + stackName + ")");
+    }
+
+    /**
+     * Build a human-readable failure description for a stack in a terminal failure state.
+     * Prefers the stack-level status reason; when that is blank (ROLLBACK_COMPLETE often
+     * has no reason), falls back to the resource-level CREATE_FAILED / ROLLBACK_IN_PROGRESS
+     * event's ResourceStatusReason so the API surfaces the actionable cause — e.g. which
+     * resource hit a vCPU limit, which security group rule was denied, etc.
+     */
+    private String describeFailure(String stackName, CloudFormationClient cf, StackStatus status) {
+        String stackReason = stackReason(stackName, cf);
+        if (stackReason != null && !stackReason.isBlank()) {
+            return "stack " + status + ": " + abbreviate(stackReason);
+        }
+        String resourceReason = firstResourceFailureReason(cf, stackName);
+        if (resourceReason != null) {
+            return "stack " + status + " — resource failure: " + abbreviate(resourceReason);
+        }
+        return "stack " + status + " (no reason from stack or resource events)";
+    }
+
+    /** Stack-level status reason, queried fresh (the {@link Stack} snapshot may carry null). */
+    private static String stackReason(String stackName, CloudFormationClient cf) {
+        try {
+            Stack s = cf.describeStacks(b -> b.stackName(stackName)).stacks().get(0);
+            return s.stackStatusReason();
+        } catch (Exception e) {
+            log.warn("[AwsIaC] cannot re-query stack status reason stack={}: {}", stackName, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Scan stack events and return the first CREATE_FAILED / ROLLBACK_IN_PROGRESS event's
+     * resource status reason — the actionable failure cause. Returns null when no failure
+     * event is found or the API call itself fails (we never want a diagnostics call to
+     * mask the original provision failure).
+     */
+    private static String firstResourceFailureReason(CloudFormationClient cf, String stackName) {
+        try {
+            DescribeStackEventsResponse response = cf.describeStackEvents(
+                DescribeStackEventsRequest.builder().stackName(stackName).build());
+            for (StackEvent event : response.stackEvents()) {
+                ResourceStatus rs = event.resourceStatus();
+                if (rs == null) continue;
+                String reason = event.resourceStatusReason();
+                if (reason == null || reason.isBlank()) continue;
+                switch (rs) {
+                    case CREATE_FAILED, ROLLBACK_IN_PROGRESS, UPDATE_FAILED, DELETE_FAILED -> {
+                        String resource = event.logicalResourceId();
+                        String type = event.resourceType();
+                        String prefix = (resource != null ? resource : "?");
+                        if (type != null) prefix += " (" + type + ")";
+                        return prefix + ": " + reason;
+                    }
+                    default -> { /* keep scanning */ }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("[AwsIaC] describeStackEvents failed stack={}: {}", stackName, e.getMessage());
+        }
+        return null;
     }
 
     /** Poll until delete succeeds (stack disappears) or fails, or times out. */
@@ -239,7 +305,7 @@ public class AwsComputeInfrastructure implements ComputeInfrastructure {
                 StackStatus status = stack.stackStatus();
                 if (DELETE_FAILED_STATES.contains(status)) {
                     throw new IacException(AppErrorCode.IAC_COMPUTE_TERMINATE_FAILED,
-                        "stack " + status + ": " + abbreviate(stack.stackStatusReason()));
+                        describeFailure(stackName, cf, status));
                 }
             } catch (CloudFormationException e) {
                 if (isMissingStack(e)) {
