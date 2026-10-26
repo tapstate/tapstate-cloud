@@ -224,6 +224,13 @@ public class SubscriptionController extends BaseController {
         @Schema(description = "Current billing period start (ISO-8601 UTC)") Instant currentPeriodStart,
         @Schema(description = "Current billing period end (ISO-8601 UTC)") Instant currentPeriodEnd,
         @Schema(description = "Whether provisioning new resources is allowed (TRIAL / ACTIVE = true)") boolean provisioningAllowed,
+        @Schema(description = "Key of the purchased plan spec (e.g. '2c8g') — from the subscription's immutable SpecConfig snapshot") String planKey,
+        @Schema(description = "Display name of the purchased plan (e.g. 'Starter')") String planDisplayName,
+        @Schema(description = "Instance virtual CPU cores") int planCpuCores,
+        @Schema(description = "Instance memory in GiB") int planMemoryGb,
+        @Schema(description = "Free-trial days for this plan (0 = no trial)") int planTrialDays,
+        @Schema(description = "Plan billing currency (e.g. 'USD') — empty when Stripe pricing is not configured for this spec") String planCurrency,
+        @Schema(description = "Plan unit price in cents (0 = no configured Stripe price on this spec)") long planUnitPriceCents,
         @Schema(description = "The subscription's Cluster UUID") String clusterId,
         @Schema(description = "The subscription's Atlas MdbAllocation UUID") String mdbAllocationId,
         @Schema(description = "Subscription creation time (ISO-8601 UTC)") Instant createdAt,
@@ -247,6 +254,15 @@ public class SubscriptionController extends BaseController {
                 .findFirst()
                 .map(ObjectId::toHexString)
                 .orElse(null);
+
+            // Spec snapshot — immutable copy of what the subscription was bought against.
+            SpecConfig spec = s.getSpecConfig();
+            String planKey = spec != null ? spec.getKey() : null;
+            String planDisplayName = spec != null ? spec.getDisplayName() : null;
+            int planCpuCores = spec != null ? spec.getCpuCores() : 0;
+            int planMemoryGb = spec != null ? spec.getMemoryGb() : 0;
+            int planTrialDays = spec != null ? spec.getTrialDays() : 0;
+
             return new SubscriptionResponse(
                 s.getId() != null ? s.getId().toHexString() : null,
                 s.getOrgId() != null ? s.getOrgId().toHexString() : null,
@@ -258,6 +274,10 @@ public class SubscriptionController extends BaseController {
                 s.getCurrentPeriodStart(),
                 s.getCurrentPeriodEnd(),
                 s.getStatus().allowsProvisioning(),
+                planKey, planDisplayName, planCpuCores, planMemoryGb, planTrialDays,
+                // currency + price are on the Stripe product table (channel-specific),
+                // not in the platform spec snapshot — surfaced separately when needed.
+                null, 0L,
                 clusterId,
                 mdbAllocationId,
                 s.getCreatedAt(),
