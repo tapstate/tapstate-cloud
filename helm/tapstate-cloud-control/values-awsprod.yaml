@@ -66,6 +66,15 @@ service:
   port: 8080
   nodePort: 30180
 
+# Production uses ECR (ap-east-1); CronJob keeps the 12h pull token fresh.
+# The prod namespace is pre-created and ops seeds tapstate-ecr-pull with a
+# bootstrap token before helm install, so the first rollout never depends on
+# the CronJob succeeding first.
+ecrRotation:
+  enabled: true
+  awsRegion: ap-east-1
+  secretName: tapstate-ecr-pull
+
 # k3s runs with traefik and servicelb disabled; the edge is nginx.
 ingress:
   enabled: false
