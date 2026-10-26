@@ -84,7 +84,8 @@ public class ClusterProvisioningService {
     private static final Duration SSH_WAIT_TIMEOUT = Duration.ofMinutes(10);
     private static final Duration DNS_WAIT_TIMEOUT = Duration.ofMinutes(5);
     private static final Duration HEALTH_TIMEOUT = Duration.ofMinutes(10);
-    private static final Duration COMPOSE_TIMEOUT = Duration.ofMinutes(5);
+    private static final Duration COMPOSE_TIMEOUT = Duration.ofMinutes(10);
+    private static final Duration PULL_TIMEOUT = Duration.ofMinutes(10);
     private static final int POLL_INTERVAL_MS = 10_000;
     private static final int SSH_SESSION_TIMEOUT_MS = 60_000;
     private static final int HEALTH_INTERVAL_MS = 20_000;
@@ -303,8 +304,16 @@ public class ClusterProvisioningService {
                             Duration.ofSeconds(30));
                         log.info("[IaC] compose file in place cluster={}", clusterId);
 
+                        // Pull first with retries, then start. Split pull from up so a
+                        // stalled image download (fresh EC2 hitting registry hiccups)
+                        // is distinguishable from an actual runtime bootstrap failure.
+                        // The two operations also benefit from separate timeouts — a
+                        // large image pull can legitimately take >5 min on a cold node.
+                        pullWithRetries(session, clusterId);
+
                         remoteExec(session,
-                            "cd /opt/tapstate-runtime && sudo docker compose up -d", COMPOSE_TIMEOUT);
+                            "cd /opt/tapstate-runtime && sudo docker compose up -d",
+                            COMPOSE_TIMEOUT);
                         log.info("[IaC] runtime stack started cluster={}", clusterId);
                     } catch (java.io.IOException e) {
                         throw new IacException(AppErrorCode.IAC_SSH_COMMAND_FAILED, e, safeMessage(e));
@@ -780,6 +789,47 @@ public class ClusterProvisioningService {
         } catch (java.io.IOException e) {
             throw new IacException(AppErrorCode.IAC_SSH_COMMAND_FAILED, e, safeMessage(e));
         }
+    }
+
+    /**
+     * Pull runtime images with up to 3 retries. Fresh EC2 nodes sometimes hit a
+     * transient registry hiccup (node-to-registry TCP handshake fails, rate
+     * limit, or ECR auth races for the first pull on the new node). The retry
+     * is cheap — a failed pull leaves nothing half-applied — so a node that
+     * can pull on attempt 2 or 3 is not actually "broken enough to fail the
+     * whole deploy" even if the first attempt timed out.
+     */
+    private void pullWithRetries(SshSession session, String clusterId) throws java.io.IOException {
+        int maxAttempts = 3;
+        Duration attemptTimeout = PULL_TIMEOUT.dividedBy(maxAttempts);
+        Exception lastFailure = null;
+
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            if (attempt > 1) {
+                log.warn("[IaC] docker compose pull retry attempt {}/3 cluster={}", attempt, clusterId);
+            }
+            try {
+                CommandResult result = session.exec(
+                    "cd /opt/tapstate-runtime && sudo docker compose pull",
+                    attemptTimeout);
+                if (result.succeeded()) {
+                    if (attempt > 1) {
+                        log.info("[IaC] docker compose pull succeeded on attempt {} cluster={}", attempt, clusterId);
+                    }
+                    return;
+                }
+                lastFailure = new IacException(AppErrorCode.IAC_SSH_COMMAND_FAILED,
+                    "docker compose pull failed (attempt " + attempt + "/" + maxAttempts
+                        + "): exit=" + result.exitCode() + " " + abbreviate(result.stderr()));
+            } catch (java.io.IOException e) {
+                lastFailure = e;
+            }
+            // Brief backoff before retry so a throttled registry has time to settle
+            try { Thread.sleep(2_000L); } catch (InterruptedException ignored) { }
+        }
+        throw new IacException(AppErrorCode.IAC_SSH_COMMAND_FAILED,
+            lastFailure, "docker compose pull failed after " + maxAttempts
+                + " attempts — giving up. Last error: " + safeMessage(lastFailure));
     }
 
     /** Reverse-order compensation of resources already created. */
