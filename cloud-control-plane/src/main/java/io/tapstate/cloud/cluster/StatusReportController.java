@@ -83,14 +83,14 @@ public class StatusReportController extends BaseController {
 
         // --- 1. Validate Bearer token (runtime → GC identity) ---
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-            throw new BusinessException(AppErrorCode.SDK_TOKEN_MISSING, HttpStatus.UNAUTHORIZED);
+            throw new BusinessException(AppErrorCode.SDK_TOKEN_MISSING, HttpStatus.UNAUTHORIZED.value());
         }
         String token = authHeader.substring(7).trim();
         Cluster cluster = clusterService.getBySdkToken(token);
         if (!cluster.getId().toHexString().equals(clusterId)) {
             // Token belongs to a DIFFERENT cluster than the path variable — reject
             log.warn("[C2] Token mismatch: path.clusterId={}, token.owns={}", clusterId, cluster.getId());
-            throw new BusinessException(AppErrorCode.SDK_TOKEN_INVALID, HttpStatus.UNAUTHORIZED);
+            throw new BusinessException(AppErrorCode.SDK_TOKEN_INVALID, HttpStatus.FORBIDDEN.value());
         }
 
         // --- 2. Record heartbeat + nonce replay check + store full payload + state transition ---
