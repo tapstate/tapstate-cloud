@@ -123,28 +123,40 @@ public class DeploymentStepRecorder {
     }
 
     /**
-     * Archive the failed attempts of one category and reset them to PENDING so
-     * the operation can run again. Called when a failed provisioning is retried.
+     * Reset every step of one category to PENDING so the operation can run
+     * from scratch on retry. FAILED and RUNNING steps are archived into
+     * {@code attempts} so the progress view still shows the previous failure.
+     * <p>
+     * The reset must cover SUCCEEDED steps too — a retry implies the previously
+     * "succeeded" work has already been torn down by the compensating cleanup,
+     * so those resources must be re-provisioned from step 1.
      */
     public void markRetry(ObjectId subscriptionId, DeploymentOpType opType) {
         safe(() -> {
             Query query = Query.query(Criteria.where("subscriptionId").is(subscriptionId)
-                .and("opType").is(opType)
-                .and("status").is(StepStatus.FAILED));
-            List<DeploymentStep> failed = mongoTemplate.find(query, DeploymentStep.class);
+                .and("opType").is(opType));
+            List<DeploymentStep> all = mongoTemplate.find(query, DeploymentStep.class);
             Instant now = Instant.now();
-            for (DeploymentStep step : failed) {
-                StepAttempt attempt = new StepAttempt(
-                    StepStatus.FAILED, step.getMessage(), step.getStartedAt(), step.getFinishedAt());
-                Query stepQuery = uniqueQuery(subscriptionId, opType,
-                    DeploymentOperation.fromCode(step.getOperation()));
+            for (DeploymentStep step : all) {
+                DeploymentOperation op = DeploymentOperation.fromCode(step.getOperation());
+                Query stepQuery = uniqueQuery(subscriptionId, opType, op);
                 Update update = new Update()
                     .set("status", StepStatus.PENDING)
                     .set("message", null)
                     .set("startedAt", null)
                     .set("finishedAt", null)
-                    .set("updatedAt", now)
-                    .push("attempts", attempt);
+                    .set("updatedAt", now);
+                // Archive non-PENDING attempts so the retry history survives.
+                // SUCCEEDED steps are reset but not archived — their success
+                // record is useful context, and archiving every reset would
+                // bloat the attempts array with "expected" transitions.
+                if (step.getStatus() == StepStatus.FAILED
+                    || step.getStatus() == StepStatus.RUNNING) {
+                    StepAttempt attempt = new StepAttempt(
+                        step.getStatus(), step.getMessage(),
+                        step.getStartedAt(), step.getFinishedAt());
+                    update.push("attempts", attempt);
+                }
                 mongoTemplate.updateFirst(stepQuery, update, DeploymentStep.class);
             }
         }, "retry", subscriptionId, opType);
