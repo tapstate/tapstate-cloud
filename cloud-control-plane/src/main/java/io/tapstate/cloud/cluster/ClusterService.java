@@ -346,8 +346,15 @@ public class ClusterService {
 
         String nonce = request.getNonce();
 
+        // Ingress double-check: reject missing/null/blank nonce before any persistence.
+        // The controller's @Valid already covers this on the normal HTTP path, but
+        // the service layer defends against direct bean invocation or test bypasses.
+        if (nonce == null || nonce.isBlank()) {
+            throw new BusinessException(AppErrorCode.BAD_REQUEST, 400, "nonce must not be blank");
+        }
+
         // Nonce replay guard — Cluster.lastC2Nonce stores the previously accepted nonce
-        if (nonce != null && nonce.equals(cluster.getLastC2Nonce())) {
+        if (nonce.equals(cluster.getLastC2Nonce())) {
             throw new BusinessException(AppErrorCode.NONCE_REPLAY, 409);
         }
 
