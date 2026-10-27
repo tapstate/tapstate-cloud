@@ -10,6 +10,7 @@ import io.tapstate.cloud.common.api.AppErrorCode;
 import io.tapstate.cloud.common.api.BusinessException;
 import io.tapstate.cloud.common.api.BaseController;
 import io.tapstate.cloud.common.api.ApiResponse;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -71,7 +72,8 @@ public class StatusReportController extends BaseController {
     )
     @ApiResponses(value = {
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Status report accepted"),
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "SDK token missing or invalid (auth.sdk-token-invalid)"),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Missing or blank nonce (bad_request)"),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "SDK token missing or invalid (sdk.token-missing / sdk.token-invalid)"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "Token does not match path clusterId (auth.cluster-mismatch)"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "Nonce replay (auth.nonce-replay)")
     })
@@ -79,7 +81,7 @@ public class StatusReportController extends BaseController {
             @Parameter(description = "Cluster ObjectId — must match the Bearer token's owning Cluster")
             @PathVariable String clusterId,
             @RequestHeader(value = "Authorization", required = false) String authHeader,
-            @RequestBody StatusReportRequest request) {
+            @Valid @RequestBody StatusReportRequest request) {
 
         // --- 1. Validate Bearer token (runtime → GC identity) ---
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
