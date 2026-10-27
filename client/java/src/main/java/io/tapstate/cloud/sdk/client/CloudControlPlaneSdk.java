@@ -616,19 +616,19 @@ public final class CloudControlPlaneSdk implements java.io.Closeable {
     private CloudControlPlaneException classifyC2Error(ApiException e) {
         int code = e.getCode();
         if (code == 401) {
-            return new CloudControlPlaneException.C2AuthFailed(
+            return new CloudControlPlaneException.C2AuthFailed(401,
                 "C2 status-report: SDK token invalid or missing", e);
         }
         if (code == 403) {
-            return new CloudControlPlaneException.C2AuthFailed(
+            return new CloudControlPlaneException.C2AuthFailed(403,
                 "C2 status-report: token does not own path clusterId", e);
         }
         if (code == 409) {
-            return new CloudControlPlaneException.C2NonceReplay(
+            return new CloudControlPlaneException.C2NonceReplay(409,
                 "C2 status-report: nonce already seen — must generate a fresh UUID for each call", e);
         }
         // 5xx (>=500) or connect failure (0) — transient; retries exhausted already
-        return new CloudControlPlaneException.C2Transient(
+        return new CloudControlPlaneException.C2Transient(code,
             "C2 status-report failed after " + C2_MAX_ATTEMPTS + " attempts (code=" + code + ") — GC may be unreachable or overloaded", e);
     }
 

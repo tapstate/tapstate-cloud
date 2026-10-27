@@ -47,6 +47,7 @@ class CloudControlPlaneSdkTransportTest {
     private HttpServer server;
     private String baseUrl;
     private final AtomicInteger exchangePostCount = new AtomicInteger();
+    private final AtomicInteger c2PostCount = new AtomicInteger();
 
     // RSA keypair + kid for the 200 happy-path JWT
     private KeyPair rsaKeyPair;
@@ -67,6 +68,7 @@ class CloudControlPlaneSdkTransportTest {
         jwtKid = "test-rsa-key-1";
 
         exchangePostCount.set(0);
+        c2PostCount.set(0);
         forceStatus = 200;
 
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -74,6 +76,7 @@ class CloudControlPlaneSdkTransportTest {
 
         server.createContext("/v1/api/auth/exchange", new ExchangeHandler());
         server.createContext("/v1/api/jwks.json", new JwksHandler());
+        server.createContext("/v1/api/clusters/" + CLUSTER_ID + "/status-report", new StatusReportHandler());
         server.setExecutor(null);
         server.start();
     }
@@ -142,6 +145,67 @@ class CloudControlPlaneSdkTransportTest {
         assertNotNull(result.jwt());
         assertNotNull(result.expiresAt());
         assertEquals(1, exchangePostCount.get(), "200 success path should also be exactly one POST");
+    }
+
+    // ---------- C2 status-report POST count tests (issue #80) ----------
+
+    @Test
+    @DisplayName("C2 reportStatus: 503 persistent → exactly 3 POSTs (C2_MAX_ATTEMPTS), facade retries only")
+    void c2_503_exactlyThreePosts() {
+        forceStatus = 503;
+
+        CloudControlPlaneSdk sdk = buildSdk();
+        try {
+            CloudControlPlaneException ex = assertThrows(CloudControlPlaneException.class,
+                () -> sdk.reportStatus("nonce-503", "2.1.0", 10000L, 5, null));
+
+            assertTrue(ex instanceof CloudControlPlaneException.C2Transient,
+                "All-503 path must surface as C2Transient, got: " + ex.getClass().getSimpleName());
+            assertEquals(503, ex.getHttpStatus(),
+                "C2Transient must carry the real HTTP status from the last ApiException, not hardcoded 0");
+            assertEquals(3, c2PostCount.get(),
+                "Issue #80: Apache auto-retry on top of facade 3x retry was firing 5-6 POSTs for 503. "
+                    + "With buildNoRetryHttpClient(), the facade loop is the sole retry controller → 3.");
+        } finally {
+            sdk.close();
+        }
+    }
+
+    @Test
+    @DisplayName("C2 reportStatus: 429 → exactly 1 POST (4xx is terminal, no facade retry, no Apache auto-retry)")
+    void c2_429_exactlyOnePost() {
+        forceStatus = 429;
+
+        CloudControlPlaneSdk sdk = buildSdk();
+        try {
+            CloudControlPlaneException ex = assertThrows(CloudControlPlaneException.class,
+                () -> sdk.reportStatus("nonce-429", "2.1.0", 10000L, 5, null));
+
+            assertTrue(ex instanceof CloudControlPlaneException.C2Transient,
+                "429 is a transport-level failure → C2Transient, got: " + ex.getClass().getSimpleName());
+            assertEquals(429, ex.getHttpStatus(),
+                "C2Transient must carry the real HTTP status (429), not hardcoded 0");
+            assertEquals(1, c2PostCount.get(),
+                "Issue #80: Apache auto-retry was doubling 429 to 2 POSTs. "
+                    + "Facade treats all 4xx as non-retryable; Apache auto-retry disabled → 1.");
+        } finally {
+            sdk.close();
+        }
+    }
+
+    @Test
+    @DisplayName("C2 reportStatus: 200 with code=ok+data.status=accepted → one POST, no exception")
+    void c2_200_onePostAndAccepted() {
+        forceStatus = 200;
+
+        CloudControlPlaneSdk sdk = buildSdk();
+        try {
+            assertDoesNotThrow(
+                () -> sdk.reportStatus("nonce-200", "2.1.0", 10000L, 5, null));
+            assertEquals(1, c2PostCount.get(), "200 happy path must be exactly one POST");
+        } finally {
+            sdk.close();
+        }
     }
 
     // ========== HttpHandler implementations ==========
@@ -267,6 +331,64 @@ class CloudControlPlaneSdkTransportTest {
                 ? java.util.Arrays.copyOfRange(raw, 1, raw.length)
                 : raw;
             return Base64.getUrlEncoder().withoutPadding().encodeToString(trimmed);
+        }
+    }
+
+    /**
+     * POST /v1/api/clusters/{clusterId}/status-report — loopback for C2
+     * reportStatus transport tests (issue #80).
+     * <p>
+     * Driven by the outer test instance's {@link #forceStatus}:
+     * <ul>
+     *   <li>200 — envelope code=ok + data.status=accepted (what GC returns on business-level acceptance)</li>
+     *   <li>503 / 429 — return that HTTP status with a JSON error envelope</li>
+     *   <li>401 / 403 / 409 — return that HTTP status (terminal, never retried)</li>
+     * </ul>
+     * Every POST increments {@link #c2PostCount}.
+     */
+    class StatusReportHandler implements HttpHandler {
+
+        private final ObjectMapper mapper = new ObjectMapper();
+
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String method = exchange.getRequestMethod();
+            try (InputStream in = exchange.getRequestBody()) { /* drain body */ }
+
+            if (!"POST".equalsIgnoreCase(method)) {
+                sendJson(exchange, 405, Map.of("code", "method-not-allowed", "msg", "only POST"));
+                return;
+            }
+
+            c2PostCount.incrementAndGet();
+
+            int status = forceStatus;
+            if (status == 200) {
+                // Must satisfy the facade's envelope acceptance check:
+                // envelope.code == "ok" AND envelope.data.status == "accepted"
+                Map<String, Object> data = Map.of("status", "accepted");
+                Map<String, Object> envelope = Map.of(
+                    "opId", "test-op-c2-001",
+                    "code", "ok",
+                    "msg", "ok",
+                    "data", data);
+                sendJson(exchange, 200, envelope);
+            } else {
+                Map<String, Object> envelope = Map.of(
+                    "opId", "test-op-c2-001",
+                    "code", "c2.status-report-" + status,
+                    "msg", "synthetic C2 status " + status);
+                sendJson(exchange, status, envelope);
+            }
+        }
+
+        private void sendJson(HttpExchange exchange, int status, Object body) throws IOException {
+            byte[] bytes = mapper.writeValueAsBytes(body);
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders(status, bytes.length);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(bytes);
+            }
         }
     }
 }
