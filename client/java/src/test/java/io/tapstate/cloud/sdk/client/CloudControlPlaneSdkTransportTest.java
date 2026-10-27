@@ -161,6 +161,8 @@ class CloudControlPlaneSdkTransportTest {
 
             assertTrue(ex instanceof CloudControlPlaneException.C2Transient,
                 "All-503 path must surface as C2Transient, got: " + ex.getClass().getSimpleName());
+            assertEquals(503, ex.getHttpStatus(),
+                "C2Transient must carry the real HTTP status from the last ApiException, not hardcoded 0");
             assertEquals(3, c2PostCount.get(),
                 "Issue #80: Apache auto-retry on top of facade 3x retry was firing 5-6 POSTs for 503. "
                     + "With buildNoRetryHttpClient(), the facade loop is the sole retry controller → 3.");
@@ -181,6 +183,8 @@ class CloudControlPlaneSdkTransportTest {
 
             assertTrue(ex instanceof CloudControlPlaneException.C2Transient,
                 "429 is a transport-level failure → C2Transient, got: " + ex.getClass().getSimpleName());
+            assertEquals(429, ex.getHttpStatus(),
+                "C2Transient must carry the real HTTP status (429), not hardcoded 0");
             assertEquals(1, c2PostCount.get(),
                 "Issue #80: Apache auto-retry was doubling 429 to 2 POSTs. "
                     + "Facade treats all 4xx as non-retryable; Apache auto-retry disabled → 1.");

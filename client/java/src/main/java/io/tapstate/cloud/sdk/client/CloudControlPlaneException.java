@@ -90,24 +90,24 @@ public class CloudControlPlaneException extends Exception {
     /** GC rejected the C2 call with 401/403 — token invalid / cluster mismatch / cluster revoked. */
     public static final class C2AuthFailed extends CloudControlPlaneException {
         private static final long serialVersionUID = 1L;
-        public C2AuthFailed(String msg, Throwable cause) {
-            super("c2.auth-failed", 401, msg, cause);
+        public C2AuthFailed(int httpStatus, String msg, Throwable cause) {
+            super("c2.auth-failed", httpStatus, msg, cause);
         }
     }
 
     /** GC rejected the C2 call with 409 — same nonce reused. Client must generate a fresh UUID every call. */
     public static final class C2NonceReplay extends CloudControlPlaneException {
         private static final long serialVersionUID = 1L;
-        public C2NonceReplay(String msg, Throwable cause) {
-            super("c2.nonce-replay", 409, msg, cause);
+        public C2NonceReplay(int httpStatus, String msg, Throwable cause) {
+            super("c2.nonce-replay", httpStatus, msg, cause);
         }
     }
 
     /** All bounded-retry attempts exhausted (5xx or connection failure). GC may be unreachable. */
     public static final class C2Transient extends CloudControlPlaneException {
         private static final long serialVersionUID = 1L;
-        public C2Transient(String msg, Throwable cause) {
-            super("c2.transient", 0, msg, cause);
+        public C2Transient(int httpStatus, String msg, Throwable cause) {
+            super("c2.transient", httpStatus, msg, cause);
         }
     }
 
