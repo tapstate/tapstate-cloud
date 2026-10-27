@@ -459,8 +459,24 @@ public final class CloudControlPlaneSdk implements java.io.Closeable {
         try {
             Map<String, RSAPublicKey> cached = jwksCache.getKeysSnapshot();
             if (cached.isEmpty()) {
-                log.warn("verifyRequest: JWKS cache is empty");
-                return false;
+                // Cold start: callback arrives before any JWT verification has loaded JWKS.
+                // verifyRequest has no kid to look up, so we cannot use findKey(kid);
+                // instead, force a JWKS refresh here and then retry. If the network
+                // is unreachable we'll still return false — but on a healthy first
+                // callback we must verify successfully, matching verifyJwt's lazy-fetch
+                // behaviour.
+                log.info("verifyRequest: JWKS cache is empty — triggering lazy refresh");
+                try {
+                    jwksCache.forceRefresh();
+                } catch (CloudControlPlaneException cpe) {
+                    log.warn("verifyRequest: JWKS refresh failed — cannot verify callback: {}", cpe.getMessage());
+                    return false;
+                }
+                cached = jwksCache.getKeysSnapshot();
+                if (cached.isEmpty()) {
+                    log.warn("verifyRequest: JWKS cache still empty after refresh");
+                    return false;
+                }
             }
             byte[] signBytes = Base64.getUrlDecoder().decode(sign);
             // Try every cached key — callback signatures carry no kid, so during JWKS
