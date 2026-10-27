@@ -21,6 +21,9 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
+import io.tapstate.cloud.config.LegalConfig;
+import io.tapstate.cloud.identity.UserRepository;
+
 import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -39,6 +42,8 @@ public class OAuthAuthenticationSuccessHandler implements AuthenticationSuccessH
     private final IdentityAuthenticationService identityAuthenticationService;
     private final OAuth2AuthorizedClientService authorizedClients;
     private final RestClient.Builder restClientBuilder;
+    private final UserRepository userRepository;
+    private final LegalConfig legalConfig;
 
     @Value("${tapstate.cloud.auth.console-url:http://localhost:5173}")
     private String consoleUrl;
@@ -105,6 +110,14 @@ public class OAuthAuthenticationSuccessHandler implements AuthenticationSuccessH
         }
 
         request.changeSessionId();
+
+        // Auto-upgrade legal version if missing or stale (same behavior as password login)
+        if (user.getAgreedLegalVersion() == null || !legalConfig.getCurrentVersion().equals(user.getAgreedLegalVersion())) {
+            user.setAgreedLegalVersion(legalConfig.getCurrentVersion());
+            user.setAgreedLegalAt(Instant.now());
+            userRepository.save(user);
+        }
+
         var appAuthentication = new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
             user.getEmail(), null, List.of(new SimpleGrantedAuthority("ROLE_USER")));
         SecurityContext context = SecurityContextHolder.createEmptyContext();
