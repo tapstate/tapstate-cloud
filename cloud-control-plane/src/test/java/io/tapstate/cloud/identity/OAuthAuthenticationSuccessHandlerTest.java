@@ -105,7 +105,8 @@ class OAuthAuthenticationSuccessHandlerTest {
             eq("Octo Cat"), eq("signup"), isNull(), isNull(), eq("invitation-digest"), isNull())).thenReturn(user);
 
         OAuthAuthenticationSuccessHandler handler = new OAuthAuthenticationSuccessHandler(
-            identities, authorizedClients, restClientBuilder);
+            identities, authorizedClients, restClientBuilder,
+            mock(UserRepository.class), mock(io.tapstate.cloud.config.LegalConfig.class));
         ReflectionTestUtils.setField(handler, "consoleUrl", "https://console.example");
         MockHttpServletRequest request = new MockHttpServletRequest();
         MockHttpSession session = new MockHttpSession();
@@ -184,7 +185,8 @@ class OAuthAuthenticationSuccessHandlerTest {
 
     private OAuthAuthenticationSuccessHandler handler(IdentityAuthenticationService identities) {
         OAuthAuthenticationSuccessHandler handler = new OAuthAuthenticationSuccessHandler(
-            identities, mock(OAuth2AuthorizedClientService.class), RestClient.builder());
+            identities, mock(OAuth2AuthorizedClientService.class), RestClient.builder(),
+            mock(UserRepository.class), mock(io.tapstate.cloud.config.LegalConfig.class));
         ReflectionTestUtils.setField(handler, "consoleUrl", "https://console.example");
         return handler;
     }
