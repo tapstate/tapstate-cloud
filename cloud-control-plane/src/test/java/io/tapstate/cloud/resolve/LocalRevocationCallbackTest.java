@@ -68,7 +68,7 @@ class LocalRevocationCallbackTest {
                 mock(EmailVerificationService.class), mock(InvitationService.class),
                 mock(TrialCodePolicy.class),
                 mock(AuthenticationManager.class), records, new CallbackSignService(keys), resolver,
-                mock(ClientRegistrationRepository.class));
+                mock(ClientRegistrationRepository.class), mock(io.tapstate.cloud.config.LegalConfig.class));
             SecurityContextHolder.getContext().setAuthentication(
                 new UsernamePasswordAuthenticationToken("user@example.com", null, List.of()));
             assertEquals(200, controller.logout(new MockHttpServletRequest()).getStatusCode().value());

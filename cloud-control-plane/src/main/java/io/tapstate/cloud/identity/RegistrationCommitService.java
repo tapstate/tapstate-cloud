@@ -1,5 +1,6 @@
 package io.tapstate.cloud.identity;
 
+import io.tapstate.cloud.config.LegalConfig;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.mongodb.core.FindAndModifyOptions;
 import org.springframework.data.mongodb.core.MongoTemplate;
@@ -28,6 +29,7 @@ public class RegistrationCommitService {
     private final MongoTemplate mongoTemplate;
     private final PasswordEncoder passwordEncoder;
     private final OrganizationService organizations;
+    private final LegalConfig legalConfig;
 
     @Transactional
     public User complete(OrganizationInvitation invitation, EmailVerificationChallenge challenge,
@@ -60,6 +62,8 @@ public class RegistrationCommitService {
                 ? email.substring(0, email.indexOf('@')) : displayName.trim())
             .emailVerified(true)
             .status("active")
+            .agreedLegalVersion(legalConfig.getCurrentVersion())
+            .agreedLegalAt(now)
             .build());
         if (createsOrganization) {
             organizations.createTrialOrganization(organizationName, email);

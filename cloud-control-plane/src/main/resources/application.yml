@@ -99,6 +99,10 @@ knife4j:
 
 # ========== Tapstate Cloud custom config ==========
 tapstate:
+  legal:
+    # Current legal document version string. New registrations must agree to this
+    # exact value; existing users are auto-upgraded on next login when stale.
+    current-version: ${TAPSTATE_LEGAL_CURRENT_VERSION:legal-v1.0-2026-10-27}
   cloud:
     auth:
       trial-code-required: ${CLOUD_AUTH_TRIAL_CODE_REQUIRED:true}

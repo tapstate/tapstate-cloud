@@ -10,6 +10,7 @@ import io.tapstate.cloud.common.api.ApiResponse;
 import io.tapstate.cloud.common.api.BaseController;
 import io.tapstate.cloud.common.CurrentUser;
 import io.tapstate.cloud.common.api.BusinessException;
+import io.tapstate.cloud.config.LegalConfig;
 import io.tapstate.cloud.resolve.CallbackSignService;
 import io.tapstate.cloud.resolve.JtiRecord;
 import io.tapstate.cloud.resolve.JtiRecordRepository;
@@ -66,6 +67,7 @@ public class AuthController extends BaseController {
     private final CallbackSignService callbackSignService;
     private final LocalClusterEndpoints endpoints;
     private final ClientRegistrationRepository clientRegistrations;
+    private final LegalConfig legalConfig;
 
     private final HttpClient httpClient = HttpClient.newBuilder()
         .connectTimeout(java.time.Duration.ofSeconds(3)).build();
@@ -135,10 +137,17 @@ public class AuthController extends BaseController {
     })
     public ResponseEntity<ApiResponse<LoginResult>> registerWithEmailCode(
             @Valid @RequestBody EmailRegistrationRequest request, HttpServletRequest httpRequest) {
+        // Require the caller to agree to the current legal document version.
+        String currentLegal = legalConfig.getCurrentVersion();
+        if (request.agreedLegalVersion() == null || request.agreedLegalVersion().isBlank()
+                || !request.agreedLegalVersion().equals(currentLegal)) {
+            return fail(AppErrorCode.BAD_REQUEST, HttpStatus.BAD_REQUEST,
+                "legal.agreed-version-mismatch");
+        }
         User user = emailVerificationService.verifyAndRegister(request.invitationToken(), request.email(),
             request.code(), request.password(), request.displayName(), request.organizationName());
         authenticateSession(user, httpRequest);
-        return okCreated(new LoginResult(user.getEmail(), user.getDisplayName()));
+        return okCreated(new LoginResult(user.getEmail(), user.getDisplayName(), user.getAgreedLegalVersion()));
     }
 
     @PostMapping("/invitations/accept")
@@ -150,7 +159,7 @@ public class AuthController extends BaseController {
             return fail(AppErrorCode.UNAUTHORIZED, HttpStatus.UNAUTHORIZED);
         }
         User user = invitationService.acceptForExistingUser(request.invitationToken(), email, request.organizationName());
-        return ok(new LoginResult(user.getEmail(), user.getDisplayName()));
+        return ok(new LoginResult(user.getEmail(), user.getDisplayName(), user.getAgreedLegalVersion()));
     }
 
     @PostMapping("/oauth/{provider}/start")
@@ -240,13 +249,23 @@ public class AuthController extends BaseController {
             // Load full User record for displayName + update lastLoginAt
             User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new BusinessException(AppErrorCode.USER_NOT_FOUND, 404, request.email()));
-            user.setLastLoginAt(Instant.now());
+            Instant now = Instant.now();
+            user.setLastLoginAt(now);
+
+            // Auto-upgrade: if the user has no recorded legal version or it is stale,
+            // silently bump it to the current version on login. This covers existing
+            // users created before the legal-agreement feature landed.
+            String currentLegal = legalConfig.getCurrentVersion();
+            if (user.getAgreedLegalVersion() == null || !user.getAgreedLegalVersion().equals(currentLegal)) {
+                user.setAgreedLegalVersion(currentLegal);
+                user.setAgreedLegalAt(now);
+            }
             userRepository.save(user);
 
             authenticateSession(user, httpRequest, finalAuth);
 
             log.info("Login success: {}", user.getEmail());
-            return ok(new LoginResult(user.getEmail(), user.getDisplayName()));
+            return ok(new LoginResult(user.getEmail(), user.getDisplayName(), user.getAgreedLegalVersion()));
         } catch (BadCredentialsException e) {
             return fail(AppErrorCode.INVALID_CREDENTIALS, HttpStatus.UNAUTHORIZED);
         } catch (BusinessException e) {
@@ -392,7 +411,7 @@ public class AuthController extends BaseController {
         String email = CurrentUser.getEmail();
         User user = userRepository.findByEmail(email.toLowerCase())
             .orElseThrow(() -> new BusinessException(AppErrorCode.USER_NOT_FOUND, 404, email));
-        return ok(new LoginResult(user.getEmail(), user.getDisplayName()));
+        return ok(new LoginResult(user.getEmail(), user.getDisplayName(), user.getAgreedLegalVersion()));
     }
 
     // ========== Request/Response DTOs ==========
@@ -422,7 +441,9 @@ public class AuthController extends BaseController {
         @NotBlank @Size(min = 6, max = 6) String code,
         @NotBlank @Size(min = 8, max = 128) String password,
         @Size(max = 100) String displayName,
-        @Size(max = 100) String organizationName
+        @Size(max = 100) String organizationName,
+        @Schema(description = "Legal document version the user agreed to (must match current version)")
+        String agreedLegalVersion
     ) {}
 
     public record AcceptInvitationRequest(@NotBlank String invitationToken, String organizationName) {}
@@ -446,7 +467,9 @@ public class AuthController extends BaseController {
         @Schema(description = "Authenticated user email")
         String email,
         @Schema(description = "User display name")
-        String displayName
+        String displayName,
+        @Schema(description = "Legal document version the user has agreed to")
+        String agreedLegalVersion
     ) {}
 
     public record UserResponse(
@@ -461,7 +484,9 @@ public class AuthController extends BaseController {
         @Schema(description = "Account creation time (ISO-8601)")
         Instant createdAt,
         @Schema(description = "Last login time (ISO-8601)")
-        Instant lastLoginAt
+        Instant lastLoginAt,
+        @Schema(description = "Legal document version the user has agreed to")
+        String agreedLegalVersion
     ) {
         public static UserResponse from(User user) {
             return new UserResponse(
@@ -470,7 +495,8 @@ public class AuthController extends BaseController {
                 user.getDisplayName(),
                 user.getStatus(),
                 user.getCreatedAt(),
-                user.getLastLoginAt()
+                user.getLastLoginAt(),
+                user.getAgreedLegalVersion()
             );
         }
     }

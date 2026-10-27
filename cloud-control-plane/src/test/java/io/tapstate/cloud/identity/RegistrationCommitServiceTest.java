@@ -1,5 +1,6 @@
 package io.tapstate.cloud.identity;
 
+import io.tapstate.cloud.config.LegalConfig;
 import io.tapstate.cloud.org.MemberRepository;
 import io.tapstate.cloud.org.OrganizationService;
 import org.bson.types.ObjectId;
@@ -29,6 +30,7 @@ class RegistrationCommitServiceTest {
     @Mock private MongoTemplate mongoTemplate;
     @Mock private PasswordEncoder passwordEncoder;
     @Mock private OrganizationService organizations;
+    @Mock private LegalConfig legalConfig;
 
     @Test
     void registrationWithoutInvitationCreatesItsOwnOrganization() {
@@ -40,9 +42,10 @@ class RegistrationCommitServiceTest {
             eq(EmailVerificationChallenge.class))).thenReturn(challenge);
         when(users.existsByEmail("guest@example.com")).thenReturn(false);
         when(users.save(any(User.class))).thenReturn(user);
+        when(legalConfig.getCurrentVersion()).thenReturn("legal-v1.0-test");
 
         RegistrationCommitService service = new RegistrationCommitService(invitations, users, members,
-            mongoTemplate, passwordEncoder, organizations);
+            mongoTemplate, passwordEncoder, organizations, legalConfig);
         User result = service.complete(null, challenge, "guest@example.com", "password-123", "Guest",
             "Guest Workspace", now);
 
