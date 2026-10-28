@@ -303,6 +303,16 @@ spec:
                   key: {{ .Values.secrets.clusterVersionReleaseToken.key }}
                   optional: true
 
+            # ========== Ops subscription immediate-cancel operator token (optional) ==========
+            # Static bearer token for the ops-triggered immediate subscription
+            # cancellation endpoint. Absent = fail-closed (503).
+            - name: TAPSTATE_CLOUD_OPS_SUBSCRIPTION_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.opsSubscriptionToken.name }}
+                  key: {{ .Values.secrets.opsSubscriptionToken.key }}
+                  optional: true
+
             # ========== Secrets for invited authentication (optional) ==========
             - name: CLOUD_AUTH_TRIAL_ISSUER_EMAIL
               value: {{ .Values.config.trialIssuerEmail | quote }}
