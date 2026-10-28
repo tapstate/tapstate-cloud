@@ -68,7 +68,7 @@ public class JiraTicketService {
             .createdAt(Instant.now())
             .build();
         try {
-            tickets.save(mapping);
+            mapping = tickets.save(mapping);
         } catch (RuntimeException e) {
             log.error("JSM request was created but Cloud mapping persistence failed; opId={} jiraKey={} exception={}",
                 io.tapstate.cloud.common.api.OpIdHolder.get(), jiraKey, e.getClass().getSimpleName());
@@ -85,10 +85,11 @@ public class JiraTicketService {
             throw business(AppErrorCode.TICKET_CUSTOMER_NOT_READY, 409);
         }
 
-        customerProvisioner.createOrAddCustomer(user.getEmail(), user.getDisplayName());
-        List<JiraTicketClient.Customer> provisioned = jira.findExactCustomers(user.getEmail());
-        if (provisioned.size() != 1) throw business(AppErrorCode.TICKET_CUSTOMER_NOT_READY, 409);
-        return provisioned.getFirst().accountId();
+        String provisionedAccountId = customerProvisioner.createOrAddCustomer(user.getEmail(), user.getDisplayName());
+        if (provisionedAccountId == null || provisionedAccountId.isBlank()) {
+            throw business(AppErrorCode.TICKET_CUSTOMER_NOT_READY, 409);
+        }
+        return provisionedAccountId;
     }
 
     public Ticket get(String cloudTicketId) {
@@ -111,10 +112,20 @@ public class JiraTicketService {
     }
 
     private Ticket readTicket(CloudTicket mapping, boolean includeTransitions) {
-        JsonNode current = jira.getRequest(mapping.getJiraKey());
-        List<JiraTicketClient.Transition> transitions = includeTransitions
-            ? jira.getTransitions(mapping.getJiraKey()) : List.of();
-        return toTicket(mapping, current, transitions, "");
+        try {
+            JsonNode current = jira.getRequest(mapping.getJiraKey());
+            List<JiraTicketClient.Transition> transitions = includeTransitions
+                ? jira.getTransitions(mapping.getJiraKey()) : List.of();
+            return toTicket(mapping, current, transitions, "");
+        } catch (RuntimeException e) {
+            if (includeTransitions) {
+                throw e;
+            }
+            log.warn("JSM read failed for mapping jiraKey={}; degrading to cached summary; opId={}",
+                mapping.getJiraKey(), io.tapstate.cloud.common.api.OpIdHolder.get(), e);
+            return new Ticket(mapping.getId().toHexString(), mapping.getJiraKey(), mapping.getSummary(),
+                "", "Unavailable", "indeterminate", mapping.getCreatedAt(), false);
+        }
     }
 
     private Ticket toTicket(CloudTicket mapping, JsonNode request, List<JiraTicketClient.Transition> transitions,

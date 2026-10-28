@@ -104,8 +104,8 @@ class JiraTicketServiceTest {
 
     @Test
     void provisionsOneCustomerBeforeCreatingTheJiraRequest() throws Exception {
-        when(jira.findExactCustomers(EMAIL)).thenReturn(List.of(),
-            List.of(new JiraTicketClient.Customer(EMAIL, "new-account")));
+        when(jira.findExactCustomers(EMAIL)).thenReturn(List.of());
+        when(customerProvisioner.createOrAddCustomer(EMAIL, "Support User")).thenReturn("new-account");
         when(jira.createRequest("new-account", "Help", "I need help."))
             .thenReturn(createdRequest("TSSD-13"));
 
@@ -116,13 +116,13 @@ class JiraTicketServiceTest {
         order.verify(jira).findExactCustomers(EMAIL);
         order.verify(customerProvisioner).isEnabled();
         order.verify(customerProvisioner).createOrAddCustomer(EMAIL, "Support User");
-        order.verify(jira).findExactCustomers(EMAIL);
         order.verify(jira).createRequest("new-account", "Help", "I need help.");
     }
 
     @Test
     void failsClosedIfCustomerProvisioningDoesNotProduceOneExactServiceDeskCustomer() {
-        when(jira.findExactCustomers(EMAIL)).thenReturn(List.of(), List.of());
+        when(jira.findExactCustomers(EMAIL)).thenReturn(List.of());
+        when(customerProvisioner.createOrAddCustomer(EMAIL, "Support User")).thenReturn(null);
 
         BusinessException failure = assertThrows(BusinessException.class,
             () -> service.create("Help", "I need help."));
@@ -181,6 +181,22 @@ class JiraTicketServiceTest {
         assertEquals("Waiting for support", page.items().getFirst().status());
         verify(tickets).findByOwnerIdOrderByCreatedAtDesc(eq(user.getId()), any(Pageable.class));
         verify(jira).getRequest("TSSD-14");
+    }
+
+    @Test
+    void degradesGracefullyWhenJiraTicketReadFailsInList() {
+        CloudTicket mapping = ownedTicket();
+        when(tickets.findByOwnerIdOrderByCreatedAtDesc(eq(user.getId()), any(Pageable.class)))
+            .thenReturn(new PageImpl<>(List.of(mapping)));
+        when(jira.getRequest("TSSD-14")).thenThrow(new BusinessException(AppErrorCode.TICKET_INTEGRATION_FAILED, 502));
+
+        JiraTicketService.TicketPage page = service.list(0, 20);
+
+        assertEquals(1, page.totalItems());
+        assertEquals(1, page.items().size());
+        assertEquals("Existing ticket", page.items().getFirst().summary());
+        assertEquals("Unavailable", page.items().getFirst().status());
+        assertFalse(page.items().getFirst().canClose());
     }
 
     @Test

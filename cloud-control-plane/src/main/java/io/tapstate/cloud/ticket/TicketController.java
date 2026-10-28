@@ -7,6 +7,7 @@ import io.tapstate.cloud.common.api.ApiResponse;
 import io.tapstate.cloud.common.api.AppErrorCode;
 import io.tapstate.cloud.common.api.BusinessException;
 import io.tapstate.cloud.common.api.BaseController;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
@@ -49,7 +50,7 @@ public class TicketController extends BaseController {
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "502", description = "Jira Service Management is unavailable"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "503", description = "Jira configuration is missing")
     })
-    public ResponseEntity<ApiResponse<JiraTicketService.Ticket>> create(@RequestBody CreateTicketRequest request) {
+    public ResponseEntity<ApiResponse<JiraTicketService.Ticket>> create(@Valid @RequestBody CreateTicketRequest request) {
         if (request == null) throw new BusinessException(AppErrorCode.TICKET_REQUEST_REJECTED, 400);
         return okCreated(ticketService.create(request.summary(), request.description()));
     }

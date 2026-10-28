@@ -415,7 +415,7 @@ spec:
                   name: {{ .Values.secrets.jira.name }}
                   key: {{ .Values.secrets.jira.clientSecretKey }}
                   optional: true
-            {{ if eq .Values.config.jiraCustomerProvisioningEnabled "true" }}
+            {{ if eq (toString .Values.config.jiraCustomerProvisioningEnabled) "true" }}
             - name: TAPSTATE_CLOUD_JIRA_CUSTOMER_ADMIN_OAUTH_CLIENT_ID
               valueFrom:
                 secretKeyRef:

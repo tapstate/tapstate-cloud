@@ -91,7 +91,7 @@ public class JiraCustomerProvisioner {
             && !clientId.isBlank() && !clientSecret.isBlank();
     }
 
-    public void createOrAddCustomer(String email, String displayName) {
+    public String createOrAddCustomer(String email, String displayName) {
         requireConfiguration();
         String normalizedEmail = normalizeEmail(email);
         if (normalizedEmail.isBlank() || !normalizedEmail.contains("@")) {
@@ -115,6 +115,7 @@ public class JiraCustomerProvisioner {
             }
         }
         addCustomerToServiceDesk(accountId);
+        return accountId;
     }
 
     private List<CustomerIdentity> findExactUsers(String email) {

@@ -26,7 +26,6 @@ public class CloudTicket {
     @Id
     private ObjectId id;
 
-    @Indexed
     private ObjectId ownerId;
 
     @Indexed(unique = true)
