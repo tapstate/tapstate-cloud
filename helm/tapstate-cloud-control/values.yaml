@@ -81,14 +81,14 @@ secrets:
     webhookSecretKey: stripe.webhook-secret
   jira:
     name: tapstate-cloud-control-jira
-    apiEmailKey: api-email
-    apiTokenKey: api-token
-  # Jira Administrator credentials belong to a dedicated JSM support site.
+    clientIdKey: client-id
+    clientSecretKey: client-secret
+  # Customer provisioning uses a separate Jira Administrator service account.
   # The deployment references this Secret only when customer provisioning is enabled.
   jiraCustomerAdmin:
     name: tapstate-cloud-control-jira-customer-admin
-    apiEmailKey: admin-email
-    apiTokenKey: admin-token
+    clientIdKey: client-id
+    clientSecretKey: client-secret
 
 # ========== ConfigMap (non-sensitive config) ==========
 config:
@@ -103,11 +103,11 @@ config:
   sampleSourcesHost: "47.238.126.103"
 
   # ----- Jira Service Management (non-sensitive routing configuration) -----
-  jiraBaseUrl: ""
+  jiraCloudId: ""
   jiraServiceDeskId: ""
   jiraRequestTypeId: ""
   jiraCustomerProvisioningEnabled: "false"
-  jiraCustomerProvisioningSupportSiteIsolated: "false"
+  jiraCustomerProvisioningSiteAdminRiskAcknowledged: "false"
   jiraCloseTransitionName: "Close Request"
   jiraConnectTimeoutSeconds: "3"
   jiraRequestTimeoutSeconds: "10"

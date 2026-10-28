@@ -19,14 +19,13 @@ import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
 /**
- * Creates or reuses a Jira customer with a separately configured JSM site administrator credential.
- * Customer provisioning is disabled by default and should only target a dedicated support site.
+ * Creates or reuses a Jira customer with separately configured OAuth service-account credentials.
+ * Customer provisioning is disabled by default and requires explicit acknowledgement of site-wide administrator access.
  */
 @Component
 @Slf4j
@@ -36,39 +35,43 @@ public class JiraCustomerProvisioner {
     private static final int MAX_RESULTS = 50;
 
     private final boolean enabled;
-    private final boolean supportSiteIsolated;
-    private final String baseUrl;
+    private final boolean siteAdminRiskAcknowledged;
+    private final String cloudId;
     private final String serviceDeskId;
-    private final String adminEmail;
-    private final String adminToken;
+    private final String clientId;
+    private final String clientSecret;
     private final Duration requestTimeout;
     private final HttpClient httpClient;
+    private final JiraAccessTokenProvider accessTokens;
 
     @Autowired
     public JiraCustomerProvisioner(
             @Value("${tapstate.cloud.jira.customer-provisioning.enabled:false}") boolean enabled,
-            @Value("${tapstate.cloud.jira.customer-provisioning.support-site-isolated:false}") boolean supportSiteIsolated,
-            @Value("${tapstate.cloud.jira.base-url:}") String baseUrl,
+            @Value("${tapstate.cloud.jira.customer-provisioning.site-admin-risk-acknowledged:false}") boolean siteAdminRiskAcknowledged,
+            @Value("${tapstate.cloud.jira.cloud-id:}") String cloudId,
             @Value("${tapstate.cloud.jira.service-desk-id:}") String serviceDeskId,
-            @Value("${tapstate.cloud.jira.customer-provisioning.admin-email:}") String adminEmail,
-            @Value("${tapstate.cloud.jira.customer-provisioning.admin-token:}") String adminToken,
+            @Value("${tapstate.cloud.jira.customer-provisioning.oauth.client-id:}") String clientId,
+            @Value("${tapstate.cloud.jira.customer-provisioning.oauth.client-secret:}") String clientSecret,
             @Value("${tapstate.cloud.jira.connect-timeout-seconds:3}") long connectTimeoutSeconds,
-            @Value("${tapstate.cloud.jira.request-timeout-seconds:10}") long requestTimeoutSeconds) {
-        this(enabled, supportSiteIsolated, baseUrl, serviceDeskId, adminEmail, adminToken, requestTimeoutSeconds,
-            createHttpClient(connectTimeoutSeconds));
+            @Value("${tapstate.cloud.jira.request-timeout-seconds:10}") long requestTimeoutSeconds,
+            JiraAccessTokenProvider accessTokens) {
+        this(enabled, siteAdminRiskAcknowledged, cloudId, serviceDeskId, clientId, clientSecret, requestTimeoutSeconds,
+            createHttpClient(connectTimeoutSeconds), accessTokens);
     }
 
-    JiraCustomerProvisioner(boolean enabled, boolean supportSiteIsolated, String baseUrl, String serviceDeskId,
-            String adminEmail, String adminToken, long requestTimeoutSeconds, HttpClient httpClient) {
+    JiraCustomerProvisioner(boolean enabled, boolean siteAdminRiskAcknowledged, String cloudId, String serviceDeskId,
+            String clientId, String clientSecret, long requestTimeoutSeconds, HttpClient httpClient,
+            JiraAccessTokenProvider accessTokens) {
         this.enabled = enabled;
-        this.supportSiteIsolated = supportSiteIsolated;
-        this.baseUrl = baseUrl == null ? "" : baseUrl.trim();
+        this.siteAdminRiskAcknowledged = siteAdminRiskAcknowledged;
+        this.cloudId = cloudId == null ? "" : cloudId.trim();
         this.serviceDeskId = serviceDeskId == null ? "" : serviceDeskId.trim();
-        this.adminEmail = adminEmail == null ? "" : adminEmail.trim();
-        this.adminToken = adminToken == null ? "" : adminToken;
+        this.clientId = clientId == null ? "" : clientId.trim();
+        this.clientSecret = clientSecret == null ? "" : clientSecret;
         long requestSeconds = Math.max(1, Math.min(requestTimeoutSeconds, 30));
         this.requestTimeout = Duration.ofSeconds(requestSeconds);
         this.httpClient = httpClient;
+        this.accessTokens = accessTokens;
     }
 
     private static HttpClient createHttpClient(long connectTimeoutSeconds) {
@@ -84,15 +87,8 @@ public class JiraCustomerProvisioner {
     }
 
     public boolean isConfigured() {
-        if (!enabled || !supportSiteIsolated || baseUrl.isBlank() || serviceDeskId.isBlank()
-                || adminEmail.isBlank() || adminToken.isBlank()) return false;
-        try {
-            URI uri = URI.create(baseUrl);
-            return "https".equalsIgnoreCase(uri.getScheme()) && uri.getHost() != null
-                && uri.getUserInfo() == null && uri.getQuery() == null && uri.getFragment() == null;
-        } catch (IllegalArgumentException e) {
-            return false;
-        }
+        return enabled && siteAdminRiskAcknowledged && !cloudId.isBlank() && !serviceDeskId.isBlank()
+            && !clientId.isBlank() && !clientSecret.isBlank();
     }
 
     public void createOrAddCustomer(String email, String displayName) {
@@ -206,12 +202,11 @@ public class JiraCustomerProvisioner {
     }
 
     private URI uri(String path) {
-        return URI.create(baseUrl.replaceAll("/+$", "") + "/rest" + path);
+        return URI.create("https://api.atlassian.com/ex/jira/" + encode(cloudId) + "/rest" + path);
     }
 
     private String authorization() {
-        String credentials = adminEmail + ":" + adminToken;
-        return "Basic " + Base64.getEncoder().encodeToString(credentials.getBytes(StandardCharsets.UTF_8));
+        return "Bearer " + accessTokens.getAccessToken(clientId, clientSecret);
     }
 
     private void requireConfiguration() {

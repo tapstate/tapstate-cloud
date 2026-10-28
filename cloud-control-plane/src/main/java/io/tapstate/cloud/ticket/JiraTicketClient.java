@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.tapstate.cloud.common.api.AppErrorCode;
 import io.tapstate.cloud.common.api.BusinessException;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -17,7 +18,6 @@ import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 
@@ -29,33 +29,48 @@ public class JiraTicketClient {
     private static final int MAX_PAGES = 20;
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    private final String baseUrl;
+    private final String cloudId;
     private final String serviceDeskId;
     private final String requestTypeId;
-    private final String username;
-    private final String token;
+    private final String clientId;
+    private final String clientSecret;
     private final HttpClient httpClient;
+    private final JiraAccessTokenProvider accessTokens;
 
+    @Autowired
     public JiraTicketClient(
-            @Value("${tapstate.cloud.jira.base-url:}") String baseUrl,
+            @Value("${tapstate.cloud.jira.cloud-id:}") String cloudId,
             @Value("${tapstate.cloud.jira.service-desk-id:}") String serviceDeskId,
             @Value("${tapstate.cloud.jira.request-type-id:}") String requestTypeId,
-            @Value("${tapstate.cloud.jira.api-email:}") String username,
-            @Value("${tapstate.cloud.jira.api-token:}") String token,
+            @Value("${tapstate.cloud.jira.oauth.client-id:}") String clientId,
+            @Value("${tapstate.cloud.jira.oauth.client-secret:}") String clientSecret,
             @Value("${tapstate.cloud.jira.connect-timeout-seconds:3}") long connectTimeoutSeconds,
-            @Value("${tapstate.cloud.jira.request-timeout-seconds:10}") long requestTimeoutSeconds) {
-        this.baseUrl = baseUrl == null ? "" : baseUrl.trim();
+            @Value("${tapstate.cloud.jira.request-timeout-seconds:10}") long requestTimeoutSeconds,
+            JiraAccessTokenProvider accessTokens) {
+        this(cloudId, serviceDeskId, requestTypeId, clientId, clientSecret,
+            createHttpClient(connectTimeoutSeconds), requestTimeoutSeconds, accessTokens);
+    }
+
+    JiraTicketClient(String cloudId, String serviceDeskId, String requestTypeId, String clientId,
+            String clientSecret, HttpClient httpClient, long requestTimeoutSeconds,
+            JiraAccessTokenProvider accessTokens) {
+        this.cloudId = cloudId == null ? "" : cloudId.trim();
         this.serviceDeskId = serviceDeskId == null ? "" : serviceDeskId.trim();
         this.requestTypeId = requestTypeId == null ? "" : requestTypeId.trim();
-        this.username = username == null ? "" : username.trim();
-        this.token = token == null ? "" : token;
-        long connectSeconds = Math.max(1, Math.min(connectTimeoutSeconds, 15));
+        this.clientId = clientId == null ? "" : clientId.trim();
+        this.clientSecret = clientSecret == null ? "" : clientSecret;
         long requestSeconds = Math.max(1, Math.min(requestTimeoutSeconds, 30));
-        this.httpClient = HttpClient.newBuilder()
+        this.httpClient = httpClient;
+        this.requestTimeout = Duration.ofSeconds(requestSeconds);
+        this.accessTokens = accessTokens;
+    }
+
+    private static HttpClient createHttpClient(long connectTimeoutSeconds) {
+        long connectSeconds = Math.max(1, Math.min(connectTimeoutSeconds, 15));
+        return HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(connectSeconds))
             .followRedirects(HttpClient.Redirect.NEVER)
             .build();
-        this.requestTimeout = Duration.ofSeconds(requestSeconds);
     }
 
     private final Duration requestTimeout;
@@ -68,15 +83,8 @@ public class JiraTicketClient {
     private String closeTransitionName;
 
     public boolean isConfigured() {
-        if (baseUrl.isBlank() || serviceDeskId.isBlank() || requestTypeId.isBlank()
-                || username.isBlank() || token.isBlank()) return false;
-        try {
-            URI uri = URI.create(baseUrl);
-            return "https".equalsIgnoreCase(uri.getScheme()) && uri.getHost() != null
-                && uri.getUserInfo() == null && uri.getQuery() == null && uri.getFragment() == null;
-        } catch (IllegalArgumentException e) {
-            return false;
-        }
+        return !cloudId.isBlank() && !serviceDeskId.isBlank() && !requestTypeId.isBlank()
+            && !clientId.isBlank() && !clientSecret.isBlank();
     }
 
     public void requireConfiguration() {
@@ -155,6 +163,9 @@ public class JiraTicketClient {
                 .timeout(requestTimeout)
                 .header("Accept", "application/json")
                 .header("Authorization", authorization());
+            if (path.startsWith("/servicedesk/") && path.contains("/customer?")) {
+                builder.header("X-ExperimentalApi", "opt-in");
+            }
             if (body != null) {
                 builder.header("Content-Type", "application/json");
                 builder.method(method, HttpRequest.BodyPublishers.ofString(body));
@@ -199,12 +210,12 @@ public class JiraTicketClient {
     }
 
     private URI uri(String path) {
-        return URI.create(baseUrl.replaceAll("/+$", "") + "/rest/servicedeskapi" + path);
+        return URI.create("https://api.atlassian.com/ex/jira/" + encode(cloudId)
+            + "/rest/servicedeskapi" + path);
     }
 
     private String authorization() {
-        String credentials = username + ":" + token;
-        return "Basic " + Base64.getEncoder().encodeToString(credentials.getBytes(StandardCharsets.UTF_8));
+        return "Bearer " + accessTokens.getAccessToken(clientId, clientSecret);
     }
 
     private void requireConfigured() {

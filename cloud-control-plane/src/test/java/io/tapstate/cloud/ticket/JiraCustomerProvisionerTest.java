@@ -3,6 +3,7 @@ package io.tapstate.cloud.ticket;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -17,8 +18,8 @@ import java.net.http.HttpResponse;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.List;
+import java.time.Clock;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Flow;
 import java.util.concurrent.TimeUnit;
@@ -29,9 +30,10 @@ import org.mockito.ArgumentMatchers;
 class JiraCustomerProvisionerTest {
 
     private static final String EMAIL = "cloud.user@example.com";
-    private static final String BASE_URL = "https://support.example.atlassian.net";
-    private static final String ADMIN_EMAIL = "customer-admin@example.com";
-    private static final String ADMIN_TOKEN = "customer-admin-secret";
+    private static final String CLOUD_ID = "cloud-site-7";
+    private static final String API_BASE = "https://api.atlassian.com/ex/jira/cloud-site-7";
+    private static final String ADMIN_CLIENT_ID = "customer-admin-client";
+    private static final String ADMIN_CLIENT_SECRET = "customer-admin-secret";
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     @Test
@@ -46,16 +48,16 @@ class JiraCustomerProvisionerTest {
 
         assertEquals(3, requests.size());
         assertEquals("GET", requests.get(0).method());
-        assertEquals("https://support.example.atlassian.net/rest/api/3/user/search?query=cloud.user%40example.com&startAt=0&maxResults=50",
+        assertEquals(API_BASE + "/rest/api/3/user/search?query=cloud.user%40example.com&startAt=0&maxResults=50",
             requests.get(0).uri().toString());
         assertEquals("POST", requests.get(1).method());
-        assertEquals("https://support.example.atlassian.net/rest/servicedeskapi/customer?strictConflictStatusCode=true",
+        assertEquals(API_BASE + "/rest/servicedeskapi/customer?strictConflictStatusCode=true",
             requests.get(1).uri().toString());
         JsonNode createBody = MAPPER.readTree(requestBody(requests.get(1)));
         assertEquals(EMAIL, createBody.path("email").asText());
         assertEquals("Cloud User", createBody.path("displayName").asText());
         assertEquals("POST", requests.get(2).method());
-        assertEquals("https://support.example.atlassian.net/rest/servicedeskapi/servicedesk/71/customer",
+        assertEquals(API_BASE + "/rest/servicedeskapi/servicedesk/71/customer",
             requests.get(2).uri().toString());
         JsonNode addBody = MAPPER.readTree(requestBody(requests.get(2)));
         assertEquals("customer-17", addBody.path("accountIds").get(0).asText());
@@ -72,8 +74,8 @@ class JiraCustomerProvisionerTest {
         provisioner(http).createOrAddCustomer(EMAIL, "Cloud User");
 
         assertEquals(2, requests.size());
-        assertEquals("/rest/api/3/user/search", requests.get(0).uri().getPath());
-        assertEquals("/rest/servicedeskapi/servicedesk/71/customer", requests.get(1).uri().getPath());
+        assertEquals("/ex/jira/cloud-site-7/rest/api/3/user/search", requests.get(0).uri().getPath());
+        assertEquals("/ex/jira/cloud-site-7/rest/servicedeskapi/servicedesk/71/customer", requests.get(1).uri().getPath());
         assertEquals("existing-23", MAPPER.readTree(requestBody(requests.get(1)))
             .path("accountIds").get(0).asText());
     }
@@ -128,10 +130,51 @@ class JiraCustomerProvisionerTest {
     }
 
     @Test
+    void refusesProvisioningWithoutSiteAdministratorRiskAcknowledgement() throws Exception {
+        List<HttpRequest> requests = new ArrayList<>();
+        HttpClient http = httpClient(requests,
+            response(200, "{\"access_token\":\"admin-access-token\",\"expires_in\":3600,\"token_type\":\"Bearer\"}"),
+            response(200, "[]"),
+            response(201, "{\"accountId\":\"customer-17\",\"emailAddress\":\"cloud.user@example.com\"}"),
+            response(204, ""));
+        JiraCustomerProvisioner sharedTssd = new JiraCustomerProvisioner(
+            true, false, CLOUD_ID, "71", ADMIN_CLIENT_ID, ADMIN_CLIENT_SECRET, 10, http,
+            new JiraAccessTokenProvider(http, 10, Clock.systemUTC()));
+
+        BusinessException failure = assertThrows(BusinessException.class,
+            () -> sharedTssd.createOrAddCustomer(EMAIL, "Cloud User"));
+        assertEquals(AppErrorCode.TICKET_NOT_CONFIGURED, failure.getErrorCode());
+        assertEquals(0, requests.size());
+    }
+
+    @Test
+    void provisionsAfterSiteAdministratorRiskAcknowledgement() throws Exception {
+        List<HttpRequest> requests = new ArrayList<>();
+        HttpClient http = httpClient(requests,
+            response(200, "{\"access_token\":\"admin-access-token\",\"expires_in\":3600,\"token_type\":\"Bearer\"}"),
+            response(200, "[]"),
+            response(201, "{\"accountId\":\"customer-17\",\"emailAddress\":\"cloud.user@example.com\"}"),
+            response(204, ""));
+        JiraCustomerProvisioner provisioner = new JiraCustomerProvisioner(
+            true, true, CLOUD_ID, "71", ADMIN_CLIENT_ID, ADMIN_CLIENT_SECRET, 10, http,
+            new JiraAccessTokenProvider(http, 10, Clock.systemUTC()));
+
+        provisioner.createOrAddCustomer(EMAIL, "Cloud User");
+
+        assertEquals(4, requests.size());
+        assertEquals("https://auth.atlassian.com/oauth/token", requests.get(0).uri().toString());
+        assertEquals("Bearer admin-access-token", requests.get(1).headers().firstValue("Authorization").orElseThrow());
+        assertEquals(API_BASE + "/rest/servicedeskapi/customer?strictConflictStatusCode=true",
+            requests.get(2).uri().toString());
+        assertEquals("Bearer admin-access-token", requests.get(3).headers().firstValue("Authorization").orElseThrow());
+    }
+
+    @Test
     void doesNotCallJiraWhenCustomerProvisioningIsDisabled() {
         HttpClient http = mock(HttpClient.class);
         JiraCustomerProvisioner disabled = new JiraCustomerProvisioner(
-            false, false, BASE_URL, "71", ADMIN_EMAIL, ADMIN_TOKEN, 10, http);
+            false, false, CLOUD_ID, "71", ADMIN_CLIENT_ID, ADMIN_CLIENT_SECRET, 10, http,
+            mock(JiraAccessTokenProvider.class));
 
         BusinessException failure = assertThrows(BusinessException.class,
             () -> disabled.createOrAddCustomer(EMAIL, "Cloud User"));
@@ -141,12 +184,13 @@ class JiraCustomerProvisionerTest {
     }
 
     @Test
-    void refusesAutomaticProvisioningUnlessTheOperatorConfirmsASupportOnlySite() {
-        JiraCustomerProvisioner sharedSite = new JiraCustomerProvisioner(
-            true, false, BASE_URL, "71", ADMIN_EMAIL, ADMIN_TOKEN, 10, mock(HttpClient.class));
+    void refusesAutomaticProvisioningWhenTheAdminCredentialIsMissing() {
+        JiraCustomerProvisioner missingCredential = new JiraCustomerProvisioner(
+            true, true, CLOUD_ID, "71", "", "", 10, mock(HttpClient.class),
+            mock(JiraAccessTokenProvider.class));
 
         BusinessException failure = assertThrows(BusinessException.class,
-            () -> sharedSite.createOrAddCustomer(EMAIL, "Cloud User"));
+            () -> missingCredential.createOrAddCustomer(EMAIL, "Cloud User"));
 
         assertEquals(503, failure.getHttpStatus());
         assertEquals(AppErrorCode.TICKET_NOT_CONFIGURED, failure.getErrorCode());
@@ -166,7 +210,10 @@ class JiraCustomerProvisionerTest {
     }
 
     private static JiraCustomerProvisioner provisioner(HttpClient http) {
-        return new JiraCustomerProvisioner(true, true, BASE_URL, "71", ADMIN_EMAIL, ADMIN_TOKEN, 10, http);
+        JiraAccessTokenProvider accessTokens = mock(JiraAccessTokenProvider.class);
+        when(accessTokens.getAccessToken(anyString(), anyString())).thenReturn("admin-access-token");
+        return new JiraCustomerProvisioner(true, true, CLOUD_ID, "71", ADMIN_CLIENT_ID, ADMIN_CLIENT_SECRET,
+            10, http, accessTokens);
     }
 
     private static HttpClient httpClient(List<HttpRequest> requests, StubResponse... responses) throws Exception {
@@ -223,9 +270,8 @@ class JiraCustomerProvisionerTest {
     }
 
     private static void assertAdminAuthorization(List<HttpRequest> requests) {
-        String credentials = ADMIN_EMAIL + ":" + ADMIN_TOKEN;
-        String expected = "Basic " + Base64.getEncoder().encodeToString(credentials.getBytes(StandardCharsets.UTF_8));
-        requests.forEach(request -> assertEquals(expected, request.headers().firstValue("Authorization").orElseThrow()));
+        requests.forEach(request -> assertEquals("Bearer admin-access-token",
+            request.headers().firstValue("Authorization").orElseThrow()));
     }
 
     private record StubResponse(int status, String body) {}
