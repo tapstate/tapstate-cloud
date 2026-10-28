@@ -35,7 +35,7 @@ public class MongoConfig {
     @Bean
     public MongoClient mongoClient() {
         ConnectionString cs = new ConnectionString(mongoUri);
-        log.info("[MongoConfig] Creating MongoClient from URI: {}", mongoUri);
+        log.info("[MongoConfig] Creating MongoClient");
         return MongoClients.create(cs);
     }
 
