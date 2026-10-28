@@ -120,7 +120,8 @@ class SubscriptionTrialWillEndIT {
         subscriptionService = new SubscriptionService(
                 subscriptionRepository, itemRepository, subscriptionStateMachineService,
                 eventPublisher, clusterService, mdbAllocationService, deploymentStepRecorder,
-                clusterVersionService, specConfigService, stripeProductService, stripePaymentService);
+                clusterVersionService, specConfigService, stripeProductService, stripePaymentService,
+                mock(EventCenterService.class));
         webhookEventService = new StripeWebhookEventService(
                 stripeEventRepository, subscriptionRepository, subscriptionService,
                 subscriptionStateMachineService, stripePaymentService, config,

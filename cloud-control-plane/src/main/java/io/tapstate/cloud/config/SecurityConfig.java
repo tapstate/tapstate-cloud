@@ -108,7 +108,7 @@ public class SecurityConfig {
                     // by a static Bearer token inside OpsSubscriptionController.
                     // Spring Security leaves it open; the controller gates with
                     // the configured ops.subscription-token before any state change.
-                    "/v1/api/internal/orgs/**/subscriptions/**/cancel-now",
+                    "/v1/api/internal/orgs/{orgId}/subscriptions/{subscriptionId}/cancel-now",
 
                 // C2 status-report endpoints — runtime SDK authenticates with Bearer sdk-static-token
                     // (validated inside the controller, NOT via Spring Session)
