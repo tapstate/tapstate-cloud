@@ -35,6 +35,15 @@ server:
 
 tapstate:
   cloud:
+    auth:
+      trial-code-required: ${CLOUD_AUTH_TRIAL_CODE_REQUIRED:true}
+      trial-issuer-email: ${CLOUD_AUTH_TRIAL_ISSUER_EMAIL:trial-issuer@tapstate.io}
+      otp-hmac-key: ${CLOUD_AUTH_OTP_HMAC_KEY:it-only-otp-hmac-key-not-for-production}
+      google-client-id: ${CLOUD_AUTH_IT_GOOGLE_CLIENT_ID:it-google-client-id}
+      google-client-secret: ${CLOUD_AUTH_IT_GOOGLE_CLIENT_SECRET:it-google-client-secret}
+      github-client-id: ${CLOUD_AUTH_IT_GITHUB_CLIENT_ID:it-github-client-id}
+      github-client-secret: ${CLOUD_AUTH_IT_GITHUB_CLIENT_SECRET:it-github-client-secret}
+      oauth-callback-base-url: ${CLOUD_AUTH_IT_OAUTH_CALLBACK_BASE_URL:http://localhost:${it.server.port:8081}}
     issuer: https://cloud.tapstate.io
     resolve-jwt-expiry-minutes: 15
     session-expiry-days: 7
@@ -58,6 +67,16 @@ tapstate:
     # Fixed operator release token for the it profile; never use in production.
     cluster-version:
       release-token: it-release-token
+    events:
+      ingest-token: it-event-token
+      retention-days: 30
+      max-page-size: 100
+    notifications:
+      # Keep the scheduler out of the way: ITs assert the durable outbox row
+      # rather than racing a background worker that has no SMTP transport.
+      poll-interval-ms: 3600000
+      email:
+        enabled: false
     iac:
       provider: aws
       # Mock by default keeps the existing fast IT suite cloud-free; the real

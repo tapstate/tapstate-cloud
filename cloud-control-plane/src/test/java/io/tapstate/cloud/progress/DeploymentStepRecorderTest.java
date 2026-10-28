@@ -13,6 +13,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -38,10 +39,13 @@ class DeploymentStepRecorderTest {
     }
 
     @Test
-    void seedInsertsEveryCatalogStepOfTheOpType() {
+    void seedUpsertsEveryCatalogStepOfTheOpType() {
         recorder.seed(orgId, subscriptionId, DeploymentOpType.INSTALL);
 
-        verify(mongoTemplate).insert(any(List.class), eq(DeploymentStep.class));
+        // Each catalog operation is upserted individually — upsert with setOnInsert
+        // makes the seed idempotent (already-existing steps are kept).
+        verify(mongoTemplate, atLeastOnce()).upsert(any(Query.class), any(Update.class),
+            eq(DeploymentStep.class));
     }
 
     @Test
@@ -73,8 +77,8 @@ class DeploymentStepRecorderTest {
     }
 
     @Test
-    void aSeedInsertFailureIsSwallowed() {
-        when(mongoTemplate.insert(any(List.class), eq(DeploymentStep.class)))
+    void aSeedUpsertFailureIsSwallowed() {
+        when(mongoTemplate.upsert(any(Query.class), any(Update.class), eq(DeploymentStep.class)))
             .thenThrow(new RuntimeException("mongo down"));
 
         assertThatCode(() -> recorder.seed(orgId, subscriptionId, DeploymentOpType.INSTALL))

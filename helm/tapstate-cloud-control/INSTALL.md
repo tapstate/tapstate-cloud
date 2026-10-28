@@ -60,6 +60,120 @@ kubectl create secret generic tapstate-cloud-control-cluster-version \
   -n tapstate-cloud-control \
   --from-literal=release-token="$(openssl rand -hex 32)"
 
+# ---- Invited email registration and OAuth (optional) ----
+# Commands below use the local/production namespace. For awsdev, create each
+# Secret in the tapstate namespace instead.
+# Keep the OTP HMAC key stable across restarts. Rotating it invalidates any
+# outstanding email verification codes. Use a persistent value per environment;
+# do not put it in Helm values or source control.
+kubectl create secret generic tapstate-cloud-control-auth \
+  -n tapstate-cloud-control \
+  --from-literal=otp-hmac-key="$(openssl rand -hex 32)"
+
+# Google and GitHub OAuth app credentials are optional independently. Create
+# these Secrets only for configured providers. Register each callback URL in
+# the provider application:
+#   production: https://cloud.tapstate.com/login/oauth2/code/google
+#               https://cloud.tapstate.com/login/oauth2/code/github
+#   awsdev:     https://dev.cloud.tapstate.com/login/oauth2/code/google
+#               https://dev.cloud.tapstate.com/login/oauth2/code/github
+kubectl create secret generic tapstate-cloud-control-google-oauth \
+  -n tapstate-cloud-control \
+  --from-literal=client-id='<Google OAuth client ID>' \
+  --from-literal=client-secret='<Google OAuth client secret>'
+kubectl create secret generic tapstate-cloud-control-github-oauth \
+  -n tapstate-cloud-control \
+  --from-literal=client-id='<GitHub OAuth client ID>' \
+  --from-literal=client-secret='<GitHub OAuth client secret>'
+
+# SMTP credentials enable verification-code delivery. SMTP port, authentication,
+# STARTTLS, sender address, OAuth callback base URL and Console redirect URL are
+# read from the environment-specific Helm values.
+kubectl create secret generic tapstate-cloud-control-smtp \
+  -n tapstate-cloud-control \
+  --from-literal=host='<SMTP host>' \
+  --from-literal=username='<SMTP username>' \
+  --from-literal=password='<SMTP password>'
+
+# ---- Limited trial access ----
+# Set config.trialIssuerEmail to an existing Cloud account's exact email in
+# each environment's Helm values, or pass --set-string config.trialIssuerEmail=<email>
+# to helm upgrade. The value is an account identifier, not an OAuth secret.
+# Set config.authTrialCodeRequired=false later to allow email-verified signup
+# without a trial code. New users still create their own Organization.
+# With an empty value, trial-code issuance is disabled. Production needs its
+# own issuer setting and its own Google/GitHub callbacks and SMTP configuration.
+# Sign in to that environment's Cloud Console as the issuer, then issue one code
+# per tester from the browser's developer console:
+#   fetch('/v1/api/trial-codes', { method: 'POST', credentials: 'include' })
+#     .then(response => response.json()).then(result => console.log(result.data))
+# The response contains a one-time code and a ready-to-share /auth#invite= link.
+# Store or send it immediately: only its hash is retained, and it expires in
+# seven days. The tester may paste the code on /auth or follow the link.
+# ---- Optional: Tawk to Feishu feedback notifications ----
+# ⚠️ Breaking change (PR #154): this release replaces the old Feishu custom
+# webhook bot (FEISHU_BOT_WEBHOOK_URL + FEISHU_BOT_SIGNING_SECRET) with the
+# Feishu application bot below. If you previously configured a webhook secret
+# and env vars, delete those first, then create the new feishu-bot Secret.
+# All deployment env vars have optional: true, so the Control Plane stays up
+# after upgrade — but notifications will silently stop until the new Secret
+# is created.
+#
+# Create one Tawk webhook in each environment's existing Property. Use the
+# environment's HTTPS callback URL and select Chat Start and New Ticket. Keep
+# both env files outside Git with owner-only permissions; never put their values
+# in shell history.
+# tawk-webhook.env contains webhook-secret=<Tawk webhook signing secret>.
+# feishu-bot.env contains app-id=<existing Feedback app ID>,
+# app-secret=<existing Feedback app secret>, and
+# chat-id=<destination group ID>.
+# The existing app bot must remain enabled, have im:message:send_as_bot, and be
+# a member of the configured group.
+kubectl create secret generic tapstate-cloud-control-tawk-webhook \
+  -n tapstate-cloud-control \
+  --from-env-file=/secure/path/tawk-webhook.env
+kubectl create secret generic tapstate-cloud-control-feishu-bot \
+  -n tapstate-cloud-control \
+  --from-env-file=/secure/path/feishu-bot.env
+
+# For awsdev, create the same Secrets in the tapstate namespace instead.
+# The expected Tawk Property ID is selected by values-awsdev.yaml / values-awsprod.yaml.
+# The application bot stays the same when the destination group changes. Add it
+# to the new group, update chat-id in this environment's feishu-bot.env, then
+# reapply the same Secret:
+kubectl create secret generic tapstate-cloud-control-feishu-bot \
+  -n tapstate-cloud-control \
+  --from-env-file=/secure/path/feishu-bot.env \
+  --dry-run=client -o yaml | kubectl apply -f -
+# For awsdev, use namespace tapstate and its own feishu-bot.env. Restart the
+# Control Plane after the update so the environment-backed Secret values reload.
+
+# ---- Optional: SMTP for auth and alert email ----
+# One Secret is shared by auth verification and alert email. It holds the relay
+# host plus the SMTP username/password.
+# smtp.env contains host=<smtp host>, username=<smtp user>,
+# password=<smtp password>.
+kubectl create secret generic tapstate-cloud-control-smtp \
+  -n tapstate-cloud-control \
+  --from-env-file=/secure/path/smtp.env
+# Transport is shared through config.smtp*; alert delivery only needs its own
+# opt-in switch and sender:
+#   config:
+#     smtpPort: "587"
+#     smtpAuth: "true"
+#     smtpStarttls: "true"
+#     smtpSslEnable: "false"
+#     authMailFrom: no-reply@tapstate.com
+#     notifications:
+#       emailEnabled: "true"
+#       emailFrom: no-reply@tapstate.com
+# For implicit TLS on 465 set smtpStarttls: "false" and smtpSslEnable: "true".
+# The control-plane egress policy must allow the chosen SMTP port, and the
+# sending domain must be authenticated (SPF/DKIM) before production use.
+# After changing the Secret or values, restart the Control Plane so the
+# environment-backed values reload. Alert delivery status is visible in
+# Console -> Deliveries; failures are not reported as sent.
+
 # ---- Shared sample database password ----
 # Keep this file outside the repository with owner-only permissions.
 # The Secret must be in the same namespace as the Control Plane release.
@@ -121,3 +235,34 @@ curl http://localhost:30180/health
 helm upgrade tapstate-cloud-control ./helm/tapstate-cloud-control \
   -f helm/tapstate-cloud-control/values-awsprod.yaml \
   -n tapstate-cloud-control
+
+### Trial invitation bot command
+
+The existing application bot accepts the exact command `\u751f\u6210\u9080\u8bf7\u94fe\u63a5` (the Chinese phrase for generate invitation link) when mentioned
+by any human member of the configured group. It replies in the originating chat with a single-use
+trial registration link valid for seven days. This does not invite an organization member.
+
+Configure the application's `im.message.receive_v1` subscription and the scope
+`im:message.group_at_msg:readonly`. Use the environment's HTTPS callback
+`/v1/api/webhooks/feishu`. Add `event-encrypt-key`, `event-verification-token`, and
+`invite-allowed-chat-id` to the existing Feishu Secret through a private env file.
+The allowed chat ID limits issuance to the intended group; every human member can use the command. Bot issuance records its own service identity and does not require a trial issuer email.
+Keep the event encryption key stable: it also derives retry-stable invitation codes.
+Callback requests require a valid signature and a timestamp within five minutes;
+URL verification uses the same signed callback. No test message is sent on startup.
+
+### Feishu outbound event connection
+
+Set `config.feishuLongConnectionEnabled=true` only in the environment that owns
+the Feedback application. Configure long connection mode and subscribe to
+`im.message.receive_v1` in Feishu, then publish the application version.
+The application needs group mention receive permission and bot send permission.
+Use a separate application for each concurrently running environment; Feishu
+distributes events across connections of the same application.
+
+Bot trial issuance does not need `config.trialIssuerEmail` or a real mailbox.
+It records `feishu-bot` as its source. Human trial issuance retains its existing
+issuer authorization. The allowed chat Secret and event encryption key are still
+required: the latter is the stable private key for retry-safe invitation tokens.
+Do not rotate it casually because that changes tokens for repeated events.
+No inbound public callback is needed when using the outbound connection.

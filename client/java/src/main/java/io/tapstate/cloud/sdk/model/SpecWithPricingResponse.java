@@ -27,7 +27,7 @@ import java.net.URLEncoder;
 import java.util.StringJoiner;
 
 /**
- * A platform spec joined with the pricing of one payment channel
+ * SpecWithPricingResponse
  */
 @JsonPropertyOrder({
   SpecWithPricingResponse.JSON_PROPERTY_KEY,
@@ -268,7 +268,7 @@ public class SpecWithPricingResponse {
   }
 
   /**
-   * Price per billing interval, in the smallest currency unit
+   * Get unitPriceCents
    * @return unitPriceCents
    */
   @jakarta.annotation.Nullable
@@ -293,7 +293,7 @@ public class SpecWithPricingResponse {
   }
 
   /**
-   * Payment-channel price identifier to pass back at checkout
+   * Get stripePriceId
    * @return stripePriceId
    */
   @jakarta.annotation.Nullable

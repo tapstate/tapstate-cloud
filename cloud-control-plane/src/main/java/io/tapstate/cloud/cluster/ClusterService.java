@@ -327,14 +327,17 @@ public class ClusterService {
      * Storage dual-write:
      * <ul>
      *   <li>{@code Cluster.lastStatusReport} — latest-only embedded document, serves as
-     *       the fleet console's "current status" snapshot</li>
+     *       the fleet console's "current status" snapshot; written via a single
+     *       atomic {@code updateFirst} with optimistic locking on {@code lastC2Nonce}.</li>
      *   <li>{@code cluster_status_report_history} — time-series collection, keeps every
-     *       report ever accepted, for trend/diagnostics/audit</li>
+     *       report ever accepted, for trend/diagnostics/audit.</li>
      * </ul>
-     * Both writes are inside the same {@code @Transactional} — MongoDB 5.0+ supports
-     * inserting into time-series collections inside multi-doc transactions.
+     * The method is deliberately NOT {@code @Transactional}: MongoDB does not support
+     * inserts into a time-series collection inside a multi-document transaction (error 263
+     * OperationNotSupportedInTransaction). The Cluster update is already atomic as a single
+     * {@code updateFirst}; the history append runs independently and does not need
+     * cross-collection atomicity with the Cluster write.
      */
-    @Transactional
     public void recordStatusReport(String clusterId, StatusReportRequest request) {
         Cluster cluster = clusterRepository.findById(new ObjectId(clusterId))
             .orElseThrow(() -> new BusinessException(AppErrorCode.CLUSTER_NOT_FOUND, 404, clusterId));
@@ -343,8 +346,15 @@ public class ClusterService {
 
         String nonce = request.getNonce();
 
+        // Ingress double-check: reject missing/null/blank nonce before any persistence.
+        // The controller's @Valid already covers this on the normal HTTP path, but
+        // the service layer defends against direct bean invocation or test bypasses.
+        if (nonce == null || nonce.isBlank()) {
+            throw new BusinessException(AppErrorCode.BAD_REQUEST, 400, "nonce must not be blank");
+        }
+
         // Nonce replay guard — Cluster.lastC2Nonce stores the previously accepted nonce
-        if (nonce != null && nonce.equals(cluster.getLastC2Nonce())) {
+        if (nonce.equals(cluster.getLastC2Nonce())) {
             throw new BusinessException(AppErrorCode.NONCE_REPLAY, 409);
         }
 

@@ -6,8 +6,8 @@ apiVersion: v2
 name: tapstate-cloud-control
 description: Tapstate Cloud Global Control Plane — Kubernetes Deployment, Service, and Ingress
 type: application
-version: 0.1.0
-appVersion: "0.1.0"
+version: 0.2.0
+appVersion: "0.2.0"
 
 # Chart can be installed to both local k3s and AWS EC2 self-hosted k3s
 # See values-awsdev.yaml and values-awsprod.yaml for environment-specific overrides

@@ -22,8 +22,9 @@ import static org.junit.jupiter.api.Assertions.*;
  * Covers (Week 2 — Gap Closure #1, ADR-0122 D3 — C2 contract):
  * <ul>
  *   <li>Bearer {@code sdk-static-token} auth — valid → 200</li>
- *   <li>Token belongs to different cluster than path variable → 401</li>
- *   <li>Missing Bearer → 400 (sdk.token-missing)</li>
+ *   <li>Token belongs to different cluster than path variable → 403 (sdk.token-invalid)</li>
+ *   <li>Missing Bearer → 401 (sdk.token-missing)</li>
+ *   <li>Unknown/forged Bearer → 401 (sdk.token-invalid)</li>
  *   <li>Nonce replay → 409 (auth.nonce-replay)</li>
  *   <li>New nonce after replay → accepted again (replay only blocks SAME nonce)</li>
  *   <li>All request fields persisted as embedded document on Cluster.lastStatusReport (latest-only)</li>
@@ -158,11 +159,11 @@ class C2StatusReportIT extends BaseIT {
     }
 
     @Test
-    @DisplayName("T3 — Missing Bearer → 400 sdk.token-missing")
-    void missingBearer_returns400() throws Exception {
+    @DisplayName("T3 — Missing Bearer → 401 sdk.token-missing")
+    void missingBearer_returns401() throws Exception {
         String[] t = createProvisionedClusterAndToken("NoBearer");
         HttpResponse<String> r = sendStatusReport(t[1], null, "nonce-a");
-        assertEquals(400, r.statusCode(), "Body: " + r.body());
+        assertEquals(401, r.statusCode(), "Body: " + r.body());
     }
 
     @Test
@@ -174,12 +175,11 @@ class C2StatusReportIT extends BaseIT {
     }
 
     @Test
-    @DisplayName("T5 — Path clusterId ≠ token's owning cluster → 4xx")
-    void tokenClusterMismatch_returns4xx() throws Exception {
+    @DisplayName("T5 — Path clusterId ≠ token's owning cluster → 403 sdk.token-invalid")
+    void tokenClusterMismatch_returns403() throws Exception {
         String[] t = createProvisionedClusterAndToken("Mismatch");
         HttpResponse<String> r = sendStatusReport("cluster-nonexistent-999", t[2], "nonce-mismatch");
-        assertTrue(r.statusCode() >= 400 && r.statusCode() < 500,
-            "Expected 4xx for token-cluster mismatch, got " + r.statusCode() + ": " + r.body());
+        assertEquals(403, r.statusCode(), "Body: " + r.body());
     }
 
     @Test

@@ -261,6 +261,17 @@ public class AtlasMdbService implements MdbService {
             return;
         }
 
+        // Legacy allocations pre-date the MdbCluster slot reservation model:
+        // they have a database name + dbUser credentials but no mdbClusterId,
+        // so we cannot resolve the Atlas projectId to call DELETE /databaseUsers.
+        // Treat as no-op — the dbUser (if any) must be cleaned manually, or was
+        // never created on Atlas (the legacy path may have used shared clusters).
+        if (allocation.getMdbClusterId() == null) {
+            log.warn("[AtlasMdb] skip dropDatabaseUser for legacy allocation {} — no mdbClusterId",
+                allocation.getId());
+            return;
+        }
+
         try {
             MdbCluster cluster = mdbClusterRepo.findById(allocation.getMdbClusterId())
                 .orElseThrow(() -> new MdbException("MdbCluster " + allocation.getMdbClusterId() + " not found"));
@@ -303,6 +314,19 @@ public class AtlasMdbService implements MdbService {
             return;
         }
 
+        // Legacy allocations pre-date the MdbCluster slot reservation model:
+        // they have a main database name + dbUser credentials but no mdbClusterId
+        // (and therefore no operatorDbName / viewsDbName). We cannot connect to
+        // a known Atlas cluster to drop databases, so treat as no-op. This allocation
+        // has nothing on Atlas to clean up; the slot release below is also a no-op
+        // since getMdbClusterId() is null.
+        if (allocation.getMdbClusterId() == null) {
+            log.warn("[AtlasMdb] skip dropDatabase for legacy allocation {} — no mdbClusterId; "
+                + "physical Atlas cleanup not performed, slot release skipped",
+                allocation.getId());
+            return;
+        }
+
         MdbCluster cluster = mdbClusterRepo.findById(allocation.getMdbClusterId())
             .orElseThrow(() -> new MdbException("MdbCluster " + allocation.getMdbClusterId() + " not found"));
 
@@ -314,12 +338,21 @@ public class AtlasMdbService implements MdbService {
             mongo.getDatabase("admin").runCommand(new org.bson.Document("ping", 1));
 
             dropOneDatabase(mongo, allocation.getDatabaseName());
-            dropOneDatabase(mongo, allocation.getOperatorDbName());
-            dropOneDatabase(mongo, allocation.getViewsDbName());
 
-            log.info("[AtlasMdb] dropDatabase OK — alloc {}, cluster {}, dropped: {}, {}, {}",
+            // Legacy allocations may predate operator/views db naming — only drop
+            // them if the field is populated (the Atlas materialises them on first
+            // write, so if the field is null they were never created here).
+            if (allocation.getOperatorDbName() != null) {
+                dropOneDatabase(mongo, allocation.getOperatorDbName());
+            }
+            if (allocation.getViewsDbName() != null) {
+                dropOneDatabase(mongo, allocation.getViewsDbName());
+            }
+
+            log.info("[AtlasMdb] dropDatabase OK — alloc {}, cluster {}, dropped: {} (op={}, views={})",
                 allocation.getId(), cluster.getName(),
-                allocation.getDatabaseName(), allocation.getOperatorDbName(), allocation.getViewsDbName());
+                allocation.getDatabaseName(),
+                allocation.getOperatorDbName(), allocation.getViewsDbName());
         } finally {
             // MongoClient.close() is called automatically by try-with-resources.
             // Non-idempotent drop errors propagate to the FSM worker, which

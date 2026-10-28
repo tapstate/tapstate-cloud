@@ -21,6 +21,20 @@ spring:
       # Control Plane metadata DB (User/Org/Cluster/CloudFormation templates)
       # Separate Atlas project from per-Cluster runtime DBs (ADR-0123 D2)
 
+  mail:
+    host: ${SMTP_HOST:}
+    port: ${SMTP_PORT:587}
+    username: ${SMTP_USERNAME:}
+    password: ${SMTP_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: ${SMTP_AUTH:true}
+          starttls:
+            enable: ${SMTP_STARTTLS:true}
+          ssl:
+            enable: ${SMTP_SSL_ENABLE:false}
+
   # ========== Session ==========
   # HTTP sessions are backed by the control-plane MongoDB (collection
   # "sessions") via Spring Session MongoDB, so all replicas share sessions.
@@ -86,6 +100,22 @@ knife4j:
 # ========== Tapstate Cloud custom config ==========
 tapstate:
   cloud:
+    auth:
+      trial-code-required: ${CLOUD_AUTH_TRIAL_CODE_REQUIRED:true}
+      trial-issuer-email: ${CLOUD_AUTH_TRIAL_ISSUER_EMAIL:}
+      otp-hmac-key: ${CLOUD_AUTH_OTP_HMAC_KEY:}
+      otp:
+        max-attempts: ${CLOUD_AUTH_OTP_MAX_ATTEMPTS:5}
+        sends-per-hour: ${CLOUD_AUTH_OTP_SENDS_PER_HOUR:5}
+        cooldown-seconds: ${CLOUD_AUTH_OTP_COOLDOWN_SECONDS:60}
+        lifetime-minutes: ${CLOUD_AUTH_OTP_LIFETIME_MINUTES:10}
+      mail-from: ${CLOUD_AUTH_MAIL_FROM:no-reply@tapstate.io}
+      google-client-id: ${GOOGLE_CLIENT_ID:}
+      google-client-secret: ${GOOGLE_CLIENT_SECRET:}
+      github-client-id: ${GITHUB_CLIENT_ID:}
+      github-client-secret: ${GITHUB_CLIENT_SECRET:}
+      oauth-callback-base-url: ${CLOUD_AUTH_OAUTH_CALLBACK_BASE_URL:http://localhost:8080}
+      console-url: ${CLOUD_CONSOLE_URL:http://localhost:5173}
     # Global Control Plane issuer for resolve JWT (ADR-0122 D4)
     issuer: ${CLOUD_JWT_ISSUER:http://localhost:8080}
     # Resolve JWT expiry in minutes
@@ -142,6 +172,29 @@ tapstate:
       close-transition-name: ${TAPSTATE_CLOUD_JIRA_CLOSE_TRANSITION_NAME:Close Request}
       connect-timeout-seconds: ${TAPSTATE_CLOUD_JIRA_CONNECT_TIMEOUT_SECONDS:3}
       request-timeout-seconds: ${TAPSTATE_CLOUD_JIRA_REQUEST_TIMEOUT_SECONDS:10}
+    tawk:
+      property-id: ${TAPSTATE_CLOUD_TAWK_PROPERTY_ID:}
+      webhook-secret: ${TAWK_WEBHOOK_SECRET:}
+      retry-interval-ms: ${TAPSTATE_CLOUD_TAWK_RETRY_INTERVAL_MS:30000}
+      feishu:
+        app-id: ${FEISHU_BOT_APP_ID:}
+        app-secret: ${FEISHU_BOT_APP_SECRET:}
+        chat-id: ${FEISHU_CHAT_ID:}
+    # Event center — collection, retention and the generic external ingest entry.
+    events:
+      # Blank disables /v1/api/internal/events (fail closed).
+      ingest-token: ${CLOUD_EVENT_INGEST_TOKEN:}
+      retention-days: ${CLOUD_EVENT_RETENTION_DAYS:30}
+      max-page-size: ${CLOUD_EVENT_MAX_PAGE_SIZE:100}
+    # Notification delivery — durable outbox and the EMAIL channel.
+    notifications:
+      max-attempts: ${CLOUD_NOTIFICATION_MAX_ATTEMPTS:5}
+      retry-base-seconds: ${CLOUD_NOTIFICATION_RETRY_BASE_SECONDS:30}
+      lease-seconds: ${CLOUD_NOTIFICATION_LEASE_SECONDS:60}
+      poll-interval-ms: ${CLOUD_NOTIFICATION_POLL_INTERVAL_MS:5000}
+      email:
+        enabled: ${CLOUD_NOTIFICATION_EMAIL_ENABLED:false}
+        from: ${CLOUD_NOTIFICATION_EMAIL_FROM:no-reply@tapstate.com}
     # Atlas MDB allocation engine.
     # mock=true skips every real Atlas Admin API call (local dev / fast IT).
     # Real deployments set TAPSTATE_CLOUD_MDB_ATLAS_MOCK=false and provide the

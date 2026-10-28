@@ -142,6 +142,9 @@ public class StripePaymentService implements PaymentGateway {
     @SuppressWarnings("unchecked")
     Map<String, Object> checkoutRequest(SessionCreateParams params, boolean trial) {
         Map<String, Object> request = new LinkedHashMap<>(params.toMap());
+        // Fix #167: disable Stripe adaptive pricing — all pricing is USD, do not
+        // auto-convert to customer's local currency based on billing address.
+        request.put("currency", "usd");
         if (!trial) {
             return request;
         }

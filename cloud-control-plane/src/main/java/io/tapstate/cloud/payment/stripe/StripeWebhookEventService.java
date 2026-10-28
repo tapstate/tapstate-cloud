@@ -3,6 +3,9 @@ package io.tapstate.cloud.payment.stripe;
 import com.stripe.exception.SignatureVerificationException;
 import com.stripe.model.Event;
 import com.stripe.net.Webhook;
+import io.tapstate.cloud.event.EventCenterService;
+import io.tapstate.cloud.event.EventIngestRequest;
+import io.tapstate.cloud.event.EventSeverity;
 import io.tapstate.cloud.payment.PaymentGateway;
 import io.tapstate.cloud.subscription.Subscription;
 import io.tapstate.cloud.subscription.SubscriptionRepository;
@@ -50,6 +53,7 @@ public class StripeWebhookEventService {
     private final io.tapstate.cloud.subscription.fsm.SubscriptionStateMachineService subscriptionStateMachineService;
     private final StripePaymentService paymentService;
     private final StripeWebhookConfig config;
+    private final EventCenterService eventCenterService;
     private final JsonMapper jsonMapper = JsonMapper.builder().build();
 
     public StripeWebhookEventService(StripeEventRepository eventRepository,
@@ -57,13 +61,15 @@ public class StripeWebhookEventService {
                                      @Lazy SubscriptionService subscriptionService,
                                      io.tapstate.cloud.subscription.fsm.SubscriptionStateMachineService subscriptionStateMachineService,
                                      @Lazy StripePaymentService paymentService,
-                                     StripeWebhookConfig config) {
+                                     StripeWebhookConfig config,
+                                     EventCenterService eventCenterService) {
         this.eventRepository = eventRepository;
         this.subscriptionRepository = subscriptionRepository;
         this.subscriptionService = subscriptionService;
         this.subscriptionStateMachineService = subscriptionStateMachineService;
         this.paymentService = paymentService;
         this.config = config;
+        this.eventCenterService = eventCenterService;
     }
 
     /**
@@ -214,6 +220,8 @@ public class StripeWebhookEventService {
 
         // Hand off to SubscriptionService for FSM + Cluster provisioning
         subscriptionService.activateAndProvision(subscription.getId().toHexString());
+        record(subscription.getOrgId(), event, "stripe.checkout.completed", EventSeverity.INFO,
+            "Stripe checkout completed for subscription " + subscription.getId().toHexString());
 
         return "PROCESSED — subscription activated";
     }
@@ -254,6 +262,8 @@ public class StripeWebhookEventService {
         subscriptionService.cancelDueToChannelDeletion(
                 subscription.getId().toHexString(),
                 "stripe:customer.subscription.deleted");
+        record(subscription.getOrgId(), event, "stripe.subscription.deleted", EventSeverity.WARNING,
+            "Stripe cancelled subscription " + subscription.getId().toHexString());
         return "PROCESSED — subscription cancelled due to Stripe deletion";
     }
 
@@ -429,5 +439,22 @@ public class StripeWebhookEventService {
             return Instant.ofEpochSecond(n.longValue());
         }
         return null;
+    }
+
+    private void record(org.bson.types.ObjectId orgId, Event event, String type,
+                        EventSeverity severity, String subject) {
+        if (orgId == null) {
+            return;
+        }
+        eventCenterService.recordBestEffort(new EventIngestRequest(
+            orgId.toHexString(),
+            "stripe",
+            type,
+            severity,
+            subject,
+            "stripe",
+            Instant.now(),
+            "stripe:" + event.getId(),
+            Map.of("stripeEventType", event.getType())));
     }
 }

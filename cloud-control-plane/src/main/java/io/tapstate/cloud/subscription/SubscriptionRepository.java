@@ -33,4 +33,7 @@ public interface SubscriptionRepository extends MongoRepository<Subscription, Ob
 
     /** Resolve by client-supplied idempotency key (dedup Checkout creation races). */
     Optional<Subscription> findByClientRequestIdAndOrgId(String clientRequestId, ObjectId orgId);
+
+    /** Count TRIAL or ACTIVE subscriptions owned by an organization — gates one trial per org. */
+    long countByOrgIdAndStatusIn(ObjectId orgId, List<SubscriptionStatus> statuses);
 }

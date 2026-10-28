@@ -18,12 +18,30 @@ public enum AppErrorCode implements ErrorCode {
     UNAUTHORIZED("auth.unauthorized", "Authentication required to access this resource"),
     USER_NOT_FOUND("auth.user-not-found", "User {0} not found"),
     NONCE_REPLAY("auth.nonce-replay", "Duplicate C2 nonce — request rejected"),
+    INVITATION_REQUIRED("auth.invitation-required", "A valid organization invitation is required"),
+    INVITATION_INVALID("auth.invitation-invalid", "The invitation is invalid"),
+    INVITATION_EXPIRED("auth.invitation-expired", "The invitation has expired"),
+    INVITATION_REVOKED("auth.invitation-revoked", "The invitation was revoked"),
+    INVITATION_CONSUMED("auth.invitation-consumed", "The invitation was already used"),
+    INVITATION_EMAIL_MISMATCH("auth.invitation-email-mismatch", "The invitation does not match this email address"),
+    EMAIL_CODE_INVALID("auth.email-code-invalid", "The verification code is invalid"),
+    EMAIL_CODE_EXPIRED("auth.email-code-expired", "The verification code has expired"),
+    EMAIL_CODE_ATTEMPTS_EXCEEDED("auth.email-code-attempts-exceeded", "Too many verification attempts"),
+    EMAIL_CODE_RATE_LIMITED("auth.email-code-rate-limited", "Too many verification requests"),
+    EMAIL_CODE_COOLDOWN("auth.email-code-cooldown", "Wait before requesting another verification code"),
+    EMAIL_DELIVERY_UNAVAILABLE("auth.email-delivery-unavailable", "Email verification is temporarily unavailable"),
+    SSO_PROVIDER_UNAVAILABLE("auth.sso-provider-unavailable", "This identity provider is not configured"),
+    SSO_EMAIL_UNVERIFIED("auth.sso-email-unverified", "The identity provider did not verify this email address"),
+    SSO_ACCOUNT_LINK_REQUIRED("auth.sso-account-link-required", "Sign in to the existing account and link this identity"),
+    IDENTITY_LINK_CONFLICT("auth.identity-link-conflict", "This identity is already linked to another account"),
+    REAUTHENTICATION_REQUIRED("auth.reauthentication-required", "Sign in again before linking an identity"),
 
     // ---------- Org ----------
     ORG_NOT_FOUND("org.not-found", "Organization {0} not found"),
     ORG_NOT_MEMBER("org.not-member", "User is not a member of organization {0}"),
     ORG_ALREADY_EXISTS("org.already-exists", "Organization with slug {0} already exists"),
     ORG_LIMIT_REACHED("org.limit-reached", "This account already belongs to an organization"),
+    ORG_OWNER_REQUIRED("org.owner-required", "Only the organization owner can manage invitations"),
 
     // ---------- Cluster ----------
     CLUSTER_NOT_FOUND("cluster.not-found", "Cluster {0} not found"),
@@ -76,6 +94,10 @@ public enum AppErrorCode implements ErrorCode {
     SUBSCRIPTION_CANNOT_CANCEL("subscription.cannot-cancel", "Subscription cannot be cancelled from current state"),
     SUBSCRIPTION_PENDING_PAYMENT("subscription.pending-payment", "Subscription is still pending payment — waiting for Stripe checkout"),
     SUBSCRIPTION_NOT_ACTIVE("subscription.not-active", "Subscription {0} must be ACTIVE for this operation"),
+    SUBSCRIPTION_TRIAL_ALREADY_USED("subscription.trial-already-used", "Organization {0} already has a TRIAL or ACTIVE subscription — one trial per org"),
+    SUBSCRIPTION_OPS_TOKEN_MISSING("subscription.ops-token-missing", "Ops static token is required (Bearer header)"),
+    SUBSCRIPTION_OPS_TOKEN_INVALID("subscription.ops-token-invalid", "Ops static token is invalid"),
+    SUBSCRIPTION_OPS_DISABLED("subscription.ops-disabled", "Ops subscription-cancel endpoint is not configured (token unset)"),
 
     // ---------- Stripe integration ----------
     STRIPE_WEBHOOK_SIGNATURE_INVALID("stripe.webhook-signature-invalid", "Stripe webhook signature verification failed"),
@@ -100,6 +122,18 @@ public enum AppErrorCode implements ErrorCode {
 
     // ---------- Deployment progress ----------
     DEPLOYMENT_OP_TYPE_INVALID("deployment.op-type-invalid", "Invalid deployment opType {0}"),
+
+    // ---------- Event center / notifications ----------
+    EVENT_NOT_FOUND("event.not-found", "Event {0} not found"),
+    EVENT_INVALID("event.invalid", "Invalid event: {0}"),
+    EVENT_INGEST_DISABLED("event.ingest-disabled", "External event ingestion is not configured"),
+    EVENT_INGEST_TOKEN_INVALID("event.ingest-token-invalid", "External event ingestion token is invalid"),
+    ALERT_POLICY_NOT_FOUND("alert.policy-not-found", "Alert policy {0} not found"),
+    ALERT_POLICY_INVALID("alert.policy-invalid", "Invalid alert policy: {0}"),
+    ALERT_POLICY_LIMIT_REACHED("alert.policy-limit-reached", "Organization {0} already has the maximum number of alert policies"),
+    ALERT_NOT_FOUND("alert.not-found", "Alert {0} not found"),
+    NOTIFICATION_NOT_FOUND("notification.not-found", "Notification delivery {0} not found"),
+    ORG_ADMIN_REQUIRED("org.admin-required", "Organization administrator role is required"),
 
     // ---------- Generic ----------
     BAD_REQUEST("bad_request", "Invalid request: {0}"),

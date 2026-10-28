@@ -16,6 +16,8 @@ import io.tapstate.cloud.sdk.api.C2StatusReportApi;
 import io.tapstate.cloud.sdk.api.ExchangeApi;
 import io.tapstate.cloud.sdk.model.ExchangeRequest;
 import io.tapstate.cloud.sdk.model.ExchangeResponse;
+import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
+import org.apache.hc.client5.http.impl.classic.HttpClients;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -73,7 +75,7 @@ import java.util.Set;
  * <h3>Planned Function 3 — C2 status reporting</h3>
  * Runtime → GC heartbeat + infrastructure metrics (static-token auth, nonce replay protection).
  */
-public final class CloudControlPlaneSdk {
+public final class CloudControlPlaneSdk implements java.io.Closeable {
 
     private static final Logger log = LoggerFactory.getLogger(CloudControlPlaneSdk.class);
 
@@ -124,6 +126,13 @@ public final class CloudControlPlaneSdk {
 
     /** Runtime → GC C2 status-report (Function 3). Built lazily — only needed when callers invoke reportStatus(). */
     private C2StatusReportApi c2StatusReportApi;
+
+    /**
+     * All Apache HttpClient instances we own. Each ApiClient we build with a
+     * custom CloseableHttpClient needs explicit close() when the SDK is done —
+     * ApiClient has no close() hook of its own.
+     */
+    private final java.util.List<CloseableHttpClient> ownedHttpClients = new java.util.ArrayList<>();
     private final HttpClient addressClient = HttpClient.newBuilder()
         .connectTimeout(Duration.ofSeconds(5)).version(HttpClient.Version.HTTP_1_1)
         .followRedirects(HttpClient.Redirect.NEVER).build();
@@ -184,11 +193,31 @@ public final class CloudControlPlaneSdk {
         this.exchangeApi = exchangeApi;
         this.addressObjectMapper = exchangeApi.getApiClient().getObjectMapper();
         this.jwksCache = jwksCache;
+        // Track C1 Apache HttpClient for close() lifecycle. C2 lazy client is
+        // added later in getOrBuildC2Api().
+        ownedHttpClients.add(exchangeApi.getApiClient().getHttpClient());
+    }
+
+    /**
+     * Build an Apache HttpClient 5 with automatic retries DISABLED.
+     * <p>
+     * The default {@code HttpClients.createDefault()} installs
+     * {@code HttpRequestRetryExec} which replays any repeatable POST body after
+     * HTTP 503 or 429. That is unsafe for one-time credentials (C1 code exchange)
+     * and also interferes with the facade-level exponential-backoff retry
+     * policy we hand-roll for C2 status-report. Disabling automatic retries means
+     * all retry decisions are made at our layer, where we understand the semantics
+     * of each call.
+     */
+    private static CloseableHttpClient buildNoRetryHttpClient() {
+        return HttpClients.custom()
+                .disableAutomaticRetries()
+                .build();
     }
 
     private static ExchangeApi buildExchangeApi(String baseUrl) {
-        // Fresh ApiClient per instance — never mutate Configuration global singleton.
-        ApiClient client = new ApiClient();
+        CloseableHttpClient noRetryClient = buildNoRetryHttpClient();
+        ApiClient client = new ApiClient(noRetryClient);
         client.setBasePath(baseUrl);
         client.setUserAgent(USER_AGENT);
         return new ExchangeApi(client);
@@ -199,12 +228,15 @@ public final class CloudControlPlaneSdk {
         return new JwksKeyCache(jwksUrl, refreshInterval);
     }
 
-    /** Lazily-build a C2StatusReportApi backed by the same ApiClient baseUrl as ExchangeApi. */
+    /** Lazily-build a C2StatusReportApi backed by the same no-retry client as ExchangeApi. */
     private synchronized C2StatusReportApi getOrBuildC2Api() {
         if (c2StatusReportApi == null) {
-            ApiClient client = new ApiClient();
+            CloseableHttpClient noRetryClient = buildNoRetryHttpClient();
+            ApiClient client = new ApiClient(noRetryClient);
             client.setBasePath(baseUrl);
             client.setUserAgent(USER_AGENT);
+            // SDK instance tracks this client for close() lifecycle — ApiClient has no close() hook
+            ownedHttpClients.add(noRetryClient);
             c2StatusReportApi = new C2StatusReportApi(client);
         }
         return c2StatusReportApi;
@@ -427,8 +459,24 @@ public final class CloudControlPlaneSdk {
         try {
             Map<String, RSAPublicKey> cached = jwksCache.getKeysSnapshot();
             if (cached.isEmpty()) {
-                log.warn("verifyRequest: JWKS cache is empty");
-                return false;
+                // Cold start: callback arrives before any JWT verification has loaded JWKS.
+                // verifyRequest has no kid to look up, so we cannot use findKey(kid);
+                // instead, force a JWKS refresh here and then retry. If the network
+                // is unreachable we'll still return false — but on a healthy first
+                // callback we must verify successfully, matching verifyJwt's lazy-fetch
+                // behaviour.
+                log.info("verifyRequest: JWKS cache is empty — triggering lazy refresh");
+                try {
+                    jwksCache.forceRefresh();
+                } catch (CloudControlPlaneException cpe) {
+                    log.warn("verifyRequest: JWKS refresh failed — cannot verify callback: {}", cpe.getMessage());
+                    return false;
+                }
+                cached = jwksCache.getKeysSnapshot();
+                if (cached.isEmpty()) {
+                    log.warn("verifyRequest: JWKS cache still empty after refresh");
+                    return false;
+                }
             }
             byte[] signBytes = Base64.getUrlDecoder().decode(sign);
             // Try every cached key — callback signatures carry no kid, so during JWKS
@@ -500,7 +548,7 @@ public final class CloudControlPlaneSdk {
 
     private void doReportStatus(String nonce, String runtimeVersion, Long uptimeMs,
                                 Integer activePipelines, String lastErrorAt,
-                                int attempt) throws ApiException {
+                                int attempt) throws ApiException, CloudControlPlaneException {
         var request = new io.tapstate.cloud.sdk.model.StatusReportRequest()
             .nonce(nonce)
             .runtimeVersion(runtimeVersion)
@@ -509,8 +557,9 @@ public final class CloudControlPlaneSdk {
             .lastErrorAt(lastErrorAt);
 
         io.tapstate.cloud.sdk.api.C2StatusReportApi api = getOrBuildC2Api();
+        io.tapstate.cloud.sdk.model.ApiResponseStatusReportResponse envelope;
         try {
-            api.report(clusterId, request, "Bearer " + sdkStaticToken);
+            envelope = api.report(clusterId, request, "Bearer " + sdkStaticToken);
         } catch (ApiException ae) {
             int code = ae.getCode();
             boolean retryable = code == 0 || code >= 500;
@@ -524,10 +573,40 @@ public final class CloudControlPlaneSdk {
                     throw ae;  // give up on interrupt
                 }
                 doReportStatus(nonce, runtimeVersion, uptimeMs, activePipelines, lastErrorAt, attempt + 1);
-            } else {
-                throw ae;  // propagate — call classifyC2Error to map
+                return;  // never reaches here after recursive retry / exception thrown
             }
+            throw ae;  // propagate — call classifyC2Error to map
         }
+
+        // ---- Envelope acceptance check ----
+        // HTTP 200 is NOT sufficient proof that GC acknowledged the report.
+        // GC returns HTTP 200 even on business-level rejection (e.g. synthetic
+        // test injection, duplicate nonce with a different error path, etc.) —
+        // the envelope's `code` and `data.status` are the acceptance contract.
+        if (envelope == null) {
+            throw new CloudControlPlaneException.C2BusinessRejected(
+                "C2 status-report: GC returned HTTP 200 but envelope was null — "
+                    + "missing code/data.status acceptance fields");
+        }
+        if (!"ok".equals(envelope.getCode())) {
+            throw new CloudControlPlaneException.C2BusinessRejected(
+                "C2 status-report: GC rejected the report (code=\"" + envelope.getCode()
+                    + "\", msg=\"" + envelope.getMsg() + "\"). HTTP 200 is insufficient — "
+                    + "business-level rejection cannot be retried safely.");
+        }
+        io.tapstate.cloud.sdk.model.StatusReportResponse data = envelope.getData();
+        if (data == null) {
+            throw new CloudControlPlaneException.C2BusinessRejected(
+                "C2 status-report: GC returned code=\"ok\" but data was null — "
+                    + "missing data.status acceptance field");
+        }
+        if (!"accepted".equals(data.getStatus())) {
+            throw new CloudControlPlaneException.C2BusinessRejected(
+                "C2 status-report: GC acknowledged (code=\"ok\") but status=\""
+                    + data.getStatus() + "\" instead of \"accepted\" — "
+                    + "GC rejected the content at the business level");
+        }
+        // Happy path — all acceptance checks passed
     }
 
     /**
@@ -537,19 +616,19 @@ public final class CloudControlPlaneSdk {
     private CloudControlPlaneException classifyC2Error(ApiException e) {
         int code = e.getCode();
         if (code == 401) {
-            return new CloudControlPlaneException.C2AuthFailed(
+            return new CloudControlPlaneException.C2AuthFailed(401,
                 "C2 status-report: SDK token invalid or missing", e);
         }
         if (code == 403) {
-            return new CloudControlPlaneException.C2AuthFailed(
+            return new CloudControlPlaneException.C2AuthFailed(403,
                 "C2 status-report: token does not own path clusterId", e);
         }
         if (code == 409) {
-            return new CloudControlPlaneException.C2NonceReplay(
+            return new CloudControlPlaneException.C2NonceReplay(409,
                 "C2 status-report: nonce already seen — must generate a fresh UUID for each call", e);
         }
         // 5xx (>=500) or connect failure (0) — transient; retries exhausted already
-        return new CloudControlPlaneException.C2Transient(
+        return new CloudControlPlaneException.C2Transient(code,
             "C2 status-report failed after " + C2_MAX_ATTEMPTS + " attempts (code=" + code + ") — GC may be unreachable or overloaded", e);
     }
 
@@ -639,6 +718,26 @@ public final class CloudControlPlaneSdk {
     /** Get the JWKS cache — package-private, for tests. */
     JwksKeyCache getJwksCache() {
         return jwksCache;
+    }
+
+    /**
+     * Close all Apache HttpClient instances owned by this SDK.
+     * <p>
+     * Each {@link CloseableHttpClient} owns a thread pool and connection pool.
+     * The auto-generated {@link ApiClient} has no close() hook of its own, so
+     * the SDK tracks them explicitly and shuts them down here. Safe to call
+     * multiple times.
+     */
+    @Override
+    public void close() {
+        for (CloseableHttpClient client : ownedHttpClients) {
+            try {
+                client.close();
+            } catch (Exception e) {
+                log.warn("Failed to close Apache HttpClient — resource may leak: {}", e.getMessage());
+            }
+        }
+        ownedHttpClients.clear();
     }
 
     // ========== Builder ==========
