@@ -95,6 +95,9 @@ public enum AppErrorCode implements ErrorCode {
     SUBSCRIPTION_PENDING_PAYMENT("subscription.pending-payment", "Subscription is still pending payment — waiting for Stripe checkout"),
     SUBSCRIPTION_NOT_ACTIVE("subscription.not-active", "Subscription {0} must be ACTIVE for this operation"),
     SUBSCRIPTION_TRIAL_ALREADY_USED("subscription.trial-already-used", "Organization {0} already has a TRIAL or ACTIVE subscription — one trial per org"),
+    SUBSCRIPTION_OPS_TOKEN_MISSING("subscription.ops-token-missing", "Ops static token is required (Bearer header)"),
+    SUBSCRIPTION_OPS_TOKEN_INVALID("subscription.ops-token-invalid", "Ops static token is invalid"),
+    SUBSCRIPTION_OPS_DISABLED("subscription.ops-disabled", "Ops subscription-cancel endpoint is not configured (token unset)"),
 
     // ---------- Stripe integration ----------
     STRIPE_WEBHOOK_SIGNATURE_INVALID("stripe.webhook-signature-invalid", "Stripe webhook signature verification failed"),

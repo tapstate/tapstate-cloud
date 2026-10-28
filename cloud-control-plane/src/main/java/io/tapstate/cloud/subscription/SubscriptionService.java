@@ -4,6 +4,9 @@ import io.tapstate.cloud.cluster.Cluster;
 import io.tapstate.cloud.cluster.ClusterService;
 import io.tapstate.cloud.common.api.AppErrorCode;
 import io.tapstate.cloud.common.api.BusinessException;
+import io.tapstate.cloud.event.EventCenterService;
+import io.tapstate.cloud.event.EventIngestRequest;
+import io.tapstate.cloud.event.EventSeverity;
 import io.tapstate.cloud.mdb.MdbAllocation;
 import io.tapstate.cloud.mdb.MdbAllocationService;
 import io.tapstate.cloud.payment.PaymentGateway;
@@ -65,6 +68,7 @@ public class SubscriptionService {
     private final SpecConfigService specConfigService;
     private final StripeProductService stripeProductService;
     private final PaymentGateway paymentGateway;
+    private final EventCenterService eventCenterService;
 
     // ========== Stripe Checkout flow ================
 
@@ -421,6 +425,52 @@ public class SubscriptionService {
     public Subscription cancelNow(String subscriptionId, String orgId, String operator) {
         Subscription subscription = getByIdAndOrgId(subscriptionId, orgId);
         return performCancel(subscription, SubscriptionEventType.IMMEDIATE_CANCEL, operator, true);
+    }
+
+    /**
+     * Immediate cancellation initiated by the Ops console on behalf of a customer.
+     * <p>
+     * Same final effect as {@link #cancelNow} — Stripe subscription cancelled,
+     * state machine CANCELLED transition, Cluster termination and MDB reclamation.
+     * The difference is the operator identifier ({@code ops:&lt;name&gt;}) and the
+     * mandatory reason, both of which are recorded into the event center under
+     * source {@code ops} so Ops audit trails stay distinct from user self-serve
+     * or system-scheduled events.
+     *
+     * @param subscriptionId hex string of the Subscription ObjectId
+     * @param orgId          owning organization (ops API requires scoped access)
+     * @param operator       human-readable Ops operator name / ID (e.g. "alice" or "ops-zhangsan")
+     * @param reason         mandatory cancellation reason from the Ops ticket — stored in the event payload
+     */
+    @Transactional
+    public Subscription cancelNowByOps(String subscriptionId, String orgId,
+                                        String operator, String reason) {
+        Subscription subscription = getByIdAndOrgId(subscriptionId, orgId);
+        String prefixedOperator = "ops:" + operator;
+        Subscription updated = performCancel(subscription, SubscriptionEventType.IMMEDIATE_CANCEL,
+                prefixedOperator, true);
+
+        // Record the Ops-originating audit event into the event center. This is
+        // the primary difference between user self-serve cancelNow and Ops cancelNow.
+        eventCenterService.recordBestEffort(new EventIngestRequest(
+                orgId,
+                "ops",
+                "subscription.immediate-cancel",
+                EventSeverity.WARNING,
+                "Ops cancelled subscription " + subscriptionId + " (" + reason + ")",
+                operator,
+                java.time.Instant.now(),
+                "ops-cancel-" + subscriptionId + "-" + java.util.UUID.randomUUID(),
+                java.util.Map.of(
+                        "subscriptionId", subscriptionId,
+                        "orgId", orgId,
+                        "operator", operator,
+                        "reason", reason != null ? reason : "",
+                        "subscriptionStatus", updated.getStatus().name()
+                )
+        ));
+
+        return updated;
     }
 
     /**
