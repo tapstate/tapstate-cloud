@@ -4,6 +4,7 @@ import com.stripe.param.checkout.SessionCreateParams;
 import io.tapstate.cloud.cluster.ClusterService;
 import io.tapstate.cloud.common.api.AppErrorCode;
 import io.tapstate.cloud.common.api.BusinessException;
+import io.tapstate.cloud.event.EventCenterService;
 import io.tapstate.cloud.mdb.MdbAllocationService;
 import io.tapstate.cloud.payment.PaymentGateway;
 import io.tapstate.cloud.payment.PaymentMethod;
@@ -95,7 +96,8 @@ class SubscriptionTrialTest {
         subscriptionService = new SubscriptionService(
                 subscriptionRepository, itemRepository, subscriptionStateMachineService,
                 eventPublisher, clusterService, mdbAllocationService, deploymentStepRecorder,
-                clusterVersionService, specConfigService, stripeProductService, paymentGateway);
+                clusterVersionService, specConfigService, stripeProductService, paymentGateway,
+                mock(EventCenterService.class));
         lenient().when(paymentGateway.getPaymentMethod()).thenReturn(PaymentMethod.STRIPE);
     }
 
