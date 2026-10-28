@@ -104,6 +104,12 @@ public class SecurityConfig {
                     // inside the controller, not by a user session.
                     "/v1/api/internal/events",
 
+                    // Ops-triggered immediate subscription cancellation — authenticated
+                    // by a static Bearer token inside OpsSubscriptionController.
+                    // Spring Security leaves it open; the controller gates with
+                    // the configured ops.subscription-token before any state change.
+                    "/v1/api/internal/orgs/**/subscriptions/**/cancel-now",
+
                 // C2 status-report endpoints — runtime SDK authenticates with Bearer sdk-static-token
                     // (validated inside the controller, NOT via Spring Session)
                     "/v1/api/clusters/*/status-report",
