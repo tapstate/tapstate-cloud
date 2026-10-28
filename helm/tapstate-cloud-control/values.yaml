@@ -108,6 +108,12 @@ secrets:
     name: tapstate-cloud-control-secrets
     secretKeyKey: stripe.secret-key
     webhookSecretKey: stripe.webhook-secret
+  # Ops subscription immediate-cancel static bearer token. Optional: when the
+  # Secret is absent the ops endpoint stays fail-closed (503), so environments
+  # that never call the ops cancel endpoint need no key.
+  opsSubscriptionToken:
+    name: tapstate-cloud-control-ops
+    key: subscription-token
 
 # ========== ConfigMap (non-sensitive config) ==========
 config:
