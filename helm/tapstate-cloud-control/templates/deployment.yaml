@@ -122,9 +122,9 @@ spec:
             - name: TAPSTATE_CLOUD_JIRA_CLOSE_TRANSITION_NAME
               value: {{ .Values.config.jiraCloseTransitionName | quote }}
             - name: TAPSTATE_CLOUD_JIRA_CONNECT_TIMEOUT_SECONDS
-              value: {{ .Values.config.jiraConnectTimeoutSeconds | quote }}
+              value: {{ .Values.config.jiraConnectTimeoutSeconds | default "3" | quote }}
             - name: TAPSTATE_CLOUD_JIRA_REQUEST_TIMEOUT_SECONDS
-              value: {{ .Values.config.jiraRequestTimeoutSeconds | quote }}
+              value: {{ .Values.config.jiraRequestTimeoutSeconds | default "10" | quote }}
 
             # ========== JWKS management ==========
             - name: CLOUD_JWKS_ROTATION_ENABLED
