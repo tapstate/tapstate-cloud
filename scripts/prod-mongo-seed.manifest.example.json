@@ -1,0 +1,12 @@
+{
+  "_comment": "Prod MongoDB seed manifest — replace all values with real ones before running. Never commit this file.",
+  "mongodbControlUri": "mongodb+srv://cloud-control-user:***@tapstate-cloud-control.xxxxx.mongodb.net/tapstate_control",
+  "atlasPublicKey": "atlas_api_public_key_from_atlas_access_page",
+  "atlasPrivateKey": "atlas_api_private_key_from_atlas_access_page",
+  "atlasOrgId": "64082d7893e9d409965ecf32",
+  "atlasProjectId": "pv420x",
+  "atlasClusterName": "tapstate-shared-ap-southeast-1",
+  "atlasConnectionString": "mongodb+srv://tapstate-shared.mongodb.net",
+  "mdbMaxAllocations": 100,
+  "mdbRegion": "ap-southeast-1"
+}

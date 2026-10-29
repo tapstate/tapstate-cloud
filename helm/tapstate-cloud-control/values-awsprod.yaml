@@ -65,6 +65,11 @@ config:
   swaggerUiEnabled: "false"
   knife4jEnabled: "false"
   tawkPropertyId: 6ad811f9c0b97c34b365a428
+  # Notification email channel — SMTP secret (tapstate-cloud-control-smtp)
+  # must already exist in the namespace; auth verification mail shares it.
+  notifications:
+    emailEnabled: "true"
+    emailFrom: "no-reply@tapstate.com"
 
 # nginx edge on k3sm01 proxies 127.0.0.1:30180.
 service:
