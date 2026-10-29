@@ -1,11 +1,13 @@
 package io.tapstate.cloud.ticket;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
+import java.util.Collections;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -28,8 +30,11 @@ class JiraTicketFeishuCardBuilderTest {
         assertEquals("Organization: Alpha Workspace, Zulu Workspace", fields.get(0).path("text").path("content").asText());
         assertEquals("Email: support@example.com", fields.get(1).path("text").path("content").asText());
         assertEquals("Jira: TSSD-42", fields.get(2).path("text").path("content").asText());
-        JsonNode content = card.path("body").path("elements").get(1)
-            .path("elements").get(1);
+        JsonNode contentBlock = card.path("body").path("elements").get(1);
+        assertEquals("column_set", contentBlock.path("tag").asText());
+        assertEquals("blue-50", contentBlock.path("background_style").asText());
+        assertEquals(1, contentBlock.path("columns").size());
+        JsonNode content = contentBlock.path("columns").get(0).path("elements").get(1);
         assertEquals("plain_text", content.path("text").path("tag").asText());
         assertEquals("Summary: Cannot connect\n\nDescription:\n" + description,
             content.path("text").path("content").asText());
@@ -46,8 +51,9 @@ class JiraTicketFeishuCardBuilderTest {
         JsonNode card = MAPPER.readTree(serialized);
         JsonNode elements = card.path("body").path("elements");
         assertEquals(3, elements.size());
-        JsonNode content = elements.get(1)
-            .path("elements").get(1);
+        JsonNode contentBlock = elements.get(1);
+        assertEquals("column_set", contentBlock.path("tag").asText());
+        JsonNode content = contentBlock.path("columns").get(0).path("elements").get(1);
 
         assertTrue(serialized.getBytes(StandardCharsets.UTF_8).length <= 24 * 1024);
         assertTrue(content.path("text").path("content").asText().contains("内容已截断"));
@@ -55,9 +61,26 @@ class JiraTicketFeishuCardBuilderTest {
             .path("behaviors").get(0).path("default_url").asText());
     }
 
+    @Test
+    void rejectsCardWhenRequiredOrganizationFieldsExceedTheSizeLimit() {
+        JiraTicketNotification oversized = notification(
+            Collections.nCopies(90, "工".repeat(100)),
+            "private description",
+            "https://tapdata.atlassian.net/browse/TSSD-44");
+
+        assertThrows(IllegalArgumentException.class, () -> builder.build(oversized));
+    }
+
     private static JiraTicketNotification notification(String description, String jiraUrl) {
+        return notification(List.of("Alpha Workspace", "Zulu Workspace"), description, jiraUrl);
+    }
+
+    private static JiraTicketNotification notification(
+            List<String> organizationNames,
+            String description,
+            String jiraUrl) {
         return new JiraTicketNotification(
-            List.of("Alpha Workspace", "Zulu Workspace"),
+            organizationNames,
             "support@example.com",
             "TSSD-42",
             "Cannot connect",

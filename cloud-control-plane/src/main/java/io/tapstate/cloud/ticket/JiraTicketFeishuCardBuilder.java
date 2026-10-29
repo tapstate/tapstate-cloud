@@ -20,6 +20,10 @@ public class JiraTicketFeishuCardBuilder {
         String card = serialize(notification, notification.description());
         if (serializedSize(card) <= MAX_CARD_BYTES) return card;
 
+        if (serializedSize(serialize(notification, TRUNCATION_SUFFIX)) > MAX_CARD_BYTES) {
+            throw new IllegalArgumentException("Required ticket fields exceed the Card 2.0 size limit");
+        }
+
         String description = notification.description();
         int low = 0;
         int high = description.codePointCount(0, description.length());
@@ -32,7 +36,11 @@ public class JiraTicketFeishuCardBuilder {
                 high = middle - 1;
             }
         }
-        return serialize(notification, prefix(description, low) + TRUNCATION_SUFFIX);
+        String truncatedCard = serialize(notification, prefix(description, low) + TRUNCATION_SUFFIX);
+        if (serializedSize(truncatedCard) > MAX_CARD_BYTES) {
+            throw new IllegalStateException("Truncated ticket card exceeds the Card 2.0 size limit");
+        }
+        return truncatedCard;
     }
 
     private String serialize(JiraTicketNotification notification, String description) {
@@ -65,18 +73,22 @@ public class JiraTicketFeishuCardBuilder {
     }
 
     private static List<Map<String, Object>> elements(JiraTicketNotification notification, String description) {
-        Map<String, Object> contentBlock = new LinkedHashMap<>();
-        contentBlock.put("tag", "interactive_container");
-        contentBlock.put("width", "fill");
-        contentBlock.put("has_border", true);
-        contentBlock.put("border_color", "blue-100");
-        contentBlock.put("corner_radius", "8px");
-        contentBlock.put("background_style", "blue-50");
-        contentBlock.put("padding", "12px");
-        contentBlock.put("vertical_spacing", "4px");
-        contentBlock.put("elements", List.of(
+        Map<String, Object> contentColumn = new LinkedHashMap<>();
+        contentColumn.put("tag", "column");
+        contentColumn.put("width", "weighted");
+        contentColumn.put("weight", 1);
+        contentColumn.put("vertical_align", "top");
+        contentColumn.put("elements", List.of(
             plainTextDiv("Ticket content", "heading-4"),
             plainTextDiv("Summary: " + notification.summary() + "\n\nDescription:\n" + description, "normal")));
+
+        Map<String, Object> contentBlock = new LinkedHashMap<>();
+        contentBlock.put("tag", "column_set");
+        contentBlock.put("flex_mode", "none");
+        contentBlock.put("horizontal_spacing", "8px");
+        contentBlock.put("background_style", "blue-50");
+        contentBlock.put("padding", "12px");
+        contentBlock.put("columns", List.of(contentColumn));
 
         Map<String, Object> openJiraButton = new LinkedHashMap<>();
         openJiraButton.put("tag", "button");

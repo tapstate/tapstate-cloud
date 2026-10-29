@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -49,7 +50,9 @@ class FeishuJiraTicketNotificationSenderTest {
         assertEquals("Email: support@example.com",
             card.path("body").path("elements").get(0).path("fields").get(1)
                 .path("text").path("content").asText());
-        assertEquals("plain_text", card.path("body").path("elements").get(1)
+        JsonNode contentBlock = card.path("body").path("elements").get(1);
+        assertEquals("column_set", contentBlock.path("tag").asText());
+        assertEquals("plain_text", contentBlock.path("columns").get(0)
             .path("elements").get(1).path("text").path("tag").asText());
         assertEquals("https://tapdata.atlassian.net/browse/TSSD-42",
             card.path("body").path("elements").get(2).path("behaviors").get(0)
@@ -66,6 +69,25 @@ class FeishuJiraTicketNotificationSenderTest {
 
         assertTrue(output.getOut().contains("TSSD-42"));
         assertTrue(output.getOut().contains("network_error"));
+        assertFalse(output.getOut().contains("support@example.com"));
+        assertFalse(output.getOut().contains("private description"));
+    }
+
+    @Test
+    void doesNotSendCardWhenRequiredFieldsExceedTheSizeLimit(CapturedOutput output) {
+        FeishuBotClient client = mock(FeishuBotClient.class);
+        JiraTicketNotification notification = new JiraTicketNotification(
+            java.util.Collections.nCopies(90, "工".repeat(100)),
+            "support@example.com",
+            "TSSD-44",
+            "Cannot connect",
+            "private description",
+            "https://tapdata.atlassian.net/browse/TSSD-44");
+
+        sender(client).send(notification);
+
+        verify(client, never()).sendInteractive(anyString(), anyString());
+        assertTrue(output.getOut().contains("TSSD-44"));
         assertFalse(output.getOut().contains("support@example.com"));
         assertFalse(output.getOut().contains("private description"));
     }
