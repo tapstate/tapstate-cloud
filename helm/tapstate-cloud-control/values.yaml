@@ -98,6 +98,7 @@ secrets:
     appIdKey: app-id
     appSecretKey: app-secret
     chatIdKey: chat-id
+    productionInviteSharedSecretKey: production-invite-shared-secret
   # Alert email reuses the shared SMTP Secret above (host/username/password);
   # there is no second credential source.
   # Stripe API key + webhook secret (Week 4 — Stripe Checkout)
@@ -147,6 +148,7 @@ config:
   authMailFrom: no-reply@tapstate.com
   authTrialCodeRequired: "true"
   feishuLongConnectionEnabled: false
+  feishuProductionInviteApiUrl: ""
   trialIssuerEmail: ""
   oauthCallbackBaseUrl: https://dev.cloud.tapstate.com
   cloudConsoleUrl: https://dev.cloud.tapstate.com

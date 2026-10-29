@@ -125,8 +125,13 @@ kubectl create secret generic tapstate-cloud-control-smtp \
 # in shell history.
 # tawk-webhook.env contains webhook-secret=<Tawk webhook signing secret>.
 # feishu-bot.env contains app-id=<existing Feedback app ID>,
-# app-secret=<existing Feedback app secret>, and
-# chat-id=<destination group ID>.
+# app-secret=<existing Feedback app secret>, chat-id=<notification group ID>,
+# event-encrypt-key=<Feishu callback encryption key>,
+# event-verification-token=<Feishu callback verification token>,
+# invite-allowed-chat-id=<trial command group ID>, and
+# production-invite-shared-secret=<shared dev/production HMAC key>.
+# Generate the relay key once and store the same value in both environments;
+# never put it in Helm values, shell history, or this repository.
 # The existing app bot must remain enabled, have im:message:send_as_bot, and be
 # a member of the configured group.
 kubectl create secret generic tapstate-cloud-control-tawk-webhook \
@@ -236,33 +241,50 @@ helm upgrade tapstate-cloud-control ./helm/tapstate-cloud-control \
   -f helm/tapstate-cloud-control/values-awsprod.yaml \
   -n tapstate-cloud-control
 
-### Trial invitation bot command
+### Trial invitation bot commands
 
-The existing application bot accepts the exact command `\u751f\u6210\u9080\u8bf7\u94fe\u63a5` (the Chinese phrase for generate invitation link) when mentioned
-by any human member of the configured group. It replies in the originating chat with a single-use
-trial registration link valid for seven days. This does not invite an organization member.
+Mention the bot in the configured group with `生成邀请链接` to receive a dev trial
+link. Use `生产环境邀请码签发` or `生成生产环境邀请链接` for a production link.
+Both links are single-use and expire after seven days. These commands create a new
+trial organization; they do not invite a member into an existing organization.
 
 Configure the application's `im.message.receive_v1` subscription and the scope
-`im:message.group_at_msg:readonly`. Use the environment's HTTPS callback
-`/v1/api/webhooks/feishu`. Add `event-encrypt-key`, `event-verification-token`, and
-`invite-allowed-chat-id` to the existing Feishu Secret through a private env file.
-The allowed chat ID limits issuance to the intended group; every human member can use the command. Bot issuance records its own service identity and does not require a trial issuer email.
-Keep the event encryption key stable: it also derives retry-stable invitation codes.
-Callback requests require a valid signature and a timestamp within five minutes;
-URL verification uses the same signed callback. No test message is sent on startup.
+`im:message.group_at_msg:readonly`. For callback mode, use the environment's HTTPS
+`/v1/api/webhooks/feishu` endpoint. The dev event connection can instead receive
+the same event without a public callback. Add `event-encrypt-key`,
+`event-verification-token`, `invite-allowed-chat-id`, and
+`production-invite-shared-secret` to each environment's existing Feishu Secret
+through private env files. The allowed chat ID limits issuance to the intended
+group; every human member can use the commands. Bot issuance records its own
+service identity and does not require a trial issuer email.
+
+The dev deployment is the only long-connection consumer and sets
+`FEISHU_PRODUCTION_INVITE_API_URL=https://cloud.tapstate.com/v1/api/webhooks/feishu/production-invite`.
+The production deployment keeps `config.feishuLongConnectionEnabled=false` and
+verifies signed relay requests against the same `production-invite-shared-secret`,
+freshness window, and allowlisted chat before writing into production MongoDB.
+The URL comes from `config.cloudConsoleUrl`, so the returned link uses the
+production Console domain. A production relay failure never falls back to a dev
+link.
+
+Keep `event-encrypt-key` stable: it derives retry-stable dev invitation codes.
+Production codes use the separate relay HMAC key. Callback requests require a
+valid Feishu signature and a timestamp within five minutes; URL verification
+uses the same signed callback. No test message is sent on startup.
 
 ### Feishu outbound event connection
 
-Set `config.feishuLongConnectionEnabled=true` only in the environment that owns
-the Feedback application. Configure long connection mode and subscribe to
-`im.message.receive_v1` in Feishu, then publish the application version.
-The application needs group mention receive permission and bot send permission.
-Use a separate application for each concurrently running environment; Feishu
-distributes events across connections of the same application.
+Set `config.feishuLongConnectionEnabled=true` only in the dev environment for
+the existing Feedback application. Configure long connection mode and subscribe
+to `im.message.receive_v1` in Feishu, then publish the application version. The
+application needs group mention receive permission and bot send permission.
+Feishu distributes events across connections of the same application rather
+than broadcasting, so production handles invitation issuance through the signed
+relay endpoint and does not start a second connection.
 
 Bot trial issuance does not need `config.trialIssuerEmail` or a real mailbox.
 It records `feishu-bot` as its source. Human trial issuance retains its existing
-issuer authorization. The allowed chat Secret and event encryption key are still
-required: the latter is the stable private key for retry-safe invitation tokens.
-Do not rotate it casually because that changes tokens for repeated events.
+issuer authorization. The allowed chat Secret and dev event-encryption key are
+required. Production relay issuance also requires the dedicated shared HMAC key;
+do not rotate either key casually, because that changes retry-stable tokens.
 No inbound public callback is needed when using the outbound connection.

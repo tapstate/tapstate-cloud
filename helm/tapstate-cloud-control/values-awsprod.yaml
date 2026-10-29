@@ -42,6 +42,9 @@ imagePullSecrets:
   - name: tapstate-ecr-pull
 
 config:
+  # The dev Cloud instance is the only Feishu long-connection consumer.
+  # Production issues trial links through its signed internal relay endpoint.
+  feishuLongConnectionEnabled: false
   springProfilesActive: prod
   jwtIssuer: https://cloud.tapstate.com
   corsAllowedOrigins: "https://cloud.tapstate.com,https://*.cloud.tapstate.com"

@@ -22,6 +22,7 @@ imagePullSecrets:
 # Single-node k3s on EC2 — no nodeSelector needed
 config:
   feishuLongConnectionEnabled: true
+  feishuProductionInviteApiUrl: https://cloud.tapstate.com/v1/api/webhooks/feishu/production-invite
   springProfilesActive: dev
   # Must point at THIS control plane; the base values default to the prod
   # issuer, which would make dev-issued resolve JWTs carry the prod issuer.
