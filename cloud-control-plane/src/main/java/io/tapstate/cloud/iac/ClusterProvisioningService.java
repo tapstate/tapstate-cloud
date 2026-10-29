@@ -646,8 +646,14 @@ public class ClusterProvisioningService {
         while (System.nanoTime() < deadline) {
             try (SshSession session = sshClient.connect(host, SSH_PORT, SSH_USER,
                 privateKeyPem, POLL_INTERVAL_MS, proxyHost(proxy), proxyPort(proxy))) {
+                // cloud-init writes the SSH key early (before apt), so SSH
+                // opens ~20s after boot — but packages (docker, nginx) are still
+                // installing in the background. Block until cloud-init fully
+                // finishes AND docker is actually on PATH, otherwise the next
+                // step fails with "sudo: docker: command not found".
                 CommandResult result = session.exec(
-                    "echo ready; echo \"$SSH_CONNECTION\"", Duration.ofSeconds(15));
+                    "cloud-init status --wait >/dev/null && docker --version >/dev/null && echo ready; echo \"$SSH_CONNECTION\"",
+                    Duration.ofMinutes(2));
                 if (result.succeeded()) {
                     successes++;
                     String clientIp = parseSshClientIp(result.stdout());
