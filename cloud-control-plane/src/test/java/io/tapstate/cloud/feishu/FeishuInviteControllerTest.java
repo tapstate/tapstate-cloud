@@ -135,6 +135,20 @@ class FeishuInviteControllerTest {
             contains("https://cloud.tapstate.com/auth#invite=A2B3C4D5E6F7"));
     }
 
+    @Test void naturalProductionRequestUsesRelayAndAmbiguousRequestAsksForEnvironment() throws Exception {
+        var relay = mock(ProductionTrialInviteRelayClient.class);
+        controller.setProductionInviteRelayClient(relay);
+        when(relay.issue("oc_source", "om_one")).thenReturn(
+            new ProductionTrialInviteRelayClient.ProductionTrialInvite("https://cloud.tapstate.com/auth#invite=A2B3C4D5E6F7", Instant.now().plusSeconds(604800)));
+        when(bot.sendToChat(anyString(), anyString(), anyString(), anyString()))
+            .thenReturn(new FeishuBotClient.DeliveryResult(true, null));
+        assertEquals(200, receive(event("operator", "给我一个 prod 邀请码")).getStatusCode().value());
+        assertEquals(200, receive(event("operator", "给我一个邀请码")).getStatusCode().value());
+        verify(relay, times(1)).issue("oc_source", "om_one");
+        verify(bot).sendToChat(eq("oc_source"), eq("trial-invite-help"), eq("om_one"), contains("指定环境"));
+        verifyNoInteractions(invitations);
+    }
+
     @Test void productionRelayCreatesAndReusesTheSameProductionInvitation() throws Exception {
         setProductionEnvironment("shared-production-relay-secret");
         Instant expiry = Instant.now().plusSeconds(604800);
