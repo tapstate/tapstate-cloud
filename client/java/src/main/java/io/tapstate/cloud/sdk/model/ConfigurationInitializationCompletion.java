@@ -190,4 +190,3 @@ public class ConfigurationInitializationCompletion {
   }
 
 }
-
