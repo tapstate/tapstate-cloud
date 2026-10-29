@@ -29,6 +29,12 @@ config:
   corsAllowedOrigins: "https://dev.cloud.tapstate.com,https://*.dev.cloud.tapstate.com,http://localhost:5173,http://localhost:5174"
   oauthCallbackBaseUrl: https://dev.cloud.tapstate.com
   cloudConsoleUrl: https://dev.cloud.tapstate.com
+  jiraCloudId: "9ee330de-c28d-40f8-a92e-5317b5670ea8"
+  jiraServiceDeskId: "71"
+  jiraRequestTypeId: "129"
+  jiraCustomerProvisioningEnabled: "true"
+  jiraCustomerProvisioningSiteAdminRiskAcknowledged: "true"
+  jiraCloseTransitionName: "Cancel request"
 
   # awsdev drives real AWS (ap-southeast-1) + real Atlas provisioning.
   # Required secrets beyond the base set:
