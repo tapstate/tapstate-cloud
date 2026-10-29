@@ -168,13 +168,21 @@ public class FeishuInviteController {
             if (!key.isBlank()) command = command.replace(key, "");
         }
         String normalizedCommand = command.trim();
-        boolean productionCommand = normalizedCommand.equals("\u751f\u4ea7\u73af\u5883\u9080\u8bf7\u7801\u7b7e\u53d1")
-            || normalizedCommand.equals("\u751f\u6210\u751f\u4ea7\u73af\u5883\u9080\u8bf7\u94fe\u63a5");
-        if (!productionCommand && !normalizedCommand.equals("\u751f\u6210\u9080\u8bf7\u94fe\u63a5")) {
+        String lower = normalizedCommand.toLowerCase(java.util.Locale.ROOT);
+        boolean invitation = lower.contains("邀请码") || lower.contains("邀请链接") || lower.contains("试用码");
+        boolean productionCommand = lower.contains("生产") || lower.matches(".*\\bprod(?:uction)?\\b.*") || lower.contains("正式环境");
+        boolean devCommand = lower.contains("开发") || lower.contains("测试环境") || lower.matches(".*\\bdev(?:elopment)?\\b.*");
+        boolean legacyCommand = normalizedCommand.equals("生成邀请链接");
+        if (!invitation) {
             return ResponseEntity.ok(Map.of());
         }
         String messageId = message.path("message_id").asText();
         String chatId = message.path("chat_id").asText();
+        if ((productionCommand && devCommand) || (!productionCommand && !devCommand && !legacyCommand)) {
+            var result = bot.sendToChat(chatId, "trial-invite-help", messageId,
+                "请指定环境：例如“生成生产邀请码”或“生成 dev 邀请链接”。");
+            return result.delivered() ? ResponseEntity.ok(Map.of()) : ResponseEntity.status(503).build();
+        }
         String url;
         Instant expiresAt;
         if (productionCommand) {
