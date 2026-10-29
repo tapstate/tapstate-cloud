@@ -95,7 +95,7 @@ on:
       # Any workflow change can move this lane or the gates around it.
       - ".github/workflows/**"
   push:
-    branches: [main, develop]
+    branches: [main, develop, 'release-v*']
     paths: *it_paths
   workflow_dispatch:
     inputs:
