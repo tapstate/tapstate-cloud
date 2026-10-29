@@ -115,7 +115,8 @@ public class ClusterConfigurationInitializationService {
     private static <T> T guarded(java.util.function.Supplier<T> action) {
         try { return action.get(); }
         catch (BusinessException refused) { throw refused; }
-        catch (org.springframework.dao.DataAccessException | com.mongodb.MongoException failure) {
+        catch (org.springframework.dao.DataAccessException | com.mongodb.MongoException
+                | io.tapstate.cloud.iac.IacException failure) {
             throw new BusinessException(AppErrorCode.CLUSTER_CONFIGURATION_INITIALIZATION_UNAVAILABLE, 503);
         }
     }

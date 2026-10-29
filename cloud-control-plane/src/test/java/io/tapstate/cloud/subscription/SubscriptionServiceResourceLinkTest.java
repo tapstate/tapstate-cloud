@@ -2,6 +2,7 @@ package io.tapstate.cloud.subscription;
 
 import io.tapstate.cloud.cluster.Cluster;
 import io.tapstate.cloud.cluster.ClusterService;
+import io.tapstate.cloud.event.EventCenterService;
 import io.tapstate.cloud.mdb.MdbAllocation;
 import io.tapstate.cloud.mdb.MdbAllocationService;
 import io.tapstate.cloud.progress.DeploymentStepRecorder;
@@ -27,6 +28,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -81,7 +83,8 @@ class SubscriptionServiceResourceLinkTest {
         subscriptionService = new SubscriptionService(
             subscriptionRepository, itemRepository, subscriptionStateMachineService,
             eventPublisher, clusterService, mdbAllocationService, deploymentStepRecorder,
-            clusterVersionService, specConfigService, stripeProductService, paymentGateway);
+            clusterVersionService, specConfigService, stripeProductService, paymentGateway,
+            mock(EventCenterService.class));
 
         stored.put(subscriptionId, subscription(subscriptionId));
         lenient().when(subscriptionRepository.findById(any(ObjectId.class))).thenAnswer(inv ->

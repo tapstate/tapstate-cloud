@@ -161,6 +161,7 @@ public class ClusterController extends BaseController {
         @Schema(description = "Cluster creation timestamp (ISO-8601 UTC)") String createdAt,
         @Schema(description = "Ready timestamp (ISO-8601 UTC) — null until state = READY") String readyAt,
         @Schema(description = "Cluster version pinned at subscription time; selects the runtime container image tag") String clusterVersion,
+        @Schema(description = "Latest runtime version reported by C2; null until the Cluster reports") String runtimeVersion,
         @Schema(description = "Cleanup failure error code — non-null means the user should call retry-cleanup") String cleanupErrorCode,
         @Schema(description = "Diagnostic detail for cleanup failure (AWS error, which resource, etc.)") String cleanupErrorDetail,
         @Schema(description = "When cleanup failure was recorded (ISO-8601 UTC)") String cleanupFailedAt
@@ -176,6 +177,7 @@ public class ClusterController extends BaseController {
                 c.getCreatedAt() != null ? c.getCreatedAt().toString() : null,
                 c.getReadyAt() != null ? c.getReadyAt().toString() : null,
                 c.getClusterVersion(),
+                c.getLastStatusReport() != null ? c.getLastStatusReport().getRuntimeVersion() : null,
                 c.getCleanupErrorCode(),
                 c.getCleanupErrorDetail(),
                 c.getCleanupFailedAt() != null ? c.getCleanupFailedAt().toString() : null);

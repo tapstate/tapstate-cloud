@@ -53,7 +53,7 @@ public class ClusterVersionController extends BaseController {
     }
 
     @GetMapping
-    @Operation(summary = "List active Cluster versions, newest first",
+    @Operation(operationId = "listClusterVersions", summary = "List active Cluster versions, newest first",
         description = "Returns every ACTIVE Cluster version ordered by descending versionNumber; "
             + "the first row is the latest version and the default for new subscriptions.")
     @ApiResponses(value = {

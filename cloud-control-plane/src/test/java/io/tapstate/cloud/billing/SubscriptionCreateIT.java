@@ -7,6 +7,7 @@ import io.tapstate.cloud.cluster.Cluster;
 import io.tapstate.cloud.cluster.ClusterService;
 import io.tapstate.cloud.common.api.AppErrorCode;
 import io.tapstate.cloud.common.api.BusinessException;
+import io.tapstate.cloud.event.EventCenterService;
 import io.tapstate.cloud.mdb.MdbAllocation;
 import io.tapstate.cloud.mdb.MdbAllocationService;
 import io.tapstate.cloud.payment.PaymentGateway;
@@ -137,10 +138,12 @@ class SubscriptionCreateIT {
         subscriptionService = new SubscriptionService(
                 subscriptionRepository, itemRepository, subscriptionStateMachineService,
                 eventPublisher, clusterService, mdbAllocationService, deploymentStepRecorder,
-                clusterVersionService, specConfigService, stripeProductService, stripePaymentService);
+                clusterVersionService, specConfigService, stripeProductService, stripePaymentService,
+                mock(EventCenterService.class));
         webhookEventService = new StripeWebhookEventService(
                 stripeEventRepository, subscriptionRepository, subscriptionService,
-                subscriptionStateMachineService, config);
+                subscriptionStateMachineService, stripePaymentService, config,
+                mock(EventCenterService.class));
 
         StripeStub.checkout(stripe);
 

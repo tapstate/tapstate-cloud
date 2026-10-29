@@ -9,6 +9,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.mongodb.config.EnableMongoAuditing;
 import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.MongoTransactionManager;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.data.mongodb.core.SimpleMongoClientDatabaseFactory;
 import org.springframework.data.mongodb.repository.config.EnableMongoRepositories;
 
@@ -33,7 +35,7 @@ public class MongoConfig {
     @Bean
     public MongoClient mongoClient() {
         ConnectionString cs = new ConnectionString(mongoUri);
-        log.info("[MongoConfig] Creating MongoClient from URI: {}", mongoUri);
+        log.info("[MongoConfig] Creating MongoClient");
         return MongoClients.create(cs);
     }
 
@@ -50,5 +52,10 @@ public class MongoConfig {
     @Bean
     public MongoTemplate mongoTemplate(SimpleMongoClientDatabaseFactory factory) {
         return new MongoTemplate(factory);
+    }
+
+    @Bean
+    public PlatformTransactionManager transactionManager(SimpleMongoClientDatabaseFactory factory) {
+        return new MongoTransactionManager(factory);
     }
 }

@@ -28,10 +28,22 @@ public class OrganizationService {
     private final MemberRepository memberRepository;
 
     @Transactional
+    public Organization createTrialOrganization(String name, String ownerEmail) {
+        if (name == null || name.isBlank() || name.length() > 100) {
+            throw new BusinessException(AppErrorCode.BAD_REQUEST, 400);
+        }
+        return saveOrganization(name.trim(), "trial-" + java.util.UUID.randomUUID(), ownerEmail);
+    }
+
+    @Transactional
     public Organization createOrganization(String name, String slug, String ownerEmail) {
         if (!memberRepository.findByUserEmail(ownerEmail).isEmpty()) {
             throw new BusinessException(AppErrorCode.ORG_LIMIT_REACHED, 409);
         }
+        return saveOrganization(name, slug, ownerEmail);
+    }
+
+    private Organization saveOrganization(String name, String slug, String ownerEmail) {
         // Auto-generate slug if not provided
         String effectiveSlug = slug != null ? slug : generateSlug(name);
 

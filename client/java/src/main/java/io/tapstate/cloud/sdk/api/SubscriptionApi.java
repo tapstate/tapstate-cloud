@@ -21,7 +21,6 @@ import io.tapstate.cloud.sdk.Configuration;
 import io.tapstate.cloud.sdk.Pair;
 
 import io.tapstate.cloud.sdk.model.ApiResponseCheckoutResponse;
-import io.tapstate.cloud.sdk.model.ApiResponseListSpecWithPricingResponse;
 import io.tapstate.cloud.sdk.model.ApiResponseListSubscriptionResponse;
 import io.tapstate.cloud.sdk.model.ApiResponseSubscriptionResponse;
 import io.tapstate.cloud.sdk.model.CreateCheckoutRequest;
@@ -47,10 +46,10 @@ public class SubscriptionApi extends BaseApi {
   }
 
   /**
-   * Cancel at the end of the current billing period
-   * Sets &#x60;cancel_at_period_end&#x3D;true&#x60; on the payment channel&#39;s subscription and moves the Subscription to &#x60;PENDING_CANCEL&#x60;. Resources stay usable until the period ends; a scheduled reaper then transitions to &#x60;CANCELLED&#x60; and cascades Cluster termination.  Only valid from &#x60;ACTIVE&#x60;. Idempotent from &#x60;PENDING_CANCEL&#x60; / &#x60;CANCELLED&#x60;.
-   * @param orgId Organization UUID (required)
-   * @param subscriptionId Subscription UUID (required)
+   * Cancel subscription at the next billing period end
+   * Stripe subscription is marked cancel_at_period_end&#x3D;true. The subscription stays ACTIVE (PENDING_CANCEL) until the billing cycle expires, then auto-terminates via the PERIOD_END_REAPED scheduled reaper. No immediate Cluster termination.
+   * @param orgId  (required)
+   * @param subscriptionId  (required)
    * @return ApiResponseSubscriptionResponse
    * @throws ApiException if fails to make API call
    */
@@ -60,10 +59,10 @@ public class SubscriptionApi extends BaseApi {
 
 
   /**
-   * Cancel at the end of the current billing period
-   * Sets &#x60;cancel_at_period_end&#x3D;true&#x60; on the payment channel&#39;s subscription and moves the Subscription to &#x60;PENDING_CANCEL&#x60;. Resources stay usable until the period ends; a scheduled reaper then transitions to &#x60;CANCELLED&#x60; and cascades Cluster termination.  Only valid from &#x60;ACTIVE&#x60;. Idempotent from &#x60;PENDING_CANCEL&#x60; / &#x60;CANCELLED&#x60;.
-   * @param orgId Organization UUID (required)
-   * @param subscriptionId Subscription UUID (required)
+   * Cancel subscription at the next billing period end
+   * Stripe subscription is marked cancel_at_period_end&#x3D;true. The subscription stays ACTIVE (PENDING_CANCEL) until the billing cycle expires, then auto-terminates via the PERIOD_END_REAPED scheduled reaper. No immediate Cluster termination.
+   * @param orgId  (required)
+   * @param subscriptionId  (required)
    * @param additionalHeaders additionalHeaders for this call
    * @return ApiResponseSubscriptionResponse
    * @throws ApiException if fails to make API call
@@ -130,10 +129,10 @@ public class SubscriptionApi extends BaseApi {
   }
 
   /**
-   * Cancel immediately, with no grace period
-   * Cancels the payment channel&#39;s subscription right away and moves the Subscription to &#x60;CANCELLED&#x60;, cascading Cluster termination and MdbAllocation reclaim. Unlike &#x60;/cancel-at-period-end&#x60; there is no remaining service period.
-   * @param orgId Organization UUID (required)
-   * @param subscriptionId Subscription UUID (required)
+   * Immediate subscription cancellation — no grace period
+   * Cancels the Stripe subscription immediately and transitions to CANCELLED, triggering cascade termination of the Cluster + reclaim of MdbAllocation.
+   * @param orgId  (required)
+   * @param subscriptionId  (required)
    * @return ApiResponseSubscriptionResponse
    * @throws ApiException if fails to make API call
    */
@@ -143,10 +142,10 @@ public class SubscriptionApi extends BaseApi {
 
 
   /**
-   * Cancel immediately, with no grace period
-   * Cancels the payment channel&#39;s subscription right away and moves the Subscription to &#x60;CANCELLED&#x60;, cascading Cluster termination and MdbAllocation reclaim. Unlike &#x60;/cancel-at-period-end&#x60; there is no remaining service period.
-   * @param orgId Organization UUID (required)
-   * @param subscriptionId Subscription UUID (required)
+   * Immediate subscription cancellation — no grace period
+   * Cancels the Stripe subscription immediately and transitions to CANCELLED, triggering cascade termination of the Cluster + reclaim of MdbAllocation.
+   * @param orgId  (required)
+   * @param subscriptionId  (required)
    * @param additionalHeaders additionalHeaders for this call
    * @return ApiResponseSubscriptionResponse
    * @throws ApiException if fails to make API call
@@ -213,38 +212,38 @@ public class SubscriptionApi extends BaseApi {
   }
 
   /**
-   * Start a Stripe Checkout session for a spec
-   * Validates the spec against the platform catalog and its payment-channel pricing, creates a Stripe Checkout Session, and persists a &#x60;PENDING_PAYMENT&#x60; Subscription shell.  No Cluster and no MdbAllocation are created here. Provisioning starts only after Stripe confirms payment via the &#x60;checkout.session.completed&#x60; webhook, which drives &#x60;PENDING_PAYMENT → ACTIVE&#x60; and sets &#x60;provisionInitiated&#x60;.
+   * Create a Stripe Checkout Session + PENDING_PAYMENT subscription shell
+   * Validates the spec exists (platform spec_config.enabled&#x3D;true) and has Stripe pricing configured, then creates a hosted Stripe Checkout Session. Returns the redirect URL and a PENDING_PAYMENT Subscription shell. Cluster provisioning does NOT start until the Checkout Session completes (webhook-driven PENDING_PAYMENT→ACTIVE transition + activateAndProvision).
    * @param orgId Organization UUID (required)
    * @param createCheckoutRequest  (required)
    * @return ApiResponseCheckoutResponse
    * @throws ApiException if fails to make API call
    */
-  public ApiResponseCheckoutResponse createCheckoutSession(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull CreateCheckoutRequest createCheckoutRequest) throws ApiException {
-    return this.createCheckoutSession(orgId, createCheckoutRequest, Collections.emptyMap());
+  public ApiResponseCheckoutResponse createCheckout(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull CreateCheckoutRequest createCheckoutRequest) throws ApiException {
+    return this.createCheckout(orgId, createCheckoutRequest, Collections.emptyMap());
   }
 
 
   /**
-   * Start a Stripe Checkout session for a spec
-   * Validates the spec against the platform catalog and its payment-channel pricing, creates a Stripe Checkout Session, and persists a &#x60;PENDING_PAYMENT&#x60; Subscription shell.  No Cluster and no MdbAllocation are created here. Provisioning starts only after Stripe confirms payment via the &#x60;checkout.session.completed&#x60; webhook, which drives &#x60;PENDING_PAYMENT → ACTIVE&#x60; and sets &#x60;provisionInitiated&#x60;.
+   * Create a Stripe Checkout Session + PENDING_PAYMENT subscription shell
+   * Validates the spec exists (platform spec_config.enabled&#x3D;true) and has Stripe pricing configured, then creates a hosted Stripe Checkout Session. Returns the redirect URL and a PENDING_PAYMENT Subscription shell. Cluster provisioning does NOT start until the Checkout Session completes (webhook-driven PENDING_PAYMENT→ACTIVE transition + activateAndProvision).
    * @param orgId Organization UUID (required)
    * @param createCheckoutRequest  (required)
    * @param additionalHeaders additionalHeaders for this call
    * @return ApiResponseCheckoutResponse
    * @throws ApiException if fails to make API call
    */
-  public ApiResponseCheckoutResponse createCheckoutSession(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull CreateCheckoutRequest createCheckoutRequest, Map<String, String> additionalHeaders) throws ApiException {
+  public ApiResponseCheckoutResponse createCheckout(@jakarta.annotation.Nonnull String orgId, @jakarta.annotation.Nonnull CreateCheckoutRequest createCheckoutRequest, Map<String, String> additionalHeaders) throws ApiException {
     Object localVarPostBody = createCheckoutRequest;
     
     // verify the required parameter 'orgId' is set
     if (orgId == null) {
-      throw new ApiException(400, "Missing the required parameter 'orgId' when calling createCheckoutSession");
+      throw new ApiException(400, "Missing the required parameter 'orgId' when calling createCheckout");
     }
     
     // verify the required parameter 'createCheckoutRequest' is set
     if (createCheckoutRequest == null) {
-      throw new ApiException(400, "Missing the required parameter 'createCheckoutRequest' when calling createCheckoutSession");
+      throw new ApiException(400, "Missing the required parameter 'createCheckoutRequest' when calling createCheckout");
     }
     
     // create path and map variables
@@ -295,10 +294,10 @@ public class SubscriptionApi extends BaseApi {
   }
 
   /**
-   * Provision Cluster + MDB after a confirmed checkout
-   * Called by the Console once the user returns from Stripe Checkout. Requires a Subscription already activated by the webhook (&#x60;ACTIVE&#x60; + &#x60;provisionInitiated&#x60;). Creates the Cluster and MdbAllocation from the spec snapshot taken at checkout time and starts asynchronous provisioning.
-   * @param orgId Organization UUID (required)
-   * @param subscriptionId Subscription UUID (required)
+   * Finalize Cluster + MDB provisioning after Checkout confirmation
+   * Called by the Console after the user confirms on the Checkout success page. Requires a paid state (ACTIVE, or TRIAL when the spec carries a trial). Creates Cluster + MdbAllocation and kicks off async provisioning. An optional version pins the Cluster version; omitted resolves the latest ACTIVE version.
+   * @param orgId  (required)
+   * @param subscriptionId  (required)
    * @param finalizeProvisioningRequest  (required)
    * @return ApiResponseSubscriptionResponse
    * @throws ApiException if fails to make API call
@@ -309,10 +308,10 @@ public class SubscriptionApi extends BaseApi {
 
 
   /**
-   * Provision Cluster + MDB after a confirmed checkout
-   * Called by the Console once the user returns from Stripe Checkout. Requires a Subscription already activated by the webhook (&#x60;ACTIVE&#x60; + &#x60;provisionInitiated&#x60;). Creates the Cluster and MdbAllocation from the spec snapshot taken at checkout time and starts asynchronous provisioning.
-   * @param orgId Organization UUID (required)
-   * @param subscriptionId Subscription UUID (required)
+   * Finalize Cluster + MDB provisioning after Checkout confirmation
+   * Called by the Console after the user confirms on the Checkout success page. Requires a paid state (ACTIVE, or TRIAL when the spec carries a trial). Creates Cluster + MdbAllocation and kicks off async provisioning. An optional version pins the Cluster version; omitted resolves the latest ACTIVE version.
+   * @param orgId  (required)
+   * @param subscriptionId  (required)
    * @param finalizeProvisioningRequest  (required)
    * @param additionalHeaders additionalHeaders for this call
    * @return ApiResponseSubscriptionResponse
@@ -450,73 +449,6 @@ public class SubscriptionApi extends BaseApi {
     String[] localVarAuthNames = new String[] { "session-cookie" };
 
     TypeReference<ApiResponseSubscriptionResponse> localVarReturnType = new TypeReference<ApiResponseSubscriptionResponse>() {};
-    return apiClient.invokeAPI(
-        localVarPath,
-        "GET",
-        localVarQueryParams,
-        localVarCollectionQueryParams,
-        localVarQueryStringJoiner.toString(),
-        localVarPostBody,
-        localVarHeaderParams,
-        localVarCookieParams,
-        localVarFormParams,
-        localVarAccept,
-        localVarContentType,
-        localVarAuthNames,
-        localVarReturnType
-    );
-  }
-
-  /**
-   * List subscription specs with their payment-channel pricing
-   * Public catalog endpoint — no session required, because the Console renders pricing before the user signs in.  JOINs the platform spec catalog (&#x60;spec_config&#x60;, enabled only) with the active Stripe prices (&#x60;stripe_products&#x60;, enabled Product + enabled Price). A spec with no active price on any enabled Product is omitted: it cannot be purchased.
-   * @return ApiResponseListSpecWithPricingResponse
-   * @throws ApiException if fails to make API call
-   */
-  public ApiResponseListSpecWithPricingResponse listSpecs() throws ApiException {
-    return this.listSpecs(Collections.emptyMap());
-  }
-
-
-  /**
-   * List subscription specs with their payment-channel pricing
-   * Public catalog endpoint — no session required, because the Console renders pricing before the user signs in.  JOINs the platform spec catalog (&#x60;spec_config&#x60;, enabled only) with the active Stripe prices (&#x60;stripe_products&#x60;, enabled Product + enabled Price). A spec with no active price on any enabled Product is omitted: it cannot be purchased.
-   * @param additionalHeaders additionalHeaders for this call
-   * @return ApiResponseListSpecWithPricingResponse
-   * @throws ApiException if fails to make API call
-   */
-  public ApiResponseListSpecWithPricingResponse listSpecs(Map<String, String> additionalHeaders) throws ApiException {
-    Object localVarPostBody = null;
-    
-    // create path and map variables
-    String localVarPath = "/v1/api/specs";
-
-    StringJoiner localVarQueryStringJoiner = new StringJoiner("&");
-    String localVarQueryParameterBaseName;
-    List<Pair> localVarQueryParams = new ArrayList<Pair>();
-    List<Pair> localVarCollectionQueryParams = new ArrayList<Pair>();
-    Map<String, String> localVarHeaderParams = new HashMap<String, String>();
-    Map<String, String> localVarCookieParams = new HashMap<String, String>();
-    Map<String, Object> localVarFormParams = new HashMap<String, Object>();
-
-    
-    localVarHeaderParams.putAll(additionalHeaders);
-
-    
-    
-    final String[] localVarAccepts = {
-      "*/*"
-    };
-    final String localVarAccept = apiClient.selectHeaderAccept(localVarAccepts);
-
-    final String[] localVarContentTypes = {
-      
-    };
-    final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
-
-    String[] localVarAuthNames = new String[] {  };
-
-    TypeReference<ApiResponseListSpecWithPricingResponse> localVarReturnType = new TypeReference<ApiResponseListSpecWithPricingResponse>() {};
     return apiClient.invokeAPI(
         localVarPath,
         "GET",

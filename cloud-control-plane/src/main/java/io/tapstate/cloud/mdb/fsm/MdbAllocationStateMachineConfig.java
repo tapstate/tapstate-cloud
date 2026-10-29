@@ -24,7 +24,8 @@ import java.util.EnumSet;
  * PROVISIONING         ──[PROVISION_FAIL]──→ PROVISIONING_FAILED
  * READY                ──[INITIATE_RECLAIM]──→ DELETING
  * DELETING             ──[RECLAIM_COMPLETE]──→ DELETED
- * DELETING             ──[RECLAIM_FAILED]──→ DELETED  (terminal regardless)
+ * DELETING             ──[RECLAIM_FAILED]──→ RECLAIM_FAILED   (NOT terminal — retryable)
+ * RECLAIM_FAILED       ──[INITIATE_RECLAIM]──→ DELETING       (manual/auto retry)
  * </pre>
  * <p>
  * {@link MdbAllocationStatus} enum is used directly as states (matching the SM state IDs).
@@ -79,10 +80,20 @@ public class MdbAllocationStateMachineConfig
                 .event(MdbAllocationEventType.RECLAIM_COMPLETE)
                 .target(MdbAllocationStatus.DELETED)
             .and()
+            // RECLAIM_FAILED is now a retryable intermediate state, NOT terminal.
+            // The DELETING→DELETED on failure path was the root cause of
+            // orphaned Atlas DBs — transient API errors left no way to retry.
             .withExternal()
                 .source(MdbAllocationStatus.DELETING)
                 .event(MdbAllocationEventType.RECLAIM_FAILED)
-                .target(MdbAllocationStatus.DELETED);
+                .target(MdbAllocationStatus.RECLAIM_FAILED)
+            .and()
+
+            // ===== RECLAIM_FAILED transitions — retry back to DELETING =====
+            .withExternal()
+                .source(MdbAllocationStatus.RECLAIM_FAILED)
+                .event(MdbAllocationEventType.INITIATE_RECLAIM)
+                .target(MdbAllocationStatus.DELETING);
     }
 
     @org.springframework.context.annotation.Bean

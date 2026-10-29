@@ -108,7 +108,7 @@ public class FinalizeProvisioningRequest {
   }
 
   /**
-   * Cluster version to deploy; omit/blank to use the latest ACTIVE version
+   * Get version
    * @return version
    */
   @jakarta.annotation.Nullable

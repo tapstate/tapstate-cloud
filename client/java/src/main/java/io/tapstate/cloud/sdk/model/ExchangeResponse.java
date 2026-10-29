@@ -319,7 +319,7 @@ public class ExchangeResponse {
   }
 
   /**
-   * Organization display name from the Organization bound to the redeemed exchange code
+   * Organization display name from the bound Organization record
    * @return organizationName
    */
   @jakarta.annotation.Nullable
@@ -344,7 +344,7 @@ public class ExchangeResponse {
   }
 
   /**
-   * Cluster display name from the Cluster bound to the redeemed exchange code
+   * Cluster display name from the bound Cluster record
    * @return clusterName
    */
   @jakarta.annotation.Nullable
@@ -369,7 +369,7 @@ public class ExchangeResponse {
   }
 
   /**
-   * AWS region from the Cluster bound to the redeemed exchange code
+   * AWS region from the bound Cluster record
    * @return region
    */
   @jakarta.annotation.Nullable

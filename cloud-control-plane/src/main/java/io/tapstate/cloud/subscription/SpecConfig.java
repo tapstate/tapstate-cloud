@@ -40,6 +40,13 @@ public class SpecConfig {
     /** Instance memory in GiB. */
     private int memoryGb;
 
+    /**
+     * AWS EC2 instance type this spec is provisioned on, e.g. {@code t2.large} for
+     * 2C8G. Empty means "use the environment default" and exists only for records
+     * written before the catalogue carried a provider type.
+     */
+    private String awsEc2Spec;
+
     /** Trial duration in calendar days — 0 means no trial, subscription bills from day 1. */
     private int trialDays;
 

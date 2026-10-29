@@ -85,27 +85,59 @@ Resources:
           # Machine-level bootstrap only: package installation and the SSH key.
           # Service configuration and TLS certificate installation run over the
           # SSH session opened by the control plane, never from this script.
+          #
+          # Design rule: SSH key injection MUST run before any network-dependent step.
+          # Cloud-init scripts run with `set -e`; a transient mirror failure on
+          # apt-get must not leave the control plane locked out of the node.
           export DEBIAN_FRONTEND=noninteractive
 
-          apt-get update
-          apt-get install -y ca-certificates curl gnupg lsb-release
-
-          install -m 0755 -d /etc/apt/keyrings
-          curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-          chmod a+r /etc/apt/keyrings/docker.asc
-          echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" > /etc/apt/sources.list.d/docker.list
-
-          apt-get update
-          apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin nginx
-
-          systemctl enable docker nginx
-          systemctl start docker nginx
-
+          # --- SSH key injection (local filesystem, no network) ---
           mkdir -p /home/ubuntu/.ssh
+          install -m 0600 -o ubuntu -g ubuntu /dev/null /home/ubuntu/.ssh/authorized_keys
           echo '${SshPublicKey}' >> /home/ubuntu/.ssh/authorized_keys
           chown -R ubuntu:ubuntu /home/ubuntu/.ssh
           chmod 700 /home/ubuntu/.ssh
           chmod 600 /home/ubuntu/.ssh/authorized_keys
+
+          # --- retry helper for apt-get install ---
+          pkg_retry() {
+            local max=3 attempt=1
+            while [ $attempt -le $max ]; do
+              if apt-get install -y "$@"; then return 0; fi
+              echo "apt-get install failed (attempt $attempt/$max): $*" >&2
+              apt-get update || true
+              sleep 15
+              attempt=$((attempt + 1))
+            done
+            return 1
+          }
+
+          # --- phase 1: base packages ---
+          apt-get update
+          pkg_retry ca-certificates curl gnupg lsb-release
+
+          # --- Docker GPG key + repo ---
+          install -m 0755 -d /etc/apt/keyrings
+          for attempt in 1 2 3 4 5; do
+            if curl -fsSL --max-time 30 https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc; then
+              break
+            fi
+            echo "docker gpg fetch failed (attempt $attempt/5)" >&2
+            sleep 10
+          done
+          # verify key was actually downloaded; if not, fail loud
+          test -s /etc/apt/keyrings/docker.asc
+          chmod a+r /etc/apt/keyrings/docker.asc
+
+          . /etc/os-release
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $VERSION_CODENAME stable" > /etc/apt/sources.list.d/docker.list
+
+          # --- phase 2: docker + nginx ---
+          apt-get update
+          pkg_retry docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin nginx
+
+          systemctl enable docker nginx
+          systemctl start docker nginx
       Tags:
         - Key: Name
           Value: !Sub tapstate-cluster-${ClusterId}

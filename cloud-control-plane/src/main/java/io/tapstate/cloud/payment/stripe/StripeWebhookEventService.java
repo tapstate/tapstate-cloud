@@ -3,6 +3,9 @@ package io.tapstate.cloud.payment.stripe;
 import com.stripe.exception.SignatureVerificationException;
 import com.stripe.model.Event;
 import com.stripe.net.Webhook;
+import io.tapstate.cloud.event.EventCenterService;
+import io.tapstate.cloud.event.EventIngestRequest;
+import io.tapstate.cloud.event.EventSeverity;
 import io.tapstate.cloud.payment.PaymentGateway;
 import io.tapstate.cloud.subscription.Subscription;
 import io.tapstate.cloud.subscription.SubscriptionRepository;
@@ -39,6 +42,7 @@ public class StripeWebhookEventService {
             "checkout.session.async_payment_succeeded",
             "checkout.session.async_payment_failed",
             "customer.subscription.deleted",
+            "customer.subscription.trial_will_end",
             "invoice.payment_failed",
             "invoice.paid"
     );
@@ -47,19 +51,25 @@ public class StripeWebhookEventService {
     private final SubscriptionRepository subscriptionRepository;
     private final SubscriptionService subscriptionService;
     private final io.tapstate.cloud.subscription.fsm.SubscriptionStateMachineService subscriptionStateMachineService;
+    private final StripePaymentService paymentService;
     private final StripeWebhookConfig config;
+    private final EventCenterService eventCenterService;
     private final JsonMapper jsonMapper = JsonMapper.builder().build();
 
     public StripeWebhookEventService(StripeEventRepository eventRepository,
                                      SubscriptionRepository subscriptionRepository,
                                      @Lazy SubscriptionService subscriptionService,
                                      io.tapstate.cloud.subscription.fsm.SubscriptionStateMachineService subscriptionStateMachineService,
-                                     StripeWebhookConfig config) {
+                                     @Lazy StripePaymentService paymentService,
+                                     StripeWebhookConfig config,
+                                     EventCenterService eventCenterService) {
         this.eventRepository = eventRepository;
         this.subscriptionRepository = subscriptionRepository;
         this.subscriptionService = subscriptionService;
         this.subscriptionStateMachineService = subscriptionStateMachineService;
+        this.paymentService = paymentService;
         this.config = config;
+        this.eventCenterService = eventCenterService;
     }
 
     /**
@@ -141,6 +151,8 @@ public class StripeWebhookEventService {
                     handleCheckoutFailed(event);
             case "customer.subscription.deleted" ->
                     handleSubscriptionDeleted(event);
+            case "customer.subscription.trial_will_end" ->
+                    handleTrialWillEnd(event);
             case "invoice.payment_failed" ->
                     handleInvoicePaymentFailed(event);
             case "invoice.paid" ->
@@ -208,6 +220,8 @@ public class StripeWebhookEventService {
 
         // Hand off to SubscriptionService for FSM + Cluster provisioning
         subscriptionService.activateAndProvision(subscription.getId().toHexString());
+        record(subscription.getOrgId(), event, "stripe.checkout.completed", EventSeverity.INFO,
+            "Stripe checkout completed for subscription " + subscription.getId().toHexString());
 
         return "PROCESSED — subscription activated";
     }
@@ -248,7 +262,48 @@ public class StripeWebhookEventService {
         subscriptionService.cancelDueToChannelDeletion(
                 subscription.getId().toHexString(),
                 "stripe:customer.subscription.deleted");
+        record(subscription.getOrgId(), event, "stripe.subscription.deleted", EventSeverity.WARNING,
+            "Stripe cancelled subscription " + subscription.getId().toHexString());
         return "PROCESSED — subscription cancelled due to Stripe deletion";
+    }
+
+    /**
+     * Stripe is about to end the trial. If no payment method was ever bound, the
+     * trial cannot convert: schedule the cancellation now so Stripe ends the
+     * subscription when the trial runs out, and let
+     * {@code customer.subscription.deleted} cancel it locally and release the
+     * instance. With a card on file there is nothing to do — the first invoice
+     * converts the subscription instead.
+     * <p>
+     * This is the deterministic half of the card-less trial: the Checkout request
+     * already asks Stripe to cancel on a missing payment method at trial end, and
+     * this handler covers the customer who removed the card mid-trial.
+     */
+    private String handleTrialWillEnd(Event event) {
+        Map<String, Object> stripeSubscription = dataObject(event);
+        String stripeSubscriptionId = str(stripeSubscription, "id");
+        if (stripeSubscriptionId == null) {
+            return "SKIPPED (event carries no subscription id)";
+        }
+
+        Subscription subscription = subscriptionRepository
+                .findByStripeSubscriptionId(stripeSubscriptionId)
+                .orElse(null);
+        if (subscription == null) {
+            return "SKIPPED (subscription not found in our DB)";
+        }
+        if (subscription.getStatus() != io.tapstate.cloud.subscription.SubscriptionStatus.TRIAL) {
+            return "SKIPPED (subscription is not in trial)";
+        }
+        if (paymentService.hasPaymentMethod(stripeSubscriptionId)) {
+            return "SKIPPED (payment method bound — the trial converts on the first invoice)";
+        }
+
+        subscriptionService.cancelAtPeriodEnd(
+                subscription.getId().toHexString(),
+                subscription.getOrgId().toHexString(),
+                "stripe:customer.subscription.trial_will_end");
+        return "PROCESSED — trial ends without a payment method; cancellation scheduled";
     }
 
     private String handleInvoicePaymentFailed(Event event) {
@@ -384,5 +439,22 @@ public class StripeWebhookEventService {
             return Instant.ofEpochSecond(n.longValue());
         }
         return null;
+    }
+
+    private void record(org.bson.types.ObjectId orgId, Event event, String type,
+                        EventSeverity severity, String subject) {
+        if (orgId == null) {
+            return;
+        }
+        eventCenterService.recordBestEffort(new EventIngestRequest(
+            orgId.toHexString(),
+            "stripe",
+            type,
+            severity,
+            subject,
+            "stripe",
+            Instant.now(),
+            "stripe:" + event.getId(),
+            Map.of("stripeEventType", event.getType())));
     }
 }

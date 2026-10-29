@@ -134,7 +134,11 @@
               <target>
                 <exec executable="sh" failifexecutionfails="false">
                   <arg value="-c" />
-                  <arg value="curl -sf -o ${openapi.input.spec} ${api.base.url}/v3/api-docs.yaml &amp;&amp; echo '[openapi-download] OK Downloaded spec from ${api.base.url}/v3/api-docs.yaml' || echo '[openapi-download] WARN Live spec unavailable at ${api.base.url} -- using checked-in openapi.yaml'" />
+                  <!-- Download to a scratch path and only replace the checked-in
+                       spec when the response actually looks like OpenAPI. A captive
+                       portal or SPA fallback answers 200 with HTML; writing that
+                       straight into openapi.yaml silently corrupts the source. -->
+                  <arg value="tmp=${openapi.input.spec}.download; if curl -sf -o $tmp ${api.base.url}/v3/api-docs.yaml &amp;&amp; head -n 1 $tmp | grep -q '^openapi:'; then mv $tmp ${openapi.input.spec} &amp;&amp; echo '[openapi-download] OK Downloaded spec from ${api.base.url}/v3/api-docs.yaml'; else rm -f $tmp; echo '[openapi-download] WARN Live spec unavailable or not OpenAPI at ${api.base.url} -- using checked-in openapi.yaml'; fi" />
                 </exec>
               </target>
             </configuration>

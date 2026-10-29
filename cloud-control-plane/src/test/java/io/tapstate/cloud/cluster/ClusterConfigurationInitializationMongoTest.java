@@ -111,6 +111,25 @@ class ClusterConfigurationInitializationMongoTest {
             ClusterConfigurationInitializationService.fingerprint(actual)).creationGranted()).isTrue();
     }
 
+    @Test void allocationUnavailabilityReturns503WithoutChangingAuthority() throws Exception {
+        Document before = stored().get(ClusterConfigurationInitialization.FIELD, Document.class);
+        when(resolver.resolve(any())).thenThrow(new io.tapstate.cloud.iac.IacException(
+            io.tapstate.cloud.common.api.AppErrorCode.IAC_MDB_NOT_READY, "allocation-private-detail"));
+        var http = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(
+            new ClusterConfigurationInitializationController(service))
+            .setControllerAdvice(new io.tapstate.cloud.common.api.GlobalExceptionHandler()).build();
+        var response = http.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(
+                "/v1/api/clusters/" + id() + "/configuration-initialization/claim")
+                .header("Authorization", "Bearer " + cluster.getSdkStaticToken())
+                .contentType("application/json")
+                .content(new Document("bootId", UUID.randomUUID().toString()).append("configurationHash", hash).toJson()))
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isServiceUnavailable())
+            .andReturn().getResponse().getContentAsString();
+        assertThat(Document.parse(response).getString("code")).isEqualTo("cluster.configuration-initialization-unavailable");
+        assertThat(response).doesNotContain("allocation-private-detail", cluster.getSdkStaticToken());
+        assertThat(stored().get(ClusterConfigurationInitialization.FIELD)).isEqualTo(before);
+    }
+
     @Test void httpUsesTheServiceIdentityAndTheVersionedContractEnvelope() throws Exception {
         Document fixture;
         try (var input = getClass().getResourceAsStream("/contract-fixtures/c4-configuration-initialization-v1.json")) {

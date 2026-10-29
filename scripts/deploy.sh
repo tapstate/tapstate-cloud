@@ -319,8 +319,18 @@ DOCKEREOF"
     # ECR has IMMUTABLE tags — always use $IMAGE_TAG from env or auto-generated
     local tag="${IMAGE_TAG:-awsdev-$(date +%Y%m%d-%H%M)}"
     IMAGE_TAG="$tag"
-    log "Step 6b: docker retag → ${ECR_IMAGE}:${tag} and push"
+    log "Step 6b: docker retag → ${ECR_IMAGE}:${tag}"
     docker tag "$REMOTE_IMAGE_LATEST" "${ECR_IMAGE}:${tag}"
+
+    # ECR requires a fresh login token (12h validity). Always refresh before push;
+    # no-op if already logged in within the token window.
+    require_cmd aws
+    log "Step 6c: aws ecr get-login-password → docker login ${NEXUS_HOST}"
+    aws ecr get-login-password --region ap-east-1 2>/dev/null \
+      | docker login --username AWS --password-stdin "${NEXUS_HOST}" >/dev/null
+    log_ok "ECR login refreshed"
+
+    log "Step 6d: docker push ${ECR_IMAGE}:${tag}"
     docker push "${ECR_IMAGE}:${tag}" 2>&1 | tail -3
     log_ok "Pushed to ECR: ${ECR_IMAGE}:${tag}"
   else
@@ -371,7 +381,12 @@ EOF
   log_ok "Helm release applied"
 
   log "Step 9: Wait for rollout"
-  kubectl --kubeconfig="$KUBECONFIG_PATH" rollout status "deployment/${RELEASE_NAME}" -n "$K3S_NAMESPACE" --timeout=120s 2>&1 || true
+  if ! kubectl --kubeconfig="$KUBECONFIG_PATH" rollout status "deployment/${RELEASE_NAME}" -n "$K3S_NAMESPACE" --timeout=180s 2>&1; then
+    log_err "Rollout failed — showing pod events and status"
+    kubectl --kubeconfig="$KUBECONFIG_PATH" get pods -n "$K3S_NAMESPACE" -l app="$RELEASE_NAME" -o wide
+    kubectl --kubeconfig="$KUBECONFIG_PATH" describe pod -n "$K3S_NAMESPACE" -l app="$RELEASE_NAME" 2>&1 | tail -30
+    exit 1
+  fi
   log_ok "Deployment ready"
 
   log "Step 10: Verify pod status"

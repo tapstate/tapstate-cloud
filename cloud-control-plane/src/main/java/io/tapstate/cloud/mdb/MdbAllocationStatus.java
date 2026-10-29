@@ -25,6 +25,11 @@ public enum MdbAllocationStatus {
     /** Termination in progress — deleteDatabase + deleteUser pending. */
     DELETING,
 
+    /** Atlas reclaim failed (transient or permanent) — databases may still
+     * exist in Atlas. Reclaim retries up to a bounded backoff window; only
+     * after retries are exhausted does an operator need to intervene. */
+    RECLAIM_FAILED,
+
     /** Atlas resources released, record is a tombstone. */
     DELETED
 }

@@ -2,6 +2,7 @@ package io.tapstate.cloud.payment.stripe;
 
 import com.stripe.Stripe;
 import com.stripe.exception.StripeException;
+import com.stripe.model.Customer;
 import com.stripe.model.checkout.Session;
 import com.stripe.param.checkout.SessionCreateParams;
 import com.stripe.net.Webhook;
@@ -12,6 +13,7 @@ import io.tapstate.cloud.subscription.Subscription;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
@@ -62,9 +64,10 @@ public class StripePaymentService implements PaymentGateway {
             String stripeCustomerId = customerService.getOrCreate(
                     request.orgId(), request.userEmail());
 
-            Session session = Session.create(buildSessionParams(request, stripeCustomerId));
-            log.info("StripePaymentService: created Checkout session {} for org {} price {}",
-                    session.getId(), request.orgId(), request.stripePriceId());
+            SessionCreateParams params = buildSessionParams(request, stripeCustomerId);
+            Session session = Session.create(checkoutRequest(params, request.specConfig().hasTrial()));
+            log.info("StripePaymentService: created Checkout session {} for org {} price {} trial={}",
+                    session.getId(), request.orgId(), request.stripePriceId(), request.specConfig().hasTrial());
 
             // Build the channel ref — session and price IDs are known here;
             // stripeSubscriptionId will be filled in by the webhook handler.
@@ -87,10 +90,9 @@ public class StripePaymentService implements PaymentGateway {
      * Checkout Session parameters for one spec.
      * <p>
      * A spec that carries a trial gets {@code subscription_data.trial_period_days}:
-     * Stripe collects the payment method but issues no invoice until the trial
-     * ends, which is what makes "7 days free, card bound only" true rather than a
-     * promise the pricing page makes on its own. A spec without a trial starts
-     * billing on the first invoice.
+     * no invoice is issued until the trial ends. Whether a card is collected for
+     * that trial is decided in {@link #checkoutRequest} — a trial can start
+     * card-less. A spec without a trial starts billing on the first invoice.
      */
     public SessionCreateParams buildSessionParams(CreateSessionRequest request, String stripeCustomerId) {
         SessionCreateParams.LineItem lineItem = SessionCreateParams.LineItem.builder()
@@ -124,6 +126,61 @@ public class StripePaymentService implements PaymentGateway {
         }
 
         return builder.build();
+    }
+
+    /**
+     * The request actually sent to Stripe.
+     * <p>
+     * The pinned SDK predates {@code payment_method_collection} and
+     * {@code subscription_data.trial_settings}, so a trial request is sent as the
+     * same nested map with those two added. They are what make a trial card-less
+     * ({@code if_required} — nothing is due, so no card is asked for) and what
+     * keeps it from turning into an unpaid invoice: at trial end Stripe cancels a
+     * subscription that never bound a payment method, instead of letting it go
+     * past due.
+     */
+    @SuppressWarnings("unchecked")
+    Map<String, Object> checkoutRequest(SessionCreateParams params, boolean trial) {
+        Map<String, Object> request = new LinkedHashMap<>(params.toMap());
+        // Fix #167: disable Stripe adaptive pricing — all pricing is USD, do not
+        // auto-convert to customer's local currency based on billing address.
+        request.put("currency", "usd");
+        if (!trial) {
+            return request;
+        }
+        request.put("payment_method_collection", "if_required");
+        Map<String, Object> subscriptionData = new LinkedHashMap<>(
+                (Map<String, Object>) request.getOrDefault("subscription_data", Map.of()));
+        subscriptionData.put("trial_settings",
+                Map.of("end_behavior", Map.of("missing_payment_method", "cancel")));
+        request.put("subscription_data", subscriptionData);
+        return request;
+    }
+
+    /**
+     * Whether Stripe has a payment method to charge when the trial ends — the
+     * subscription's own default, or the one set on the customer for invoices.
+     */
+    boolean hasPaymentMethod(String stripeSubscriptionId) {
+        Stripe.apiKey = config.secretKey();
+        try {
+            com.stripe.model.Subscription stripeSub =
+                    com.stripe.model.Subscription.retrieve(stripeSubscriptionId);
+            if (stripeSub.getDefaultPaymentMethod() != null) {
+                return true;
+            }
+            String customerId = stripeSub.getCustomer();
+            if (customerId == null) {
+                return false;
+            }
+            Customer customer = Customer.retrieve(customerId);
+            return customer.getInvoiceSettings() != null
+                    && customer.getInvoiceSettings().getDefaultPaymentMethod() != null;
+        } catch (StripeException e) {
+            throw new StripeIntegrationException(
+                    "Cannot read the payment method of Stripe subscription " + stripeSubscriptionId
+                            + ": " + e.getMessage(), e);
+        }
     }
 
     // ---- Cancellation flows --------------------------------------------

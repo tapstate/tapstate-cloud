@@ -61,4 +61,12 @@ public class User {
 
     @Schema(description = "Last successful login timestamp (UTC)")
     private Instant lastLoginAt;
+
+    @Schema(description = "Legal document version the user has agreed to, e.g. 'legal-v1.0-2026-10-27'")
+    @Builder.Default
+    private String agreedLegalVersion = null;
+
+    @Schema(description = "Timestamp when the legal agreement was recorded (UTC)")
+    @Builder.Default
+    private Instant agreedLegalAt = null;
 }
