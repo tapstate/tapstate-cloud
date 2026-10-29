@@ -1,6 +1,7 @@
 package io.tapstate.cloud.feishu;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
@@ -8,6 +9,7 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.HexFormat;
@@ -23,6 +25,21 @@ class ProductionTrialInviteRelayClientTest {
     private static final String ENDPOINT =
         "https://cloud.tapstate.com/v1/api/webhooks/feishu/production-invite";
     private static final String SECRET = "shared-production-invite-hmac-secret";
+
+    @Test
+    void relayClientDoesNotOverwriteTheSharedRestClientRequestFactory() {
+        RestClient.Builder sharedBuilder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(sharedBuilder).build();
+        URI target = URI.create("http://127.0.0.1:9/shared-client");
+        server.expect(requestTo(target)).andRespond(withSuccess("shared", MediaType.TEXT_PLAIN));
+
+        new ProductionTrialInviteRelayClient(sharedBuilder, ENDPOINT, SECRET);
+        String body = assertDoesNotThrow(() -> sharedBuilder.build().get()
+            .uri(target).retrieve().body(String.class));
+
+        assertEquals("shared", body);
+        server.verify();
+    }
 
     @Test
     void postsSignedRequestAndParsesProductionLink() throws Exception {

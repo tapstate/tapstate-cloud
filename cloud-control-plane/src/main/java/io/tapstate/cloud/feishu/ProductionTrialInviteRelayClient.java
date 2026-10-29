@@ -89,7 +89,7 @@ public class ProductionTrialInviteRelayClient {
         JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(
             HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build());
         requestFactory.setReadTimeout(Duration.ofSeconds(4));
-        return builder.requestFactory(requestFactory).build();
+        return builder.clone().requestFactory(requestFactory).build();
     }
 
     public record ProductionInviteRequest(String chatId, String messageId) {}
