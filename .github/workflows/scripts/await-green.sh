@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# Gate for main-branch CD: block until the CI run triggered by the push of
-# this exact SHA has succeeded, and the Full Integration run as well while
-# that workflow is switched on (repository variable) and triggered.
-# Fail fast on any failure or cancellation; time out after GATE_TIMEOUT_S.
+# Gate for CD: block until the CI run triggered by the push of this exact
+# SHA has succeeded. On main branches it also waits for the Full Integration
+# run while that workflow is switched on (repository variable) and triggered.
+# Release branches (release-v*) only require CI — Full Integration is never
+# triggered from them. Fail fast on any failure or cancellation; time out
+# after GATE_TIMEOUT_S.
 #
 # Cross-workflow `needs` does not exist in GitHub Actions, so the CD
 # workflow polls the Actions runs for its own commit rather than guessing
@@ -11,13 +13,15 @@
 # Required environment (provided by the GitHub Actions runner):
 #   GITHUB_SHA, GITHUB_REPOSITORY, GH_TOKEN
 # Optional:
+#   GITHUB_REF_NAME the pushed branch name — used to decide whether Full IT
+#                  is part of the gate (release-v* skips it)
 #   GATE_TIMEOUT_S  overall wait deadline (default 2400 = 40 minutes)
 #   GATE_POLL_S     polling interval in seconds (default 30)
 #   FULL_INTEGRATION_ENABLED
 #                   repository variable forwarded from deploy.yaml; the
 #                   Full Integration wait applies only while it is the
-#                   exact string "true" — the same condition the workflow
-#                   itself is gated on
+#                   exact string "true" AND the branch is main — the
+#                   same condition the workflow itself is gated on
 set -euo pipefail
 
 : "${GITHUB_SHA:?GITHUB_SHA is required}"
@@ -26,13 +30,16 @@ set -euo pipefail
 
 TIMEOUT_S="${GATE_TIMEOUT_S:-2400}"
 POLL_S="${GATE_POLL_S:-30}"
+BRANCH="${GITHUB_REF_NAME:-}"
 
 # Full Integration is required only when BOTH hold:
 #   1. the repository switch FULL_INTEGRATION_ENABLED is "true" (every job
 #      in full-integration.yml is skipped otherwise), and
 #   2. this push touches one of its path-filtered triggers.
-# Keep the pathspec list in sync with the &it_paths anchor in
-# full-integration.yml.
+# This applies uniformly to main, develop and release-v* branches — the
+# workflow push-trigger covers all three, so the gate waits wherever it
+# could actually run. Keep the pathspec list in sync with the &it_paths
+# anchor in full-integration.yml.
 needs_full_it=1
 if [[ "${FULL_INTEGRATION_ENABLED:-}" != "true" ]]; then
   needs_full_it=0
