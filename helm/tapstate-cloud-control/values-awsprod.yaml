@@ -47,6 +47,12 @@ config:
   corsAllowedOrigins: "https://cloud.tapstate.com,https://*.cloud.tapstate.com"
   oauthCallbackBaseUrl: https://cloud.tapstate.com
   cloudConsoleUrl: https://cloud.tapstate.com
+  jiraCloudId: "9ee330de-c28d-40f8-a92e-5317b5670ea8"
+  jiraServiceDeskId: "71"
+  jiraRequestTypeId: "129"
+  jiraCustomerProvisioningEnabled: "true"
+  jiraCustomerProvisioningSiteAdminRiskAcknowledged: "true"
+  jiraCloseTransitionName: "Cancel request"
 
   # Production drives real AWS (ap-southeast-1) + real Atlas provisioning.
   # Requires the dns / iac k3s Secrets and Activated AtlasConfig + ACTIVE
