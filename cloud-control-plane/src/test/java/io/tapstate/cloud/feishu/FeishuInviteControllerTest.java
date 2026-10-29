@@ -13,6 +13,8 @@ import java.util.HexFormat;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.client.ResourceAccessException;
 
 class FeishuInviteControllerTest {
     private final InvitationService invitations = mock(InvitationService.class);
@@ -103,6 +105,100 @@ class FeishuInviteControllerTest {
         when(bot.sendToChat(anyString(), anyString(), anyString(), anyString()))
             .thenReturn(new FeishuBotClient.DeliveryResult(false, "network_error"));
         assertEquals(503, receive(event("operator", "\u751f\u6210\u9080\u8bf7\u94fe\u63a5")).getStatusCode().value());
+    }
+
+    @Test void productionRelayCannotIssueFromTheDevEnvironment() throws Exception {
+        setProductionSecret("shared-production-relay-secret");
+        ReflectionTestUtils.setField(controller, "cloudEnvironment", "dev");
+
+        var response = signedProductionRequest("oc_source", "om_one", Instant.now().getEpochSecond());
+
+        assertEquals(404, response.getStatusCode().value());
+        verifyNoInteractions(invitations);
+    }
+
+    @Test void productionCommandsRelayAndReplyWithTheProductionLink() throws Exception {
+        var relay = mock(ProductionTrialInviteRelayClient.class);
+        controller.setProductionInviteRelayClient(relay);
+        when(relay.issue("oc_source", "om_one")).thenReturn(
+            new ProductionTrialInviteRelayClient.ProductionTrialInvite(
+                "https://cloud.tapstate.com/auth#invite=A2B3C4D5E6F7", Instant.now().plusSeconds(604800)));
+        when(bot.sendToChat(anyString(), anyString(), anyString(), anyString()))
+            .thenReturn(new FeishuBotClient.DeliveryResult(true, null));
+
+        assertEquals(200, receive(event("operator", "\u751f\u4ea7\u73af\u5883\u9080\u8bf7\u7801\u7b7e\u53d1")).getStatusCode().value());
+        assertEquals(200, receive(event("another-member", "\u751f\u6210\u751f\u4ea7\u73af\u5883\u9080\u8bf7\u94fe\u63a5")).getStatusCode().value());
+
+        verify(relay, times(2)).issue("oc_source", "om_one");
+        verifyNoInteractions(invitations);
+        verify(bot, times(2)).sendToChat(eq("oc_source"), eq("trial-invite"), eq("om_one"),
+            contains("https://cloud.tapstate.com/auth#invite=A2B3C4D5E6F7"));
+    }
+
+    @Test void productionRelayCreatesAndReusesTheSameProductionInvitation() throws Exception {
+        setProductionEnvironment("shared-production-relay-secret");
+        Instant expiry = Instant.now().plusSeconds(604800);
+        when(invitations.createBotTrialCode(anyString())).thenAnswer(invocation ->
+            new InvitationService.IssuedInvitation(new InvitationService.InvitationView("id", null, null,
+                Instant.now(), expiry, "pending"), invocation.getArgument(0)));
+
+        var first = signedProductionRequest("oc_source", "om_one", Instant.now().getEpochSecond());
+        var second = signedProductionRequest("oc_source", "om_one", Instant.now().getEpochSecond());
+
+        assertEquals(200, first.getStatusCode().value());
+        assertEquals(200, second.getStatusCode().value());
+        var firstLink = (ProductionTrialInviteRelayClient.ProductionTrialInvite) first.getBody();
+        var secondLink = (ProductionTrialInviteRelayClient.ProductionTrialInvite) second.getBody();
+        assertTrue(firstLink.url().startsWith("https://console.test/auth#invite="));
+        assertEquals(firstLink.url(), secondLink.url());
+        assertEquals(expiry, firstLink.expiresAt());
+        assertEquals(firstLink.expiresAt(), secondLink.expiresAt());
+        var token = ArgumentCaptor.forClass(String.class);
+        verify(invitations, times(2)).createBotTrialCode(token.capture());
+        assertEquals(token.getAllValues().get(0), token.getAllValues().get(1));
+        assertTrue(token.getValue().matches("[2-9A-HJ-NP-Z]{12}"));
+    }
+
+    @Test void productionRelayRejectsBadSignaturesStaleRequestsAndWrongChats() throws Exception {
+        setProductionEnvironment("shared-production-relay-secret");
+        long freshTimestamp = Instant.now().getEpochSecond();
+
+        assertEquals(403, controller.createProductionInvite(
+            new ProductionTrialInviteRelayClient.ProductionInviteRequest("oc_source", "om_one"),
+            Long.toString(freshTimestamp), "bad-signature").getStatusCode().value());
+        assertEquals(403, signedProductionRequest("oc_source", "om_two", freshTimestamp - 301)
+            .getStatusCode().value());
+        assertEquals(403, signedProductionRequest("oc_other", "om_three", freshTimestamp)
+            .getStatusCode().value());
+        verifyNoInteractions(invitations);
+    }
+
+    @Test void productionRelayFailureNeverFallsBackToDevIssuance() throws Exception {
+        var relay = mock(ProductionTrialInviteRelayClient.class);
+        controller.setProductionInviteRelayClient(relay);
+        when(relay.issue("oc_source", "om_one")).thenThrow(new ResourceAccessException("production unavailable"));
+
+        assertEquals(503, receive(event("operator", "\u751f\u4ea7\u73af\u5883\u9080\u8bf7\u7801\u7b7e\u53d1"))
+            .getStatusCode().value());
+        verifyNoInteractions(invitations, bot);
+    }
+
+    private void setProductionSecret(String secret) {
+        ReflectionTestUtils.setField(controller, "productionInviteSharedSecret", secret);
+    }
+
+    private void setProductionEnvironment(String secret) {
+        setProductionSecret(secret);
+        ReflectionTestUtils.setField(controller, "cloudEnvironment", "prod");
+    }
+
+    private org.springframework.http.ResponseEntity<?> signedProductionRequest(String chatId, String messageId,
+            long timestamp) throws Exception {
+        String secret = "shared-production-relay-secret";
+        String signature = ProductionTrialInviteRelayClient.sign(secret, timestamp, chatId, messageId);
+        return controller.createProductionInvite(
+            new ProductionTrialInviteRelayClient.ProductionInviteRequest(chatId, messageId),
+            Long.toString(timestamp), signature);
     }
 
 }

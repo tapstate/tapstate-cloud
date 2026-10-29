@@ -16,8 +16,10 @@ import javax.crypto.Cipher;
 import javax.crypto.Mac;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.bind.annotation.*;
 
 /** Accepts authenticated mentions of the configured app bot for trial invitation issuance. */
@@ -33,6 +35,13 @@ public class FeishuInviteController {
     private final String verificationToken;
     private final String allowedChatId;
     private final String consoleUrl;
+    private ProductionTrialInviteRelayClient productionInviteRelayClient;
+
+    @Value("${FEISHU_PROD_INVITE_SHARED_SECRET:}")
+    private String productionInviteSharedSecret;
+
+    @Value("${tapstate.cloud.iac.environment:dev}")
+    private String cloudEnvironment;
 
     public FeishuInviteController(InvitationService invitations, FeishuBotClient bot,
             @Value("${FEISHU_EVENT_ENCRYPT_KEY:}") String encryptKey,
@@ -45,6 +54,11 @@ public class FeishuInviteController {
         this.verificationToken = verificationToken;
         this.allowedChatId = allowedChatId;
         this.consoleUrl = consoleUrl;
+    }
+
+    @Autowired
+    void setProductionInviteRelayClient(ProductionTrialInviteRelayClient productionInviteRelayClient) {
+        this.productionInviteRelayClient = productionInviteRelayClient;
     }
 
     @PostMapping
@@ -83,6 +97,50 @@ public class FeishuInviteController {
         return handleVerifiedEvent(event);
     }
 
+    @PostMapping("/production-invite")
+    public ResponseEntity<?> createProductionInvite(
+            @RequestBody ProductionTrialInviteRelayClient.ProductionInviteRequest request,
+            @RequestHeader(value = "X-Tapstate-Invite-Timestamp", defaultValue = "") String timestamp,
+            @RequestHeader(value = "X-Tapstate-Invite-Signature", defaultValue = "") String signature) throws Exception {
+        if (!"prod".equalsIgnoreCase(cloudEnvironment)) {
+            return ResponseEntity.notFound().build();
+        }
+        if (productionInviteSharedSecret == null || productionInviteSharedSecret.isBlank()
+                || allowedChatId.isBlank()) {
+            return ResponseEntity.status(503).build();
+        }
+        if (request == null || request.chatId() == null || request.messageId() == null
+                || request.chatId().isBlank() || request.messageId().isBlank()
+                || request.messageId().length() > 128 || !request.messageId().startsWith("om_")) {
+            return ResponseEntity.badRequest().build();
+        }
+        if (!allowedChatId.equals(request.chatId())) {
+            return ResponseEntity.status(403).build();
+        }
+        long issuedAt;
+        try {
+            issuedAt = Long.parseLong(timestamp);
+        } catch (NumberFormatException invalidTimestamp) {
+            return ResponseEntity.status(403).build();
+        }
+        long now = Instant.now().getEpochSecond();
+        if (issuedAt < now - 300 || issuedAt > now + 300) {
+            return ResponseEntity.status(403).build();
+        }
+        String expectedSignature = ProductionTrialInviteRelayClient.sign(
+            productionInviteSharedSecret, issuedAt, request.chatId(), request.messageId());
+        if (!MessageDigest.isEqual(expectedSignature.getBytes(StandardCharsets.US_ASCII),
+                signature.getBytes(StandardCharsets.US_ASCII))) {
+            return ResponseEntity.status(403).build();
+        }
+
+        String token = stableProductionToken(request.messageId());
+        InvitationService.IssuedInvitation issued = invitations.createBotTrialCode(token);
+        String url = consoleUrl.replaceAll("/$", "") + "/auth#invite=" + issued.token();
+        return ResponseEntity.ok(new ProductionTrialInviteRelayClient.ProductionTrialInvite(
+            url, issued.invitation().expiresAt()));
+    }
+
     ResponseEntity<?> handleVerifiedEvent(JsonNode event) throws Exception {
         if (!event.path("header").path("event_type").asText().equals("im.message.receive_v1")) {
             return ResponseEntity.ok(Map.of());
@@ -109,14 +167,36 @@ public class FeishuInviteController {
             String key = mention.path("key").asText();
             if (!key.isBlank()) command = command.replace(key, "");
         }
-        if (!command.trim().equals("\u751f\u6210\u9080\u8bf7\u94fe\u63a5")) {
+        String normalizedCommand = command.trim();
+        boolean productionCommand = normalizedCommand.equals("\u751f\u4ea7\u73af\u5883\u9080\u8bf7\u7801\u7b7e\u53d1")
+            || normalizedCommand.equals("\u751f\u6210\u751f\u4ea7\u73af\u5883\u9080\u8bf7\u94fe\u63a5");
+        if (!productionCommand && !normalizedCommand.equals("\u751f\u6210\u9080\u8bf7\u94fe\u63a5")) {
             return ResponseEntity.ok(Map.of());
         }
         String messageId = message.path("message_id").asText();
-        InvitationService.IssuedInvitation issued = invitations.createBotTrialCode(stableToken(messageId));
-        String url = consoleUrl.replaceAll("/$", "") + "/auth#invite=" + issued.token();
+        String chatId = message.path("chat_id").asText();
+        String url;
+        Instant expiresAt;
+        if (productionCommand) {
+            if (productionInviteRelayClient == null) {
+                return ResponseEntity.status(503).build();
+            }
+            ProductionTrialInviteRelayClient.ProductionTrialInvite issued;
+            try {
+                issued = productionInviteRelayClient.issue(chatId, messageId);
+            } catch (IllegalArgumentException | IllegalStateException | RestClientException unavailable) {
+                return ResponseEntity.status(503).build();
+            }
+            url = issued.url();
+            expiresAt = issued.expiresAt();
+        } else {
+            InvitationService.IssuedInvitation issued = invitations.createBotTrialCode(stableToken(messageId));
+            url = consoleUrl.replaceAll("/$", "") + "/auth#invite=" + issued.token();
+            expiresAt = issued.invitation().expiresAt();
+        }
         var result = bot.sendToChat(message.path("chat_id").asText(), "trial-invite", messageId,
-            "Cloud trial invitation (single use)\n" + url + "\nExpires: " + issued.invitation().expiresAt());
+            (productionCommand ? "Cloud production trial invitation" : "Cloud dev trial invitation")
+                + " (single use)\n" + url + "\nExpires: " + expiresAt);
         return result.delivered() ? ResponseEntity.ok(Map.of()) : ResponseEntity.status(503).build();
     }
 
@@ -130,6 +210,18 @@ public class FeishuInviteController {
         Mac mac = Mac.getInstance("HmacSHA256");
         mac.init(new SecretKeySpec(encryptKey.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
         byte[] bytes = mac.doFinal(("trial-invite:" + consoleUrl + ":" + allowedChatId + ":" + messageId).getBytes(StandardCharsets.UTF_8));
+        return invitationCode(bytes);
+    }
+
+    private String stableProductionToken(String messageId) throws Exception {
+        Mac mac = Mac.getInstance("HmacSHA256");
+        mac.init(new SecretKeySpec(productionInviteSharedSecret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+        byte[] bytes = mac.doFinal(("trial-invite:production:" + consoleUrl + ":" + allowedChatId + ":" + messageId)
+            .getBytes(StandardCharsets.UTF_8));
+        return invitationCode(bytes);
+    }
+
+    private static String invitationCode(byte[] bytes) {
         StringBuilder token = new StringBuilder();
         for (int i = 0; i < 12; i++) token.append(ALPHABET.charAt(bytes[i] & 31));
         return token.toString();
