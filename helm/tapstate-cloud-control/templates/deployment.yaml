@@ -189,6 +189,8 @@ spec:
             # ========== Secrets from k3s Secret — Tawk and Feishu ==========
             - name: FEISHU_LONG_CONNECTION_ENABLED
               value: {{ .Values.config.feishuLongConnectionEnabled | quote }}
+            - name: FEISHU_PRODUCTION_INVITE_API_URL
+              value: {{ .Values.config.feishuProductionInviteApiUrl | quote }}
             - name: FEISHU_EVENT_ENCRYPT_KEY
               valueFrom:
                 secretKeyRef:
@@ -206,6 +208,12 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.secrets.feishuBot.name }}
                   key: invite-allowed-chat-id
+                  optional: true
+            - name: FEISHU_PROD_INVITE_SHARED_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.feishuBot.name }}
+                  key: {{ .Values.secrets.feishuBot.productionInviteSharedSecretKey }}
                   optional: true
             - name: TAWK_WEBHOOK_SECRET
               valueFrom:
