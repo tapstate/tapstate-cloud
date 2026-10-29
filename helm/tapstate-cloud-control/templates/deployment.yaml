@@ -109,6 +109,22 @@ spec:
               value: {{ .Values.config.awsRegion | quote }}
             - name: TAPSTATE_SAMPLE_SOURCES_HOST
               value: {{ .Values.config.sampleSourcesHost | quote }}
+            - name: TAPSTATE_CLOUD_JIRA_CLOUD_ID
+              value: {{ .Values.config.jiraCloudId | quote }}
+            - name: TAPSTATE_CLOUD_JIRA_SERVICE_DESK_ID
+              value: {{ .Values.config.jiraServiceDeskId | quote }}
+            - name: TAPSTATE_CLOUD_JIRA_REQUEST_TYPE_ID
+              value: {{ .Values.config.jiraRequestTypeId | quote }}
+            - name: TAPSTATE_CLOUD_JIRA_CUSTOMER_PROVISIONING_ENABLED
+              value: {{ .Values.config.jiraCustomerProvisioningEnabled | quote }}
+            - name: TAPSTATE_CLOUD_JIRA_CUSTOMER_PROVISIONING_SITE_ADMIN_RISK_ACKNOWLEDGED
+              value: {{ .Values.config.jiraCustomerProvisioningSiteAdminRiskAcknowledged | quote }}
+            - name: TAPSTATE_CLOUD_JIRA_CLOSE_TRANSITION_NAME
+              value: {{ .Values.config.jiraCloseTransitionName | quote }}
+            - name: TAPSTATE_CLOUD_JIRA_CONNECT_TIMEOUT_SECONDS
+              value: {{ .Values.config.jiraConnectTimeoutSeconds | default "3" | quote }}
+            - name: TAPSTATE_CLOUD_JIRA_REQUEST_TIMEOUT_SECONDS
+              value: {{ .Values.config.jiraRequestTimeoutSeconds | default "10" | quote }}
 
             # ========== JWKS management ==========
             - name: CLOUD_JWKS_ROTATION_ENABLED
@@ -384,6 +400,35 @@ spec:
                   name: {{ .Values.secrets.stripe.name }}
                   key: {{ .Values.secrets.stripe.webhookSecretKey }}
                   optional: true
+
+            # Jira OAuth 2.0 service-account credentials are optional at deployment; ticket endpoints
+            # return a stable not-configured error until the Secret is present.
+            - name: TAPSTATE_CLOUD_JIRA_OAUTH_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.jira.name }}
+                  key: {{ .Values.secrets.jira.clientIdKey }}
+                  optional: true
+            - name: TAPSTATE_CLOUD_JIRA_OAUTH_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.jira.name }}
+                  key: {{ .Values.secrets.jira.clientSecretKey }}
+                  optional: true
+            {{ if eq (toString .Values.config.jiraCustomerProvisioningEnabled) "true" }}
+            - name: TAPSTATE_CLOUD_JIRA_CUSTOMER_ADMIN_OAUTH_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.jiraCustomerAdmin.name }}
+                  key: {{ .Values.secrets.jiraCustomerAdmin.clientIdKey }}
+                  optional: true
+            - name: TAPSTATE_CLOUD_JIRA_CUSTOMER_ADMIN_OAUTH_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.jiraCustomerAdmin.name }}
+                  key: {{ .Values.secrets.jiraCustomerAdmin.clientSecretKey }}
+                  optional: true
+            {{ end }}
 
           resources:
             {{- toYaml .Values.resources | nindent 12 }}

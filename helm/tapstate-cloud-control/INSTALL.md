@@ -193,6 +193,28 @@ kubectl rollout restart deployment/tapstate-cloud-control -n tapstate-cloud-cont
 # For awsdev, restart it in the tapstate namespace instead.
 kubectl rollout restart deployment/tapstate-cloud-control -n tapstate
 
+# ---- Optional: Jira Service Management ticket integration ----
+# The regular service account needs access to the configured service desk and request type.
+# Store the OAuth client ID and secret in protected files outside the repository.
+kubectl create secret generic tapstate-cloud-control-jira \
+  -n tapstate-cloud-control \
+  --from-file=client-id=/secure/path/jira-client-id \
+  --from-file=client-secret=/secure/path/jira-client-secret
+
+# Customer auto-provisioning is disabled by default. If enabled, use a separate Jira
+# Administrator service account. This grants access beyond the target service desk;
+# restrict and audit the credential and ensure it administers the target service desk.
+kubectl create secret generic tapstate-cloud-control-jira-customer-admin \
+  -n tapstate-cloud-control \
+  --from-file=client-id=/secure/path/jira-admin-client-id \
+  --from-file=client-secret=/secure/path/jira-admin-client-secret
+# Set config.jiraCloudId, config.jiraServiceDeskId and config.jiraRequestTypeId.
+# Enable only after email verification is active in the Cloud deployment:
+#   config.jiraCustomerProvisioningEnabled: "true"
+# Set config.jiraCustomerProvisioningSiteAdminRiskAcknowledged to "true" only after
+# reviewing the administrator credential's access to the whole Jira site.
+# For awsdev, create both Secrets in the tapstate namespace.
+
 # 3. Helm install (local k3s dev)
 helm install tapstate-cloud-control ./helm/tapstate-cloud-control \
   -f helm/tapstate-cloud-control/values-local.yaml \

@@ -108,6 +108,16 @@ secrets:
     name: tapstate-cloud-control-secrets
     secretKeyKey: stripe.secret-key
     webhookSecretKey: stripe.webhook-secret
+  jira:
+    name: tapstate-cloud-control-jira
+    clientIdKey: client-id
+    clientSecretKey: client-secret
+  # Customer provisioning uses a separate Jira Administrator service account.
+  # The deployment references this Secret only when customer provisioning is enabled.
+  jiraCustomerAdmin:
+    name: tapstate-cloud-control-jira-customer-admin
+    clientIdKey: client-id
+    clientSecretKey: client-secret
   # Ops subscription immediate-cancel static bearer token. Optional: when the
   # Secret is absent the ops endpoint stays fail-closed (503), so environments
   # that never call the ops cancel endpoint need no key.
@@ -141,6 +151,16 @@ config:
   oauthCallbackBaseUrl: https://dev.cloud.tapstate.com
   cloudConsoleUrl: https://dev.cloud.tapstate.com
   sampleSourcesHost: "47.238.126.103"
+
+  # ----- Jira Service Management (non-sensitive routing configuration) -----
+  jiraCloudId: ""
+  jiraServiceDeskId: ""
+  jiraRequestTypeId: ""
+  jiraCustomerProvisioningEnabled: "false"
+  jiraCustomerProvisioningSiteAdminRiskAcknowledged: "false"
+  jiraCloseTransitionName: "Close Request"
+  jiraConnectTimeoutSeconds: "3"
+  jiraRequestTimeoutSeconds: "10"
 
   # ----- API docs -----
   swaggerUiEnabled: "true"

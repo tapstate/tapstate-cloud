@@ -153,6 +153,25 @@ tapstate:
     # publish/delist endpoints; a blank value disables those endpoints (fail closed).
     cluster-version:
       release-token: ${CLOUD_CLUSTER_VERSION_RELEASE_TOKEN:}
+    # Jira Service Management integration. OAuth service-account credentials are
+    # secrets; an unset value leaves support ticket endpoints fail-closed.
+    jira:
+      cloud-id: ${TAPSTATE_CLOUD_JIRA_CLOUD_ID:}
+      service-desk-id: ${TAPSTATE_CLOUD_JIRA_SERVICE_DESK_ID:}
+      request-type-id: ${TAPSTATE_CLOUD_JIRA_REQUEST_TYPE_ID:}
+      oauth:
+        client-id: ${TAPSTATE_CLOUD_JIRA_OAUTH_CLIENT_ID:}
+        client-secret: ${TAPSTATE_CLOUD_JIRA_OAUTH_CLIENT_SECRET:}
+      customer-provisioning:
+        # Requires explicit acknowledgement of Jira site-wide administrator access.
+        enabled: ${TAPSTATE_CLOUD_JIRA_CUSTOMER_PROVISIONING_ENABLED:false}
+        site-admin-risk-acknowledged: ${TAPSTATE_CLOUD_JIRA_CUSTOMER_PROVISIONING_SITE_ADMIN_RISK_ACKNOWLEDGED:false}
+        oauth:
+          client-id: ${TAPSTATE_CLOUD_JIRA_CUSTOMER_ADMIN_OAUTH_CLIENT_ID:}
+          client-secret: ${TAPSTATE_CLOUD_JIRA_CUSTOMER_ADMIN_OAUTH_CLIENT_SECRET:}
+      close-transition-name: ${TAPSTATE_CLOUD_JIRA_CLOSE_TRANSITION_NAME:Close Request}
+      connect-timeout-seconds: ${TAPSTATE_CLOUD_JIRA_CONNECT_TIMEOUT_SECONDS:3}
+      request-timeout-seconds: ${TAPSTATE_CLOUD_JIRA_REQUEST_TIMEOUT_SECONDS:10}
     tawk:
       property-id: ${TAPSTATE_CLOUD_TAWK_PROPERTY_ID:}
       webhook-secret: ${TAWK_WEBHOOK_SECRET:}

@@ -77,6 +77,18 @@ tapstate:
       poll-interval-ms: 3600000
       email:
         enabled: false
+    jira:
+      # Dummy non-secret configuration for IT profile so jira.isConfigured() passes
+      # without reaching external Atlassian services.
+      cloud-id: it-dummy-cloud-id
+      service-desk-id: it-dummy-service-desk-id
+      request-type-id: it-dummy-request-type-id
+      oauth:
+        client-id: it-dummy-client-id
+        client-secret: it-dummy-client-secret
+      close-transition-name: Close
+      connect-timeout-seconds: 1
+      request-timeout-seconds: 1
     iac:
       provider: aws
       # Mock by default keeps the existing fast IT suite cloud-free; the real
