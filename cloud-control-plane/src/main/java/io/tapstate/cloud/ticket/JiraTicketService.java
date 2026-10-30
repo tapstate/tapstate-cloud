@@ -6,6 +6,8 @@ import io.tapstate.cloud.common.api.AppErrorCode;
 import io.tapstate.cloud.common.api.BusinessException;
 import io.tapstate.cloud.identity.User;
 import io.tapstate.cloud.identity.UserRepository;
+import io.tapstate.cloud.org.Organization;
+import io.tapstate.cloud.org.OrganizationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.bson.types.ObjectId;
@@ -14,10 +16,13 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 
+import java.net.URI;
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
@@ -28,6 +33,8 @@ public class JiraTicketService {
     private final JiraCustomerProvisioner customerProvisioner;
     private final CloudTicketRepository tickets;
     private final UserRepository users;
+    private final OrganizationService organizations;
+    private final JiraTicketNotificationSender notificationSender;
 
     public TicketPage list(int page, int size) {
         if (page < 0 || size < 1 || size > 100) {
@@ -75,7 +82,53 @@ public class JiraTicketService {
             throw business(AppErrorCode.TICKET_SUBMISSION_UNCERTAIN, 503);
         }
 
+        String jiraUrl = jiraAgentUrl(created);
+        if (jiraUrl != null) {
+            try {
+                notificationSender.send(new JiraTicketNotification(
+                    organizationNames(user.getEmail(), jiraKey),
+                    user.getEmail(),
+                    jiraKey,
+                    summary.trim(),
+                    description.trim(),
+                    jiraUrl));
+            } catch (RuntimeException e) {
+                log.warn("Feishu ticket notification failed: jiraKey={} category={}",
+                    jiraKey, e.getClass().getSimpleName());
+            }
+        }
+
         return toTicket(mapping, created, List.of(), description.trim());
+    }
+
+    private List<String> organizationNames(String email, String jiraKey) {
+        try {
+            List<Organization> userOrganizations = organizations.listUserOrganizations(email);
+            List<String> names = userOrganizations == null ? List.of() : userOrganizations.stream()
+                .filter(Objects::nonNull)
+                .map(Organization::getName)
+                .filter(name -> name != null && !name.isBlank())
+                .map(String::trim)
+                .sorted(String.CASE_INSENSITIVE_ORDER.thenComparing(Comparator.naturalOrder()))
+                .toList();
+            return names.isEmpty() ? List.of("未关联组织") : names;
+        } catch (RuntimeException e) {
+            log.warn("Organization lookup failed for Jira ticket notification: opId={} jiraKey={} exception={}",
+                io.tapstate.cloud.common.api.OpIdHolder.get(), jiraKey, e.getClass().getSimpleName());
+            return List.of("组织信息暂不可用");
+        }
+    }
+
+    private static String jiraAgentUrl(JsonNode created) {
+        String link = created.path("_links").path("agent").asText(null);
+        if (link == null || link.isBlank()) return null;
+        try {
+            URI uri = URI.create(link);
+            return uri.isAbsolute() && "https".equalsIgnoreCase(uri.getScheme()) && uri.getHost() != null
+                ? uri.toASCIIString() : null;
+        } catch (IllegalArgumentException ignored) {
+            return null;
+        }
     }
 
     private String resolveCustomerAccountId(User user) {

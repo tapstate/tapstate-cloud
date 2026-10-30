@@ -22,7 +22,7 @@ import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
-/** Sends short text alerts through the configured Feishu application bot. */
+/** Sends messages through the configured Feishu application bot. */
 @Component
 @Slf4j
 public class FeishuBotClient {
@@ -32,6 +32,7 @@ public class FeishuBotClient {
         + "?receive_id_type=chat_id";
     private static final long TOKEN_REFRESH_SKEW_SECONDS = 60;
     private static final String IDEMPOTENCY_KEY_PREFIX = "tawk-";
+    private static final String TICKET_IDEMPOTENCY_KEY_PREFIX = "ticket-";
     private static final int IDEMPOTENCY_KEY_MAX_LENGTH = 50;
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final ParameterizedTypeReference<Map<String, Object>> RESPONSE_TYPE =
@@ -81,6 +82,16 @@ public class FeishuBotClient {
     }
 
     public DeliveryResult sendToChat(String targetChatId, String propertyId, String eventId, String text) {
+        return sendMessageToChat(targetChatId, propertyId, eventId, "text", text, IDEMPOTENCY_KEY_PREFIX);
+    }
+
+    private DeliveryResult sendMessageToChat(
+            String targetChatId,
+            String propertyId,
+            String eventId,
+            String messageType,
+            String content,
+            String idempotencyKeyPrefix) {
         if (isBlank(appId) || isBlank(appSecret) || isBlank(targetChatId)) {
             return DeliveryResult.failed("application_bot_not_configured");
         }
@@ -93,16 +104,21 @@ public class FeishuBotClient {
             return DeliveryResult.failed(tokenResult.failureCategory());
         }
 
+        String messageContent = content;
+        if ("text".equals(messageType)) {
+            try {
+                messageContent = OBJECT_MAPPER.writeValueAsString(Map.of("text", content));
+            } catch (JsonProcessingException e) {
+                log.warn("Feishu message serialization failed: {}", e.getClass().getSimpleName());
+                return DeliveryResult.failed("message_serialization_failed");
+            }
+        }
+
         Map<String, Object> requestBody = new LinkedHashMap<>();
         requestBody.put("receive_id", targetChatId);
-        requestBody.put("msg_type", "text");
-        requestBody.put("uuid", idempotencyKey(targetChatId, propertyId, eventId));
-        try {
-            requestBody.put("content", OBJECT_MAPPER.writeValueAsString(Map.of("text", text)));
-        } catch (JsonProcessingException e) {
-            log.warn("Feishu message serialization failed: {}", e.getClass().getSimpleName());
-            return DeliveryResult.failed("message_serialization_failed");
-        }
+        requestBody.put("msg_type", messageType);
+        requestBody.put("uuid", idempotencyKey(targetChatId, propertyId, eventId, idempotencyKeyPrefix));
+        requestBody.put("content", messageContent);
 
         try {
             Map<String, Object> response = restClient.post()
@@ -134,6 +150,11 @@ public class FeishuBotClient {
             log.warn("Feishu message delivery failed: {}", e.getClass().getSimpleName());
             return DeliveryResult.failed("client_error");
         }
+    }
+
+    public DeliveryResult sendInteractive(String eventId, String cardJson) {
+        return sendMessageToChat(
+            chatId, "jira-ticket", eventId, "interactive", cardJson, TICKET_IDEMPOTENCY_KEY_PREFIX);
     }
 
     private TokenResult getAccessToken() {
@@ -202,13 +223,13 @@ public class FeishuBotClient {
         return value == null || value.isBlank();
     }
 
-    private static String idempotencyKey(String chatId, String propertyId, String eventId) {
+    private static String idempotencyKey(String chatId, String propertyId, String eventId, String prefix) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             byte[] input = (chatId + "\n" + propertyId + "\n" + eventId)
                 .getBytes(StandardCharsets.UTF_8);
-            int hashLength = IDEMPOTENCY_KEY_MAX_LENGTH - IDEMPOTENCY_KEY_PREFIX.length();
-            return IDEMPOTENCY_KEY_PREFIX + HexFormat.of().formatHex(digest.digest(input)).substring(0, hashLength);
+            int hashLength = IDEMPOTENCY_KEY_MAX_LENGTH - prefix.length();
+            return prefix + HexFormat.of().formatHex(digest.digest(input)).substring(0, hashLength);
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("SHA-256 is unavailable", e);
         }
