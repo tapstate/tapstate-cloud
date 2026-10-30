@@ -115,6 +115,7 @@ public class ClusterService {
             .runtimeId(generateId("rt-"))
             .bootstrapToken(generateSecureToken())
             .sdkStaticToken(generateSecureToken())
+            .configurationInitialization(ClusterConfigurationInitialization.available())
             .createdAt(Instant.now())
             .updatedAt(Instant.now())
             .tags(new HashMap<>(Map.of("organization_id", orgId, "cluster_id", "", "runtime_id", "")))

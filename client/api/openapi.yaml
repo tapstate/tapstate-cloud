@@ -71,6 +71,70 @@ tags:
 - name: Spec Catalog
   description: Platform subscription specs with channel pricing
 paths:
+  /v1/api/clusters/{clusterId}/configuration-initialization/claim:
+    post:
+      tags: [Cluster Configuration Initialization]
+      operationId: claimConfigurationInitialization
+      security:
+      - sdk-static-token: []
+      parameters:
+      - name: clusterId
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^[0-9a-f]{24}$'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfigurationInitializationClaim'
+      responses:
+        '200':
+          description: Original initialization result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigurationInitializationResponse'
+        '401':
+          description: Invalid Cluster service identity
+        '409':
+          description: Original initialization conditions are not satisfied
+        '503':
+          description: Initialization authority is unavailable
+  /v1/api/clusters/{clusterId}/configuration-initialization/complete:
+    post:
+      tags: [Cluster Configuration Initialization]
+      operationId: completeConfigurationInitialization
+      security:
+      - sdk-static-token: []
+      parameters:
+      - name: clusterId
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^[0-9a-f]{24}$'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfigurationInitializationCompletion'
+      responses:
+        '200':
+          description: Original initialization result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigurationInitializationResponse'
+        '401':
+          description: Invalid Cluster service identity
+        '409':
+          description: Original initialization conditions are not satisfied
+        '503':
+          description: Initialization authority is unavailable
   /v1/api/orgs/{orgId}/alert-policies/{policyId}:
     put:
       tags:
@@ -2025,6 +2089,55 @@ paths:
                 $ref: "#/components/schemas/ApiResponseInvitationView"
 components:
   schemas:
+    ConfigurationInitializationClaim:
+      type: object
+      additionalProperties: false
+      required: [bootId, configurationHash]
+      properties:
+        bootId:
+          type: string
+          format: uuid
+          description: Full hyphenated UUID; case aliases are normalized to the canonical lowercase identity.
+        configurationHash:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+    ConfigurationInitializationCompletion:
+      type: object
+      additionalProperties: false
+      required: [operationId, configurationHash]
+      properties:
+        operationId:
+          type: string
+          format: uuid
+          description: Original operation UUID; case aliases are normalized to the canonical lowercase identity.
+        configurationHash:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+    ConfigurationInitializationResponse:
+      type: object
+      required: [code, data]
+      properties:
+        code:
+          type: string
+          const: ok
+        data:
+          type: object
+          additionalProperties: false
+          required: [clusterId, operationId, phase, configurationHash, creationGranted]
+          properties:
+            clusterId:
+              type: string
+            operationId:
+              type: string
+              format: uuid
+            phase:
+              type: string
+              enum: [CLAIMED, COMPLETE]
+            configurationHash:
+              type: string
+              pattern: '^[0-9a-f]{64}$'
+            creationGranted:
+              type: boolean
     AlertPolicyRequest:
       type: object
       properties:

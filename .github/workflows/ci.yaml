@@ -75,14 +75,14 @@ jobs:
           cache: maven
 
       - name: Run unit tests
-        run: mvn test -B -q
+        run: mvn test -B -q -Dapi.version=1.44
 
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: test-results
-          path: target/surefire-reports/*.xml
+          path: '**/target/surefire-reports/*.xml'
           retention-days: 7
 
   # ---------- Job 3: OpenAPI Spec Validation ----------

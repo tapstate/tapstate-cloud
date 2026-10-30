@@ -18,6 +18,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
 
 /**
  * Cluster creation must derive and persist the DNS label from the display name,
@@ -65,6 +66,9 @@ class ClusterServiceDnsNameTest {
 
         assertThat(saved.getName()).isEqualTo("My Production Cluster");
         assertThat(saved.getDnsLabel()).isEqualTo("my-production-cluster");
+        assertThat(saved.getConfigurationInitialization()).isNotNull();
+        assertThat(saved.getConfigurationInitialization().phase()).isEqualTo("AVAILABLE");
+        assertThat(saved.getConfigurationInitialization().formatVersion()).isEqualTo(1);
     }
 
     @Test
@@ -97,7 +101,9 @@ class ClusterServiceDnsNameTest {
             .isInstanceOfSatisfying(BusinessException.class, ex -> {
                 assertThat(ex.getErrorCode()).isEqualTo(AppErrorCode.CLUSTER_DNS_LABEL_CONFLICT);
                 assertThat(ex.getHttpStatus()).isEqualTo(409);
+                assertThat(ex.getParams()).containsExactly("production");
             });
+        verify(clusterRepository).existsByDnsLabelAndStateNot("production", ClusterState.TERMINATED);
     }
 
     @Test
