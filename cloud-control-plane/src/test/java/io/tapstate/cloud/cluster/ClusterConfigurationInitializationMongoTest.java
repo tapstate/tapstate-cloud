@@ -19,7 +19,7 @@ import static org.mockito.Mockito.*;
 import static org.mockito.ArgumentMatchers.any;
 
 /** Real single-document competition and stale snapshots, with no infrastructure or external Cloud calls. */
-@Testcontainers(disabledWithoutDocker = true)
+@Testcontainers
 class ClusterConfigurationInitializationMongoTest {
     private static final String FIELD = ClusterConfigurationInitialization.FIELD;
     @Container static final MongoDBContainer MONGO = new MongoDBContainer("mongo:7.0");
