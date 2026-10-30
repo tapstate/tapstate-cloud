@@ -34,6 +34,7 @@ public class EmailVerificationService {
 
     private final InvitationService invitationService;
     private final TrialCodePolicy trialCodePolicy;
+    private final UserRepository users;
     private final EmailVerificationChallengeRepository challenges;
     private final RegistrationCommitService registrationCommitService;
     private final MongoTemplate mongoTemplate;
@@ -66,6 +67,9 @@ public class EmailVerificationService {
             InvitationService.hash(sourceAddress == null ? "unknown" : sourceAddress), now);
         if (emailCount > maxHourlySends || sourceCount > maxHourlySends) {
             throw new BusinessException(AppErrorCode.EMAIL_CODE_RATE_LIMITED, HttpStatus.TOO_MANY_REQUESTS.value());
+        }
+        if (users.existsByEmail(email)) {
+            throw new BusinessException(AppErrorCode.EMAIL_ALREADY_REGISTERED, HttpStatus.CONFLICT.value(), email);
         }
 
         String key = challengeKey(invitation == null ? null : invitation.getId(), email);

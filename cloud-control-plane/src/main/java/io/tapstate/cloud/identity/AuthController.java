@@ -105,6 +105,7 @@ public class AuthController extends BaseController {
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "202", description = "Request accepted"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Invalid request or invitation token"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "Invitation email does not match"),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "Email is already registered; sign in instead"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "410", description = "Invitation expired or revoked"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "429", description = "Cooldown or hourly rate limit reached"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "503", description = "Email delivery is unavailable")

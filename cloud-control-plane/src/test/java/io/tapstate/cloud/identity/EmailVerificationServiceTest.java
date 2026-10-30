@@ -32,6 +32,7 @@ class EmailVerificationServiceTest {
     private static final String HMAC_KEY = "local-unit-test-hmac-key-at-least-32-bytes";
 
     @Mock private InvitationService invitations;
+    @Mock private UserRepository users;
     @Mock private EmailVerificationChallengeRepository challenges;
     @Mock private RegistrationCommitService registrationCommitService;
     @Mock private MongoTemplate mongoTemplate;
@@ -41,7 +42,7 @@ class EmailVerificationServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new EmailVerificationService(invitations, new TrialCodePolicy(true), challenges,
+        service = new EmailVerificationService(invitations, new TrialCodePolicy(true), users, challenges,
             registrationCommitService, mongoTemplate, mailer);
         ReflectionTestUtils.setField(service, "hmacKey", HMAC_KEY);
     }
@@ -67,7 +68,7 @@ class EmailVerificationServiceTest {
             eq(EmailVerificationChallenge.class))).thenReturn(challenge);
         when(registrationCommitService.complete(isNull(), eq(challenge), eq(email), eq("password-123"),
             eq("Guest"), eq("Guest Workspace"), any(Instant.class), eq(false))).thenReturn(registered);
-        EmailVerificationService openService = new EmailVerificationService(invitations, new TrialCodePolicy(false),
+        EmailVerificationService openService = new EmailVerificationService(invitations, new TrialCodePolicy(false), users,
             challenges, registrationCommitService, mongoTemplate, mailer);
         ReflectionTestUtils.setField(openService, "hmacKey", HMAC_KEY);
         ReflectionTestUtils.setField(openService, "maxHourlySends", 5);
@@ -82,30 +83,27 @@ class EmailVerificationServiceTest {
     }
 
     @Test
-    void consumedOpenRegistrationChallengeDoesNotRevealRecentSignup() {
+    void registeredEmailIsDirectedToSignInWithoutSendingACode() {
         Instant now = Instant.now();
         String registeredEmail = "registered@example.com";
-        String registeredKey = InvitationService.hash("open:" + registeredEmail);
-        EmailVerificationChallenge consumed = EmailVerificationChallenge.builder()
-            .id(new ObjectId()).key(registeredKey).email(registeredEmail).codeHmac("consumed-hmac")
-            .issuedAt(now.minusSeconds(120)).lastSentAt(now.minusSeconds(120))
-            .expiresAt(now.plusSeconds(480)).consumedAt(now.minusSeconds(1)).attempts(1).build();
         String unusedEmail = "unused@example.com";
         String unusedKey = InvitationService.hash("open:" + unusedEmail);
-        when(challenges.findByKey(registeredKey)).thenReturn(Optional.of(consumed));
         when(challenges.findByKey(unusedKey)).thenReturn(Optional.empty());
+        when(users.existsByEmail(anyString())).thenAnswer(invocation -> registeredEmail.equals(invocation.getArgument(0)));
         when(challenges.save(any(EmailVerificationChallenge.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(mongoTemplate.findAndModify(any(Query.class), any(Update.class), any(FindAndModifyOptions.class),
             eq(AuthRateLimitWindow.class))).thenAnswer(invocation -> new AuthRateLimitWindow(
                 "email-window", 1, now.plusSeconds(7200)));
 
-        EmailVerificationService openService = new EmailVerificationService(invitations, new TrialCodePolicy(false),
+        EmailVerificationService openService = new EmailVerificationService(invitations, new TrialCodePolicy(false), users,
             challenges, registrationCommitService, mongoTemplate, mailer);
         ReflectionTestUtils.setField(openService, "hmacKey", HMAC_KEY);
         ReflectionTestUtils.setField(openService, "maxHourlySends", 5);
 
         assertDoesNotThrow(() -> openService.requestCode(null, unusedEmail, "127.0.0.1"));
-        assertDoesNotThrow(() -> openService.requestCode(null, registeredEmail, "127.0.0.1"));
+        BusinessException existing = assertThrows(BusinessException.class,
+            () -> openService.requestCode(null, registeredEmail, "127.0.0.1"));
+        assertEquals(AppErrorCode.EMAIL_ALREADY_REGISTERED, existing.getErrorCode());
 
         verify(mailer).send(eq(unusedEmail), anyString());
         verify(mailer, never()).send(eq(registeredEmail), anyString());
