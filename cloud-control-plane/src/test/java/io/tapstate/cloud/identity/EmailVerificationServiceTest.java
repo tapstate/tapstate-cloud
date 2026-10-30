@@ -32,6 +32,7 @@ class EmailVerificationServiceTest {
     private static final String HMAC_KEY = "local-unit-test-hmac-key-at-least-32-bytes";
 
     @Mock private InvitationService invitations;
+    @Mock private UserRepository users;
     @Mock private EmailVerificationChallengeRepository challenges;
     @Mock private RegistrationCommitService registrationCommitService;
     @Mock private MongoTemplate mongoTemplate;
@@ -41,7 +42,7 @@ class EmailVerificationServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new EmailVerificationService(invitations, new TrialCodePolicy(true), challenges,
+        service = new EmailVerificationService(invitations, new TrialCodePolicy(true), users, challenges,
             registrationCommitService, mongoTemplate, mailer);
         ReflectionTestUtils.setField(service, "hmacKey", HMAC_KEY);
     }
@@ -67,7 +68,7 @@ class EmailVerificationServiceTest {
             eq(EmailVerificationChallenge.class))).thenReturn(challenge);
         when(registrationCommitService.complete(isNull(), eq(challenge), eq(email), eq("password-123"),
             eq("Guest"), eq("Guest Workspace"), any(Instant.class), eq(false))).thenReturn(registered);
-        EmailVerificationService openService = new EmailVerificationService(invitations, new TrialCodePolicy(false),
+        EmailVerificationService openService = new EmailVerificationService(invitations, new TrialCodePolicy(false), users,
             challenges, registrationCommitService, mongoTemplate, mailer);
         ReflectionTestUtils.setField(openService, "hmacKey", HMAC_KEY);
         ReflectionTestUtils.setField(openService, "maxHourlySends", 5);
@@ -82,30 +83,27 @@ class EmailVerificationServiceTest {
     }
 
     @Test
-    void consumedOpenRegistrationChallengeDoesNotRevealRecentSignup() {
+    void registeredEmailIsDirectedToSignInWithoutSendingACode() {
         Instant now = Instant.now();
         String registeredEmail = "registered@example.com";
-        String registeredKey = InvitationService.hash("open:" + registeredEmail);
-        EmailVerificationChallenge consumed = EmailVerificationChallenge.builder()
-            .id(new ObjectId()).key(registeredKey).email(registeredEmail).codeHmac("consumed-hmac")
-            .issuedAt(now.minusSeconds(120)).lastSentAt(now.minusSeconds(120))
-            .expiresAt(now.plusSeconds(480)).consumedAt(now.minusSeconds(1)).attempts(1).build();
         String unusedEmail = "unused@example.com";
         String unusedKey = InvitationService.hash("open:" + unusedEmail);
-        when(challenges.findByKey(registeredKey)).thenReturn(Optional.of(consumed));
         when(challenges.findByKey(unusedKey)).thenReturn(Optional.empty());
+        when(users.existsByEmail(anyString())).thenAnswer(invocation -> registeredEmail.equals(invocation.getArgument(0)));
         when(challenges.save(any(EmailVerificationChallenge.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(mongoTemplate.findAndModify(any(Query.class), any(Update.class), any(FindAndModifyOptions.class),
             eq(AuthRateLimitWindow.class))).thenAnswer(invocation -> new AuthRateLimitWindow(
                 "email-window", 1, now.plusSeconds(7200)));
 
-        EmailVerificationService openService = new EmailVerificationService(invitations, new TrialCodePolicy(false),
+        EmailVerificationService openService = new EmailVerificationService(invitations, new TrialCodePolicy(false), users,
             challenges, registrationCommitService, mongoTemplate, mailer);
         ReflectionTestUtils.setField(openService, "hmacKey", HMAC_KEY);
         ReflectionTestUtils.setField(openService, "maxHourlySends", 5);
 
         assertDoesNotThrow(() -> openService.requestCode(null, unusedEmail, "127.0.0.1"));
-        assertDoesNotThrow(() -> openService.requestCode(null, registeredEmail, "127.0.0.1"));
+        BusinessException existing = assertThrows(BusinessException.class,
+            () -> openService.requestCode(null, registeredEmail, "127.0.0.1"));
+        assertEquals(AppErrorCode.EMAIL_ALREADY_REGISTERED, existing.getErrorCode());
 
         verify(mailer).send(eq(unusedEmail), anyString());
         verify(mailer, never()).send(eq(registeredEmail), anyString());
@@ -150,6 +148,69 @@ class EmailVerificationServiceTest {
         assertEquals(AppErrorCode.EMAIL_CODE_INVALID, exception.getErrorCode());
         verifyNoInteractions(registrationCommitService);
         verify(invitations, never()).consume(any(), any());
+    }
+
+    @Test
+    void validLoginCodeIsConsumedOnceAndReturnsTheActiveAccount() throws Exception {
+        String email = "guest@example.com";
+        String key = InvitationService.hash("login:" + email);
+        EmailVerificationChallenge challenge = EmailVerificationChallenge.builder()
+            .id(new ObjectId()).key(key).codeHmac(codeHmac(key, "123456"))
+            .expiresAt(Instant.now().plusSeconds(600)).attempts(1).build();
+        User account = User.builder().email(email).status("active").build();
+        when(users.findByEmail(email)).thenReturn(Optional.of(account));
+        when(mongoTemplate.findAndModify(any(Query.class), any(Update.class), any(FindAndModifyOptions.class),
+            eq(EmailVerificationChallenge.class))).thenReturn(challenge, challenge, null);
+
+        assertSame(account, service.verifyLoginCode(email, "123456"));
+        BusinessException replay = assertThrows(BusinessException.class,
+            () -> service.verifyLoginCode(email, "123456"));
+        assertEquals(AppErrorCode.EMAIL_CODE_INVALID, replay.getErrorCode());
+    }
+
+    @Test
+    void loginCodeIsIssuedUnderItsOwnPurposeScopedKey() {
+        String email = "guest@example.com";
+        String key = InvitationService.hash("login:" + email);
+        when(users.findByEmail(email)).thenReturn(Optional.of(User.builder().email(email).status("active").build()));
+        when(challenges.findByKey(key)).thenReturn(Optional.empty());
+        when(challenges.save(any(EmailVerificationChallenge.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(mongoTemplate.findAndModify(any(Query.class), any(Update.class), any(FindAndModifyOptions.class),
+            eq(AuthRateLimitWindow.class))).thenReturn(new AuthRateLimitWindow("rate", 1, Instant.now().plusSeconds(7200)));
+        ReflectionTestUtils.setField(service, "maxHourlySends", 5);
+        ReflectionTestUtils.setField(service, "codeLifetimeMinutes", 10L);
+
+        service.requestLoginCode(email, "127.0.0.1");
+
+        verify(challenges).save(argThat(challenge -> key.equals(challenge.getKey()) && challenge.getInvitationId() == null));
+        verify(mailer).send(eq(email), matches("[0-9]{6}"));
+    }
+
+    @Test
+    void unknownLoginEmailDoesNotSendOrCreateAChallenge() {
+        String email = "unknown@example.com";
+        when(users.findByEmail(email)).thenReturn(Optional.empty());
+        when(mongoTemplate.findAndModify(any(Query.class), any(Update.class), any(FindAndModifyOptions.class),
+            eq(AuthRateLimitWindow.class))).thenReturn(new AuthRateLimitWindow("rate", 1, Instant.now().plusSeconds(7200)));
+        ReflectionTestUtils.setField(service, "maxHourlySends", 5);
+
+        assertDoesNotThrow(() -> service.requestLoginCode(email, "127.0.0.1"));
+        verifyNoInteractions(challenges, mailer);
+    }
+
+    @Test
+    void registrationCodeCannotAuthenticateAsLoginCode() throws Exception {
+        String email = "guest@example.com";
+        String registrationKey = InvitationService.hash("open:" + email);
+        EmailVerificationChallenge registration = EmailVerificationChallenge.builder()
+            .id(new ObjectId()).key(registrationKey).codeHmac(codeHmac(registrationKey, "123456"))
+            .expiresAt(Instant.now().plusSeconds(600)).attempts(1).build();
+        when(mongoTemplate.findAndModify(any(Query.class), any(Update.class), any(FindAndModifyOptions.class),
+            eq(EmailVerificationChallenge.class))).thenReturn(registration);
+
+        BusinessException error = assertThrows(BusinessException.class,
+            () -> service.verifyLoginCode(email, "123456"));
+        assertEquals(AppErrorCode.EMAIL_CODE_INVALID, error.getErrorCode());
     }
 
     private String challengeKey(ObjectId invitationId, String email) {

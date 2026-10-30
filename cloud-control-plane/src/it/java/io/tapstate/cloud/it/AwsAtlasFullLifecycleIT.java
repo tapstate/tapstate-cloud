@@ -175,9 +175,7 @@ class AwsAtlasFullLifecycleIT extends BaseIT {
     @BeforeEach
     void setUpContext() throws Exception {
         signupAndLogin("aws-atlas-" + System.nanoTime() + "@tapstate.io", "StrongPass123!");
-        orgId = orgsApi.create(Map.of(
-            "name", "AWS-Atlas-IT",
-            "slug", "aws-atlas-" + System.nanoTime())).getData().getId();
+        orgId = orgsApi.create(organizationRequest("AWS-Atlas-IT")).getData().getId();
 
         // Provisioning resolves the wildcard certificate before any cloud
         // resource is created, so the document must exist before subscribing.

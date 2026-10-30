@@ -58,9 +58,7 @@ tags:
 - name: Health
   description: Health check endpoints
 - name: Organizations
-  description: Organization management — isolation boundary for Clusters
-- name: Organizations V2
-  description: Organization management using display names and stable IDs without URL slugs
+  description: Organization management using display names and stable IDs
 - name: Auth
   description: "Cloud Console authentication, session management and trial access"
 - name: Subscription
@@ -168,20 +166,16 @@ paths:
       tags:
       - Organizations
       summary: Create new organization (user becomes owner automatically)
-      description: "Creates a new Organization and adds the caller as its first member\
-        \ with owner role. The Organization starts with no subscriptions — create\
-        \ them explicitly via POST /v1/api/orgs/{orgId}/subscriptions. Organization\
-        \ slug must be unique system-wide (lowercase, hyphenated)."
+      description: "Creates a new Organization from its display name and adds the caller\
+        \ as its first member with owner role. The Organization starts with no subscriptions\
+        \ — create them explicitly via POST /v1/api/orgs/{orgId}/subscriptions."
       operationId: create
       requestBody:
-        description: "Organization create payload: {\"name\": \"Acme Corp\", \"slug\"\
-          : \"acme-corp\"}"
+        description: Organization create payload with the display name only
         content:
           application/json:
             schema:
-              type: object
-              additionalProperties:
-                type: string
+              $ref: "#/components/schemas/CreateOrganizationRequest"
         required: true
       responses:
         "200":
@@ -190,94 +184,24 @@ paths:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseOrganizationResponse"
-        "400":
-          description: "Invalid input (missing name/slug, slug format)"
-          content:
-            '*/*':
-              schema:
-                $ref: "#/components/schemas/ApiResponseOrganizationResponse"
-        "401":
-          description: Not authenticated
-          content:
-            '*/*':
-              schema:
-                $ref: "#/components/schemas/ApiResponseOrganizationResponse"
-        "409":
-          description: Slug already taken or account already belongs to an organization
-          content:
-            '*/*':
-              schema:
-                $ref: "#/components/schemas/ApiResponseOrganizationResponse"
-  /v2/api/orgs:
-    get:
-      tags:
-      - Organizations V2
-      summary: List current user's organizations without slug fields
-      operationId: listMyOrganizationsV2
-      responses:
-        "200":
-          description: List of organizations the caller belongs to
-          content:
-            '*/*':
-              schema:
-                $ref: "#/components/schemas/ApiResponseListOrganizationV2Response"
-        "401":
-          description: Not authenticated
-    post:
-      tags:
-      - Organizations V2
-      summary: Create an organization from its display name
-      description: Creates a slugless Organization and makes the caller its owner.
-      operationId: createOrganizationV2
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CreateOrganizationV2Request"
-      responses:
-        "200":
-          description: Organization created
-          content:
-            '*/*':
-              schema:
-                $ref: "#/components/schemas/ApiResponseOrganizationV2Response"
         "400":
           description: Organization name is invalid
-        "401":
-          description: Not authenticated
-        "403":
-          description: Trial invitation email does not match the authenticated account
-        "409":
-          description: Caller already belongs to an organization
-        "410":
-          description: Trial invitation has expired or was revoked
-  /v2/api/orgs/{orgId}:
-    get:
-      tags:
-      - Organizations V2
-      summary: Get an organization by stable ID
-      operationId: getOrganizationV2
-      parameters:
-      - name: orgId
-        in: path
-        description: Organization UUID
-        required: true
-        schema:
-          type: string
-      responses:
-        "200":
-          description: Organization details without a slug field
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/ApiResponseOrganizationV2Response"
+                $ref: "#/components/schemas/ApiResponseOrganizationResponse"
         "401":
           description: Not authenticated
-        "403":
-          description: Not a member of this Organization
-        "404":
-          description: Organization not found
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseOrganizationResponse"
+        "409":
+          description: Account already belongs to an organization
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseOrganizationResponse"
   /v1/api/orgs/{orgId}/subscriptions/{subscriptionId}/finalize-provisioning:
     post:
       tags:
@@ -1096,6 +1020,42 @@ paths:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseLoginResult"
+  /v1/api/auth/email/login/code:
+    post:
+      tags: [Auth]
+      summary: Request an email sign-in code
+      operationId: requestEmailLoginCode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailLoginCodeRequest"
+      responses:
+        "202":
+          description: Request accepted
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseVoid"
+  /v1/api/auth/email/login:
+    post:
+      tags: [Auth]
+      summary: Sign in using an email verification code
+      operationId: loginWithEmailCode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailLoginRequest"
+      responses:
+        "200":
+          description: Login successful, session cookie set
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseLoginResult"
   /v1/api/auth/email/code:
     post:
       tags:
@@ -1125,6 +1085,12 @@ paths:
                 $ref: "#/components/schemas/ApiResponseVoid"
         "403":
           description: Invitation email does not match
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseVoid"
+        "409":
+          description: Email is already registered; sign in instead
           content:
             '*/*':
               schema:
@@ -2191,39 +2157,7 @@ components:
         data:
           $ref: "#/components/schemas/OrganizationResponse"
           description: "Response payload — object or array, null on void responses"
-    ApiResponseOrganizationV2Response:
-      type: object
-      description: Global API response envelope
-      properties:
-        opId:
-          type: string
-          description: Request correlation ID — unique per request
-        code:
-          type: string
-          description: Business result code
-        msg:
-          type: string
-          description: Detailed message
-        data:
-          $ref: "#/components/schemas/OrganizationV2Response"
-    ApiResponseListOrganizationV2Response:
-      type: object
-      description: Global API response envelope
-      properties:
-        opId:
-          type: string
-          description: Request correlation ID — unique per request
-        code:
-          type: string
-          description: Business result code
-        msg:
-          type: string
-          description: Detailed message
-        data:
-          type: array
-          items:
-            $ref: "#/components/schemas/OrganizationV2Response"
-    CreateOrganizationV2Request:
+    CreateOrganizationRequest:
       type: object
       required:
       - name
@@ -2233,21 +2167,6 @@ components:
           minLength: 1
           maxLength: 100
           description: Organization display name
-    OrganizationV2Response:
-      type: object
-      properties:
-        id:
-          type: string
-          description: Organization UUID
-        name:
-          type: string
-          description: Organization display name
-        ownerEmail:
-          type: string
-          description: Owner user email
-        status:
-          type: string
-          description: Organization status
     OrganizationResponse:
       type: object
       properties:
@@ -2257,9 +2176,6 @@ components:
         name:
           type: string
           description: Organization display name
-        slug:
-          type: string
-          description: "URL-friendly slug (lowercase, hyphenated, unique)"
         ownerEmail:
           type: string
           description: Owner user email
@@ -3146,6 +3062,24 @@ components:
       - code
       - email
       - password
+    EmailLoginCodeRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          minLength: 1
+      required: [email]
+    EmailLoginRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          minLength: 1
+        code:
+          type: string
+          minLength: 6
+          maxLength: 6
+      required: [email, code]
     EmailCodeRequest:
       type: object
       properties:

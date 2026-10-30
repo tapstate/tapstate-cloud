@@ -48,9 +48,7 @@ class C2StatusReportIT extends BaseIT {
     private String[] createProvisionedClusterAndToken(String name) throws Exception {
         signupAndLogin("c2-" + name.toLowerCase() + "@tapstate.io", "StrongPass123!");
 
-        String orgId = orgsApi.create(Map.of(
-            "name", "C2-" + name,
-            "slug", "c2-" + name.toLowerCase())).getData().getId();
+        String orgId = orgsApi.create(organizationRequest("C2-" + name)).getData().getId();
 
         // A provisioned cluster, seeded and finalized through the paid-flow endpoint.
         seedProvisionedSubscription(orgId, "2c8g", "ap-southeast-1", name);

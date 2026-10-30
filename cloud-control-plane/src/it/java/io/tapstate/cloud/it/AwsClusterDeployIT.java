@@ -235,9 +235,7 @@ class AwsClusterDeployIT extends BaseIT {
     @BeforeEach
     void setUpContext() throws Exception {
         signupAndLogin("aws-deploy-" + System.nanoTime() + "@tapstate.io", "StrongPass123!");
-        orgId = orgsApi.create(Map.of(
-            "name", "AWS-Deploy-IT",
-            "slug", "aws-deploy-" + System.nanoTime())).getData().getId();
+        orgId = orgsApi.create(organizationRequest("AWS-Deploy-IT")).getData().getId();
 
         // Provisioning resolves the wildcard certificate before any cloud
         // resource is created, so the document must exist before subscribing.

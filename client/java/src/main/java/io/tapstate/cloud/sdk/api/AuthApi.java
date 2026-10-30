@@ -30,6 +30,8 @@ import io.tapstate.cloud.sdk.model.ApiResponseTrialCode;
 import io.tapstate.cloud.sdk.model.ApiResponseUserResponse;
 import io.tapstate.cloud.sdk.model.ApiResponseVoid;
 import io.tapstate.cloud.sdk.model.EmailCodeRequest;
+import io.tapstate.cloud.sdk.model.EmailLoginCodeRequest;
+import io.tapstate.cloud.sdk.model.EmailLoginRequest;
 import io.tapstate.cloud.sdk.model.EmailRegistrationRequest;
 import io.tapstate.cloud.sdk.model.LoginRequest;
 import io.tapstate.cloud.sdk.model.OAuthStartRequest;
@@ -299,6 +301,80 @@ public class AuthApi extends BaseApi {
 
     // create path and map variables
     String localVarPath = "/v1/api/auth/login";
+
+    StringJoiner localVarQueryStringJoiner = new StringJoiner("&");
+    String localVarQueryParameterBaseName;
+    List<Pair> localVarQueryParams = new ArrayList<Pair>();
+    List<Pair> localVarCollectionQueryParams = new ArrayList<Pair>();
+    Map<String, String> localVarHeaderParams = new HashMap<String, String>();
+    Map<String, String> localVarCookieParams = new HashMap<String, String>();
+    Map<String, Object> localVarFormParams = new HashMap<String, Object>();
+
+
+    localVarHeaderParams.putAll(additionalHeaders);
+
+
+
+    final String[] localVarAccepts = {
+      "*/*"
+    };
+    final String localVarAccept = apiClient.selectHeaderAccept(localVarAccepts);
+
+    final String[] localVarContentTypes = {
+      "application/json"
+    };
+    final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
+
+    String[] localVarAuthNames = new String[] { "session-cookie" };
+
+    TypeReference<ApiResponseLoginResult> localVarReturnType = new TypeReference<ApiResponseLoginResult>() {};
+    return apiClient.invokeAPI(
+        localVarPath,
+        "POST",
+        localVarQueryParams,
+        localVarCollectionQueryParams,
+        localVarQueryStringJoiner.toString(),
+        localVarPostBody,
+        localVarHeaderParams,
+        localVarCookieParams,
+        localVarFormParams,
+        localVarAccept,
+        localVarContentType,
+        localVarAuthNames,
+        localVarReturnType
+    );
+  }
+
+  /**
+   * Sign in using an email verification code
+   *
+   * @param emailLoginRequest  (required)
+   * @return ApiResponseLoginResult
+   * @throws ApiException if fails to make API call
+   */
+  public ApiResponseLoginResult loginWithEmailCode(@jakarta.annotation.Nonnull EmailLoginRequest emailLoginRequest) throws ApiException {
+    return this.loginWithEmailCode(emailLoginRequest, Collections.emptyMap());
+  }
+
+
+  /**
+   * Sign in using an email verification code
+   *
+   * @param emailLoginRequest  (required)
+   * @param additionalHeaders additionalHeaders for this call
+   * @return ApiResponseLoginResult
+   * @throws ApiException if fails to make API call
+   */
+  public ApiResponseLoginResult loginWithEmailCode(@jakarta.annotation.Nonnull EmailLoginRequest emailLoginRequest, Map<String, String> additionalHeaders) throws ApiException {
+    Object localVarPostBody = emailLoginRequest;
+
+    // verify the required parameter 'emailLoginRequest' is set
+    if (emailLoginRequest == null) {
+      throw new ApiException(400, "Missing the required parameter 'emailLoginRequest' when calling loginWithEmailCode");
+    }
+
+    // create path and map variables
+    String localVarPath = "/v1/api/auth/email/login";
 
     StringJoiner localVarQueryStringJoiner = new StringJoiner("&");
     String localVarQueryParameterBaseName;
@@ -719,6 +795,80 @@ public class AuthApi extends BaseApi {
 
     // create path and map variables
     String localVarPath = "/v1/api/auth/email/code";
+
+    StringJoiner localVarQueryStringJoiner = new StringJoiner("&");
+    String localVarQueryParameterBaseName;
+    List<Pair> localVarQueryParams = new ArrayList<Pair>();
+    List<Pair> localVarCollectionQueryParams = new ArrayList<Pair>();
+    Map<String, String> localVarHeaderParams = new HashMap<String, String>();
+    Map<String, String> localVarCookieParams = new HashMap<String, String>();
+    Map<String, Object> localVarFormParams = new HashMap<String, Object>();
+
+
+    localVarHeaderParams.putAll(additionalHeaders);
+
+
+
+    final String[] localVarAccepts = {
+      "*/*"
+    };
+    final String localVarAccept = apiClient.selectHeaderAccept(localVarAccepts);
+
+    final String[] localVarContentTypes = {
+      "application/json"
+    };
+    final String localVarContentType = apiClient.selectHeaderContentType(localVarContentTypes);
+
+    String[] localVarAuthNames = new String[] { "session-cookie" };
+
+    TypeReference<ApiResponseVoid> localVarReturnType = new TypeReference<ApiResponseVoid>() {};
+    return apiClient.invokeAPI(
+        localVarPath,
+        "POST",
+        localVarQueryParams,
+        localVarCollectionQueryParams,
+        localVarQueryStringJoiner.toString(),
+        localVarPostBody,
+        localVarHeaderParams,
+        localVarCookieParams,
+        localVarFormParams,
+        localVarAccept,
+        localVarContentType,
+        localVarAuthNames,
+        localVarReturnType
+    );
+  }
+
+  /**
+   * Request an email sign-in code
+   *
+   * @param emailLoginCodeRequest  (required)
+   * @return ApiResponseVoid
+   * @throws ApiException if fails to make API call
+   */
+  public ApiResponseVoid requestEmailLoginCode(@jakarta.annotation.Nonnull EmailLoginCodeRequest emailLoginCodeRequest) throws ApiException {
+    return this.requestEmailLoginCode(emailLoginCodeRequest, Collections.emptyMap());
+  }
+
+
+  /**
+   * Request an email sign-in code
+   *
+   * @param emailLoginCodeRequest  (required)
+   * @param additionalHeaders additionalHeaders for this call
+   * @return ApiResponseVoid
+   * @throws ApiException if fails to make API call
+   */
+  public ApiResponseVoid requestEmailLoginCode(@jakarta.annotation.Nonnull EmailLoginCodeRequest emailLoginCodeRequest, Map<String, String> additionalHeaders) throws ApiException {
+    Object localVarPostBody = emailLoginCodeRequest;
+
+    // verify the required parameter 'emailLoginCodeRequest' is set
+    if (emailLoginCodeRequest == null) {
+      throw new ApiException(400, "Missing the required parameter 'emailLoginCodeRequest' when calling requestEmailLoginCode");
+    }
+
+    // create path and map variables
+    String localVarPath = "/v1/api/auth/email/login/code";
 
     StringJoiner localVarQueryStringJoiner = new StringJoiner("&");
     String localVarQueryParameterBaseName;

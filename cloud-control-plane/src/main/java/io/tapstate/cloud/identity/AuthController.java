@@ -105,6 +105,7 @@ public class AuthController extends BaseController {
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "202", description = "Request accepted"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Invalid request or invitation token"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "Invitation email does not match"),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "Email is already registered; sign in instead"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "410", description = "Invitation expired or revoked"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "429", description = "Cooldown or hourly rate limit reached"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "503", description = "Email delivery is unavailable")
@@ -234,6 +235,32 @@ public class AuthController extends BaseController {
     }
 
     // ========== Login ==========
+
+    @PostMapping("/email/login/code")
+    @Operation(summary = "Request an email sign-in code")
+    @ApiResponses({@io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "202", description = "Request accepted")})
+    public ResponseEntity<ApiResponse<Void>> requestEmailLoginCode(
+            @Valid @RequestBody EmailLoginCodeRequest request, HttpServletRequest httpRequest) {
+        emailVerificationService.requestLoginCode(request.email(), httpRequest.getRemoteAddr());
+        return okStatus(HttpStatus.ACCEPTED, null);
+    }
+
+    @PostMapping("/email/login")
+    @Operation(summary = "Sign in using an email verification code")
+    public ResponseEntity<ApiResponse<LoginResult>> loginWithEmailCode(
+            @Valid @RequestBody EmailLoginRequest request, HttpServletRequest httpRequest) {
+        User user = emailVerificationService.verifyLoginCode(request.email(), request.code());
+        Instant now = Instant.now();
+        user.setLastLoginAt(now);
+        String currentLegal = legalConfig.getCurrentVersion();
+        if (user.getAgreedLegalVersion() == null || !user.getAgreedLegalVersion().equals(currentLegal)) {
+            user.setAgreedLegalVersion(currentLegal);
+            user.setAgreedLegalAt(now);
+        }
+        userRepository.save(user);
+        authenticateSession(user, httpRequest);
+        return ok(new LoginResult(user.getEmail(), user.getDisplayName(), user.getAgreedLegalVersion()));
+    }
 
     @PostMapping("/login")
     @Operation(
@@ -454,6 +481,9 @@ public class AuthController extends BaseController {
         @NotBlank @Email String email,
         String invitationToken
     ) {}
+
+    public record EmailLoginCodeRequest(@NotBlank @Email String email) {}
+    public record EmailLoginRequest(@NotBlank @Email String email, @NotBlank @Size(min = 6, max = 6) String code) {}
 
     public record EmailRegistrationRequest(
         @NotBlank @Email String email,
