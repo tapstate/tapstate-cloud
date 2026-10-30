@@ -11,6 +11,8 @@ import io.tapstate.cloud.common.api.AppErrorCode;
 import io.tapstate.cloud.common.api.BaseController;
 import io.tapstate.cloud.common.api.BusinessException;
 import io.tapstate.cloud.common.CurrentUser;
+import io.tapstate.cloud.identity.InvitationService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -18,6 +20,7 @@ import lombok.RequiredArgsConstructor;
 import org.bson.types.ObjectId;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -35,6 +38,7 @@ public class OrganizationController extends BaseController {
 
     private final OrganizationService organizationService;
     private final OrganizationRepository organizationRepository;
+    private final InvitationService invitationService;
 
     @GetMapping
     @Operation(
@@ -56,6 +60,7 @@ public class OrganizationController extends BaseController {
     }
 
     @PostMapping
+    @Transactional
     @Operation(
         summary = "Create new organization (user becomes owner automatically)",
         description = "Creates a new Organization from its display name and adds the caller as its owner. " +
@@ -69,12 +74,24 @@ public class OrganizationController extends BaseController {
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "Account already belongs to an organization")
     })
     public ResponseEntity<ApiResponse<OrganizationResponse>> create(
-            @Valid @RequestBody CreateOrganizationRequest request) {
+            @Valid @RequestBody CreateOrganizationRequest request, HttpServletRequest httpRequest) {
         String userEmail = CurrentUser.getEmail();
         if (userEmail == null) {
             return fail(AppErrorCode.UNAUTHORIZED, HttpStatus.UNAUTHORIZED);
         }
-        Organization org = organizationService.createOrganization(request.name(), userEmail);
+        var session = httpRequest.getSession(false);
+        String pendingTrialHash = session == null ? null : (String) session.getAttribute(
+            InvitationService.PENDING_TRIAL_ORGANIZATION_SESSION_ATTRIBUTE);
+        if (pendingTrialHash != null && pendingTrialHash.isBlank()) pendingTrialHash = null;
+        Organization org;
+        if (pendingTrialHash != null) {
+            invitationService.requireUsableTrialHash(pendingTrialHash, userEmail);
+            org = organizationService.createTrialOrganization(request.name(), userEmail);
+            invitationService.consumeTrialHash(pendingTrialHash, userEmail);
+            session.removeAttribute(InvitationService.PENDING_TRIAL_ORGANIZATION_SESSION_ATTRIBUTE);
+        } else {
+            org = organizationService.createOrganization(request.name(), userEmail);
+        }
         return ok(OrganizationResponse.from(org));
     }
 
