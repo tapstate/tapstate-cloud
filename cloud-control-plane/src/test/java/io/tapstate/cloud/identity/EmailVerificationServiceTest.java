@@ -66,7 +66,7 @@ class EmailVerificationServiceTest {
         when(mongoTemplate.findAndModify(any(Query.class), any(Update.class), any(FindAndModifyOptions.class),
             eq(EmailVerificationChallenge.class))).thenReturn(challenge);
         when(registrationCommitService.complete(isNull(), eq(challenge), eq(email), eq("password-123"),
-            eq("Guest"), eq("Guest Workspace"), any(Instant.class))).thenReturn(registered);
+            eq("Guest"), eq("Guest Workspace"), any(Instant.class), eq(false))).thenReturn(registered);
         EmailVerificationService openService = new EmailVerificationService(invitations, new TrialCodePolicy(false),
             challenges, registrationCommitService, mongoTemplate, mailer);
         ReflectionTestUtils.setField(openService, "hmacKey", HMAC_KEY);
@@ -78,7 +78,7 @@ class EmailVerificationServiceTest {
         assertSame(registered, result);
         verify(invitations, never()).requireUsable(any(), any());
         verify(registrationCommitService).complete(isNull(), eq(challenge), eq(email), eq("password-123"),
-            eq("Guest"), eq("Guest Workspace"), any(Instant.class));
+            eq("Guest"), eq("Guest Workspace"), any(Instant.class), eq(false));
     }
 
     @Test

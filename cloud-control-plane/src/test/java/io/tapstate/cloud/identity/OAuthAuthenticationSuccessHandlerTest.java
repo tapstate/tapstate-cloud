@@ -48,7 +48,7 @@ class OAuthAuthenticationSuccessHandlerTest {
         IdentityAuthenticationService identities = mock(IdentityAuthenticationService.class);
         User user = User.builder().email("guest@example.com").displayName("Guest").status("active").build();
         when(identities.authenticate(eq("google"), eq("google-subject"), eq("guest@example.com"),
-            eq(true), eq("Guest"), eq("signup"), isNull(), isNull(), eq("invitation-digest"), isNull()))
+            eq(true), eq("Guest"), eq("signup"), isNull(), isNull(), eq("invitation-digest"), isNull(), eq(false)))
             .thenReturn(user);
 
         MockHttpServletRequest request = new MockHttpServletRequest();
@@ -102,7 +102,8 @@ class OAuthAuthenticationSuccessHandlerTest {
 
         User user = User.builder().email("verified@example.com").displayName("Octo Cat").status("active").build();
         when(identities.authenticate(eq("github"), eq("42"), eq("verified@example.com"), eq(true),
-            eq("Octo Cat"), eq("signup"), isNull(), isNull(), eq("invitation-digest"), isNull())).thenReturn(user);
+            eq("Octo Cat"), eq("signup"), isNull(), isNull(), eq("invitation-digest"), isNull(), eq(false)))
+            .thenReturn(user);
 
         OAuthAuthenticationSuccessHandler handler = new OAuthAuthenticationSuccessHandler(
             identities, authorizedClients, restClientBuilder,
@@ -120,7 +121,7 @@ class OAuthAuthenticationSuccessHandlerTest {
 
         provider.verify();
         verify(identities).authenticate("github", "42", "verified@example.com", true,
-            "Octo Cat", "signup", null, null, "invitation-digest", null);
+            "Octo Cat", "signup", null, null, "invitation-digest", null, false);
         assertNotEquals(originalSessionId, request.getSession().getId());
         assertEquals("verified@example.com", session.getAttribute(AuthController.SESSION_USER_EMAIL));
         assertEquals("https://console.example/auth?oauth=success", response.getRedirectedUrl());
@@ -130,7 +131,7 @@ class OAuthAuthenticationSuccessHandlerTest {
     void rejectedOAuthSignupClearsTheProviderAuthentication() throws Exception {
         IdentityAuthenticationService identities = mock(IdentityAuthenticationService.class);
         when(identities.authenticate(eq("google"), eq("google-subject"), eq("guest@example.com"), eq(true),
-            eq("Guest"), eq("signup"), isNull(), isNull(), eq("invitation-digest"), isNull()))
+            eq("Guest"), eq("signup"), isNull(), isNull(), eq("invitation-digest"), isNull(), eq(false)))
             .thenThrow(new BusinessException(AppErrorCode.INVITATION_INVALID, 404));
         OAuthAuthenticationSuccessHandler handler = handler(identities);
         MockHttpServletRequest request = new MockHttpServletRequest();
@@ -158,7 +159,7 @@ class OAuthAuthenticationSuccessHandlerTest {
     void rejectedOAuthLinkRestoresTheExistingCloudIdentity() throws Exception {
         IdentityAuthenticationService identities = mock(IdentityAuthenticationService.class);
         when(identities.authenticate(eq("google"), eq("google-subject"), eq("guest@example.com"), eq(true),
-            eq("Guest"), eq("link"), eq("owner@example.com"), any(Instant.class), isNull(), isNull()))
+            eq("Guest"), eq("link"), eq("owner@example.com"), any(Instant.class), isNull(), isNull(), eq(false)))
             .thenThrow(new BusinessException(AppErrorCode.IDENTITY_LINK_CONFLICT, 409));
         OAuthAuthenticationSuccessHandler handler = handler(identities);
         MockHttpServletRequest request = new MockHttpServletRequest();
@@ -181,6 +182,63 @@ class OAuthAuthenticationSuccessHandlerTest {
         assertEquals("owner@example.com", session.getAttribute(AuthController.SESSION_USER_EMAIL));
         assertNotNull(session.getAttribute("SPRING_SECURITY_CONTEXT"));
         assertNull(session.getAttribute(OAuthSessionSupport.PREVIOUS_USER_EMAIL));
+    }
+
+    @Test
+    void deferredTrialSignupRoutesNewAccountToOrganizationOnboarding() throws Exception {
+        IdentityAuthenticationService identities = mock(IdentityAuthenticationService.class);
+        User user = User.builder().email("guest@example.com").displayName("Guest").status("active").build();
+        when(identities.hasLinkedIdentity("google", "google-subject")).thenReturn(false);
+        when(identities.authenticate(eq("google"), eq("google-subject"), eq("guest@example.com"), eq(true),
+            eq("Guest"), eq("signup"), eq("previous@example.com"), isNull(), eq("invitation-digest"),
+            isNull(), eq(true)))
+            .thenReturn(user);
+
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        MockHttpSession session = new MockHttpSession();
+        session.setAttribute("TAPSTATE_OAUTH_FLOW", "signup");
+        session.setAttribute("TAPSTATE_OAUTH_INVITATION_TOKEN", "invitation-digest");
+        session.setAttribute("TAPSTATE_OAUTH_DEFER_ORGANIZATION_CREATION", true);
+        session.setAttribute("TAPSTATE_OAUTH_TRIAL_INVITATION", true);
+        session.setAttribute(AuthController.SESSION_USER_EMAIL, "previous@example.com");
+        session.setAttribute(InvitationService.PENDING_TRIAL_ORGANIZATION_SESSION_ATTRIBUTE, "old-invite");
+        request.setSession(session);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        handler(identities).onAuthenticationSuccess(request, response, googleAuthentication());
+
+        assertEquals("https://console.example/auth?oauth=success&onboarding=organization",
+            response.getRedirectedUrl());
+        assertEquals("guest@example.com", session.getAttribute(AuthController.SESSION_USER_EMAIL));
+        assertNull(session.getAttribute(InvitationService.PENDING_TRIAL_ORGANIZATION_SESSION_ATTRIBUTE));
+        verify(identities).authenticate("google", "google-subject", "guest@example.com", true,
+            "Guest", "signup", "previous@example.com", null, "invitation-digest", null, true);
+    }
+
+    @Test
+    void deferredTrialInvitationForLinkedIdentityStaysInSessionUntilOrganizationCreation() throws Exception {
+        IdentityAuthenticationService identities = mock(IdentityAuthenticationService.class);
+        User user = User.builder().email("guest@example.com").displayName("Guest").status("active").build();
+        when(identities.hasLinkedIdentity("google", "google-subject")).thenReturn(true);
+        when(identities.authenticate(eq("google"), eq("google-subject"), eq("guest@example.com"), eq(true),
+            eq("Guest"), eq("signup"), isNull(), isNull(), eq("invitation-digest"), isNull(), eq(true)))
+            .thenReturn(user);
+
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        MockHttpSession session = new MockHttpSession();
+        session.setAttribute("TAPSTATE_OAUTH_FLOW", "signup");
+        session.setAttribute("TAPSTATE_OAUTH_INVITATION_TOKEN", "invitation-digest");
+        session.setAttribute("TAPSTATE_OAUTH_DEFER_ORGANIZATION_CREATION", true);
+        session.setAttribute("TAPSTATE_OAUTH_TRIAL_INVITATION", true);
+        request.setSession(session);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        handler(identities).onAuthenticationSuccess(request, response, googleAuthentication());
+
+        assertEquals("https://console.example/auth?oauth=success&onboarding=organization",
+            response.getRedirectedUrl());
+        assertEquals("invitation-digest",
+            session.getAttribute(InvitationService.PENDING_TRIAL_ORGANIZATION_SESSION_ATTRIBUTE));
     }
 
     private OAuthAuthenticationSuccessHandler handler(IdentityAuthenticationService identities) {

@@ -34,8 +34,15 @@ public class RegistrationCommitService {
     @Transactional
     public User complete(OrganizationInvitation invitation, EmailVerificationChallenge challenge,
                          String email, String password, String displayName, String organizationName, Instant now) {
+        return complete(invitation, challenge, email, password, displayName, organizationName, now, false);
+    }
+
+    @Transactional
+    public User complete(OrganizationInvitation invitation, EmailVerificationChallenge challenge,
+                         String email, String password, String displayName, String organizationName,
+                         Instant now, boolean deferOrganizationCreation) {
         boolean createsOrganization = invitation == null || invitationService.isTrial(invitation);
-        if (createsOrganization && (organizationName == null || organizationName.isBlank()
+        if (createsOrganization && !deferOrganizationCreation && (organizationName == null || organizationName.isBlank()
                 || organizationName.length() > 100)) {
             throw new BusinessException(AppErrorCode.BAD_REQUEST, HttpStatus.BAD_REQUEST.value());
         }
@@ -65,9 +72,9 @@ public class RegistrationCommitService {
             .agreedLegalVersion(legalConfig.getCurrentVersion())
             .agreedLegalAt(now)
             .build());
-        if (createsOrganization) {
+        if (createsOrganization && !deferOrganizationCreation) {
             organizations.createTrialOrganization(organizationName, email);
-        } else {
+        } else if (!createsOrganization) {
             members.save(Member.builder().orgId(invitation.getOrgId()).userEmail(email).role("member").joinedAt(now).build());
         }
         return user;

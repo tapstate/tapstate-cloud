@@ -31,13 +31,22 @@ public class IdentityAuthenticationService {
                              String displayName, String flow, String currentSessionEmail,
                              Instant reauthenticatedAt, String invitationTokenHash) {
         return authenticate(provider, subject, email, emailVerified, displayName, flow,
-            currentSessionEmail, reauthenticatedAt, invitationTokenHash, null);
+            currentSessionEmail, reauthenticatedAt, invitationTokenHash, null, false);
     }
 
     @Transactional
     public User authenticate(String provider, String subject, String email, boolean emailVerified,
                              String displayName, String flow, String currentSessionEmail,
                              Instant reauthenticatedAt, String invitationTokenHash, String organizationName) {
+        return authenticate(provider, subject, email, emailVerified, displayName, flow, currentSessionEmail,
+            reauthenticatedAt, invitationTokenHash, organizationName, false);
+    }
+
+    @Transactional
+    public User authenticate(String provider, String subject, String email, boolean emailVerified,
+                             String displayName, String flow, String currentSessionEmail,
+                             Instant reauthenticatedAt, String invitationTokenHash, String organizationName,
+                             boolean deferOrganizationCreation) {
         String normalizedEmail = InvitationService.normalizeEmail(email);
         if (!emailVerified) {
             throw new BusinessException(AppErrorCode.SSO_EMAIL_UNVERIFIED, HttpStatus.FORBIDDEN.value());
@@ -69,7 +78,11 @@ public class IdentityAuthenticationService {
                 String accountEmail = InvitationService.normalizeEmail(user.getEmail());
                 OrganizationInvitation invitation = invitations.requireUsableHash(invitationTokenHash, accountEmail);
                 if (invitations.isTrial(invitation)) {
-                    invitations.requireOrganizationName(organizationName);
+                    if (!deferOrganizationCreation) invitations.requireOrganizationName(organizationName);
+                    if (deferOrganizationCreation) {
+                        user.setLastLoginAt(Instant.now());
+                        return users.save(user);
+                    }
                 }
                 invitations.consume(invitation, accountEmail);
                 if (invitations.isTrial(invitation)) {
@@ -91,10 +104,10 @@ public class IdentityAuthenticationService {
             if (!"signup".equals(flow) || trialCodePolicy.isRequired()) {
                 throw new BusinessException(AppErrorCode.INVITATION_REQUIRED, HttpStatus.FORBIDDEN.value());
             }
-            invitations.requireOrganizationName(organizationName);
+            if (!deferOrganizationCreation) invitations.requireOrganizationName(organizationName);
         } else {
             invitation = invitations.requireUsableHash(invitationTokenHash, normalizedEmail);
-            if (invitations.isTrial(invitation)) {
+            if (invitations.isTrial(invitation) && !deferOrganizationCreation) {
                 invitations.requireOrganizationName(organizationName);
             }
             invitations.consume(invitation, normalizedEmail);
@@ -108,15 +121,19 @@ public class IdentityAuthenticationService {
             .status("active")
             .lastLoginAt(Instant.now())
             .build());
-        if (invitation == null || invitations.isTrial(invitation)) {
+        if ((invitation == null || invitations.isTrial(invitation)) && !deferOrganizationCreation) {
             organizations.createTrialOrganization(organizationName, normalizedEmail);
-        } else {
+        } else if (invitation != null && !invitations.isTrial(invitation)) {
             members.save(Member.builder().orgId(invitation.getOrgId()).userEmail(normalizedEmail)
                 .role("member").joinedAt(Instant.now()).build());
         }
         identities.save(LinkedIdentity.builder().provider(provider).subject(subject).userEmail(normalizedEmail)
             .providerEmail(normalizedEmail).linkedAt(Instant.now()).build());
         return user;
+    }
+
+    public boolean hasLinkedIdentity(String provider, String subject) {
+        return identities.findByProviderAndSubject(provider, subject).isPresent();
     }
 
     private String randomUnusablePassword() {

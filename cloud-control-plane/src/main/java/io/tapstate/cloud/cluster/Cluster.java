@@ -64,7 +64,7 @@ public class Cluster {
     @Schema(description = "Cluster display name", example = "Production Pipeline")
     private String name;
 
-    @Schema(description = "RFC 1123 DNS label derived from name at creation — left-most label of the public domain, globally unique among active Clusters",
+    @Schema(description = "RFC 1123 DNS label normalized from name with a stable Cluster-ID suffix — left-most label of the public domain, globally unique among active Clusters",
         example = "production-pipeline")
     private String dnsLabel;
 

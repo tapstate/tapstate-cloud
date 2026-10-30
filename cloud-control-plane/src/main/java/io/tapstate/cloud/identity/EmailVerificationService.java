@@ -94,6 +94,12 @@ public class EmailVerificationService {
 
     public User verifyAndRegister(String token, String suppliedEmail, String code, String password,
                                   String displayName, String organizationName) {
+        return verifyAndRegister(token, suppliedEmail, code, password, displayName, organizationName, false);
+    }
+
+    public User verifyAndRegister(String token, String suppliedEmail, String code, String password,
+                                  String displayName, String organizationName,
+                                  boolean deferOrganizationCreation) {
         String email = InvitationService.normalizeEmail(suppliedEmail);
         requireHmacKey();
         OrganizationInvitation invitation = resolveInvitation(token, email);
@@ -105,7 +111,7 @@ public class EmailVerificationService {
             throw new BusinessException(AppErrorCode.EMAIL_CODE_INVALID, HttpStatus.BAD_REQUEST.value());
         }
         return registrationCommitService.complete(invitation, challenge, email, password, displayName,
-            organizationName, now);
+            organizationName, now, deferOrganizationCreation);
     }
 
     public User verifyAndRegister(String token, String suppliedEmail, String code, String password, String displayName) {
