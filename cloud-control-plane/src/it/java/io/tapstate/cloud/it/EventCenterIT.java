@@ -26,9 +26,7 @@ class EventCenterIT extends BaseIT {
     void eventCenterEndToEnd() throws Exception {
         String email = "event-center-" + System.nanoTime() + "@tapstate.io";
         signupAndLogin(email, "StrongPass123!");
-        String orgId = orgsApi.create(Map.of(
-            "name", "Event Center IT",
-            "slug", "event-center-" + System.nanoTime())).getData().getId();
+        String orgId = orgsApi.create(organizationRequest("Event Center IT")).getData().getId();
 
         String policy = """
             {"name":"Critical events","enabled":true,"eventTypes":["test.alert"],
@@ -87,9 +85,7 @@ class EventCenterIT extends BaseIT {
     void crossOrganizationAccessIsRejected() throws Exception {
         String owner = "event-owner-" + System.nanoTime() + "@tapstate.io";
         signupAndLogin(owner, "StrongPass123!");
-        String orgId = orgsApi.create(Map.of(
-            "name", "Owner Org",
-            "slug", "owner-" + System.nanoTime())).getData().getId();
+        String orgId = orgsApi.create(organizationRequest("Owner Org")).getData().getId();
 
         String event = """
             {"orgId":"%s","source":"external","type":"test.alert","severity":"INFO",
@@ -110,9 +106,7 @@ class EventCenterIT extends BaseIT {
     void clusterEventPushIsScopedAndAlerts() throws Exception {
         String email = "cluster-events-" + System.nanoTime() + "@tapstate.io";
         signupAndLogin(email, "StrongPass123!");
-        String orgId = orgsApi.create(Map.of(
-            "name", "Cluster Events IT",
-            "slug", "cluster-events-" + System.nanoTime())).getData().getId();
+        String orgId = orgsApi.create(organizationRequest("Cluster Events IT")).getData().getId();
 
         String token = "cluster-event-token-" + System.nanoTime();
         String clusterId = seedCluster(orgId, token);

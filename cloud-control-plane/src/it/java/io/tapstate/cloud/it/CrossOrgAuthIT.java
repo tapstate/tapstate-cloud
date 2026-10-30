@@ -63,7 +63,7 @@ class CrossOrgAuthIT extends BaseIT {
         auth.login(new LoginRequest().email(email).password("StrongPass123!"));
         pinSessionCookie(api);
 
-        String orgId = orgs.create(Map.of("name", orgName, "slug", orgName.toLowerCase())).getData().getId();
+        String orgId = orgs.create(organizationRequest(orgName)).getData().getId();
         // Seed the subscription directly (no payment channel here) and finalize it
         // with THIS user's client, because the shared BaseIT client belongs to
         // another session and would be denied on this Organization.

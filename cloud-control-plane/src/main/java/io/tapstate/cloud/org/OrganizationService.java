@@ -32,42 +32,21 @@ public class OrganizationService {
         if (name == null || name.isBlank() || name.length() > 100) {
             throw new BusinessException(AppErrorCode.BAD_REQUEST, 400);
         }
-        return saveOrganization(name.trim(), "trial-" + java.util.UUID.randomUUID(), ownerEmail);
+        return saveOrganization(name.trim(), ownerEmail);
     }
 
     @Transactional
-    public Organization createOrganization(String name, String slug, String ownerEmail) {
+    public Organization createOrganization(String name, String ownerEmail) {
+        validateOrganizationName(name);
         if (!memberRepository.findByUserEmail(ownerEmail).isEmpty()) {
             throw new BusinessException(AppErrorCode.ORG_LIMIT_REACHED, 409);
         }
-        return saveOrganization(name, slug, ownerEmail);
+        return saveOrganization(name.trim(), ownerEmail);
     }
 
-    @Transactional
-    public Organization createOrganizationWithoutSlug(String name, String ownerEmail,
-                                                       boolean allowExistingMembership) {
-        validateOrganizationName(name);
-        List<Member> existingMemberships = memberRepository.findByUserEmail(ownerEmail);
-        if (!allowExistingMembership && !existingMemberships.isEmpty()) {
-            throw new BusinessException(AppErrorCode.ORG_LIMIT_REACHED, 409);
-        }
-        return saveOrganization(name.trim(), null, ownerEmail, false);
-    }
-
-    private Organization saveOrganization(String name, String slug, String ownerEmail) {
-        return saveOrganization(name, slug, ownerEmail, true);
-    }
-
-    private Organization saveOrganization(String name, String slug, String ownerEmail,
-                                          boolean generateSlugWhenMissing) {
-        String effectiveSlug = slug;
-        if (effectiveSlug == null && generateSlugWhenMissing) {
-            effectiveSlug = generateSlug(name);
-        }
-
+    private Organization saveOrganization(String name, String ownerEmail) {
         Organization org = Organization.builder()
             .name(name)
-            .slug(effectiveSlug)
             .ownerEmail(ownerEmail)
             .status("active")
             .createdAt(Instant.now())
@@ -106,7 +85,7 @@ public class OrganizationService {
         }
 
         String defaultOrgName = userEmail.split("@")[0] + "'s Workspace";
-        return createOrganization(defaultOrgName, null, userEmail);
+        return createOrganization(defaultOrgName, userEmail);
     }
 
     public List<Organization> listUserOrganizations(String userEmail) {
@@ -122,11 +101,4 @@ public class OrganizationService {
         return memberRepository.existsByOrgIdAndUserEmail(new ObjectId(orgId), userEmail);
     }
 
-    // ========== Helpers ==========
-
-    private String generateSlug(String name) {
-        return name.toLowerCase()
-            .replaceAll("[^a-z0-9]+", "-")
-            .replaceAll("^-|-$", "");
-    }
 }

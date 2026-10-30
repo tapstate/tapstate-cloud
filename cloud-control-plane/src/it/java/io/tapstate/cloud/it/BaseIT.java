@@ -12,6 +12,7 @@ import io.tapstate.cloud.sdk.api.SubscriptionApi;
 import io.tapstate.cloud.sdk.model.LoginRequest;
 import io.tapstate.cloud.sdk.model.LoginResult;
 import io.tapstate.cloud.sdk.model.RegisterRequest;
+import io.tapstate.cloud.sdk.model.CreateOrganizationRequest;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
 import org.bson.Document;
@@ -213,10 +214,11 @@ public abstract class BaseIT {
     protected String signupWithOrg(String orgName) throws Exception {
         long suffix = System.nanoTime();
         signupAndLogin("it-" + suffix + "@tapstate.io", "StrongPass123!");
-        return orgsApi.create(Map.of(
-            "name", orgName,
-            "slug", orgName.toLowerCase().replaceAll("[^a-z0-9]+", "-") + "-" + suffix
-        )).getData().getId();
+        return orgsApi.create(organizationRequest(orgName)).getData().getId();
+    }
+
+    protected CreateOrganizationRequest organizationRequest(String name) {
+        return new CreateOrganizationRequest().name(name);
     }
 
     /** Create an anonymous AuthApi (no session cookie) — for unauthenticated endpoint tests. */

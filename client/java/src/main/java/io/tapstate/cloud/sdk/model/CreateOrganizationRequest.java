@@ -27,21 +27,21 @@ import java.net.URLEncoder;
 import java.util.StringJoiner;
 
 /**
- * CreateOrganizationV2Request
+ * CreateOrganizationRequest
  */
 @JsonPropertyOrder({
-  CreateOrganizationV2Request.JSON_PROPERTY_NAME
+  CreateOrganizationRequest.JSON_PROPERTY_NAME
 })
 @jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", comments = "Generator version: 7.25.0")
-public class CreateOrganizationV2Request {
+public class CreateOrganizationRequest {
   public static final String JSON_PROPERTY_NAME = "name";
   @jakarta.annotation.Nonnull
   private String name;
 
-  public CreateOrganizationV2Request() {
+  public CreateOrganizationRequest() {
   }
 
-  public CreateOrganizationV2Request name(@jakarta.annotation.Nonnull String name) {
+  public CreateOrganizationRequest name(@jakarta.annotation.Nonnull String name) {
 
     this.name = name;
     return this;
@@ -75,8 +75,8 @@ public class CreateOrganizationV2Request {
     if (o == null || getClass() != o.getClass()) {
       return false;
     }
-    CreateOrganizationV2Request createOrganizationV2Request = (CreateOrganizationV2Request) o;
-    return Objects.equals(this.name, createOrganizationV2Request.name);
+    CreateOrganizationRequest createOrganizationRequest = (CreateOrganizationRequest) o;
+    return Objects.equals(this.name, createOrganizationRequest.name);
   }
 
   @Override
@@ -87,7 +87,7 @@ public class CreateOrganizationV2Request {
   @Override
   public String toString() {
     StringBuilder sb = new StringBuilder();
-    sb.append("class CreateOrganizationV2Request {\n");
+    sb.append("class CreateOrganizationRequest {\n");
     sb.append("    name: ").append(toIndentedString(name)).append("\n");
     sb.append("}");
     return sb.toString();

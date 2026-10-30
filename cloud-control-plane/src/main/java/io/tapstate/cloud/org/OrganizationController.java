@@ -11,6 +11,9 @@ import io.tapstate.cloud.common.api.AppErrorCode;
 import io.tapstate.cloud.common.api.BaseController;
 import io.tapstate.cloud.common.api.BusinessException;
 import io.tapstate.cloud.common.CurrentUser;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
 import org.bson.types.ObjectId;
 import org.springframework.http.HttpStatus;
@@ -18,7 +21,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
-import java.util.Map;
 
 /**
  * Organization endpoints — create, list, membership.
@@ -56,29 +58,23 @@ public class OrganizationController extends BaseController {
     @PostMapping
     @Operation(
         summary = "Create new organization (user becomes owner automatically)",
-        description = "Creates a new Organization and adds the caller as its first member with owner role. " +
+        description = "Creates a new Organization from its display name and adds the caller as its owner. " +
                       "The Organization starts with no subscriptions — create them explicitly via " +
-                      "POST /v1/api/orgs/{orgId}/subscriptions. " +
-                      "Organization slug must be unique system-wide (lowercase, hyphenated)."
+                      "POST /v1/api/orgs/{orgId}/subscriptions."
     )
     @ApiResponses(value = {
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Organization created"),
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Invalid input (missing name/slug, slug format)"),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Organization name is invalid"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "Not authenticated"),
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "Slug already taken or account already belongs to an organization")
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "Account already belongs to an organization")
     })
     public ResponseEntity<ApiResponse<OrganizationResponse>> create(
-            @io.swagger.v3.oas.annotations.parameters.RequestBody(description = "Organization create payload: {\"name\": \"Acme Corp\", \"slug\": \"acme-corp\"}")
-            @RequestBody Map<String, String> request) {
+            @Valid @RequestBody CreateOrganizationRequest request) {
         String userEmail = CurrentUser.getEmail();
         if (userEmail == null) {
             return fail(AppErrorCode.UNAUTHORIZED, HttpStatus.UNAUTHORIZED);
         }
-        Organization org = organizationService.createOrganization(
-            request.get("name"),
-            request.get("slug"),
-            userEmail
-        );
+        Organization org = organizationService.createOrganization(request.name(), userEmail);
         return ok(OrganizationResponse.from(org));
     }
 
@@ -117,14 +113,17 @@ public class OrganizationController extends BaseController {
     public record OrganizationResponse(
         @Schema(description = "Organization UUID") String id,
         @Schema(description = "Organization display name") String name,
-        @Schema(description = "URL-friendly slug (lowercase, hyphenated, unique)") String slug,
         @Schema(description = "Owner user email") String ownerEmail,
         @Schema(description = "Organization status: ACTIVE / SUSPENDED") String status
     ) {
         public static OrganizationResponse from(Organization org) {
             return new OrganizationResponse(
                 org.getId() != null ? org.getId().toHexString() : null,
-                org.getName(), org.getSlug(), org.getOwnerEmail(), org.getStatus());
+                org.getName(), org.getOwnerEmail(), org.getStatus());
         }
     }
+
+    public record CreateOrganizationRequest(
+        @NotBlank @Size(max = 100) String name
+    ) {}
 }

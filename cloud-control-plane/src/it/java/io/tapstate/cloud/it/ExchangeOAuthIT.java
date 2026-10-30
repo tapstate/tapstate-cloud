@@ -34,9 +34,7 @@ class ExchangeOAuthIT extends BaseIT {
     private String[] setupProvisionedCluster() throws Exception {
         signupAndLogin("exchange@tapstate.io", "StrongPass123!");
 
-        String orgId = orgsApi.create(Map.of(
-            "name", "Exchange",
-            "slug", "exchange")).getData().getId();
+        String orgId = orgsApi.create(organizationRequest("Exchange")).getData().getId();
 
         seedProvisionedSubscription(orgId, "2c8g", "ap-southeast-1", "ExchangeCluster");
 

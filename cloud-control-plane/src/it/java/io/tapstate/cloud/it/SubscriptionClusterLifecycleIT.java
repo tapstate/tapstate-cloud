@@ -45,10 +45,7 @@ class SubscriptionClusterLifecycleIT extends BaseIT {
     void setUpOrg() throws Exception {
         userEmail = "lifecycle-" + System.nanoTime() + "@tapstate.io";
         signupAndLogin(userEmail, "StrongPass123!");
-        orgId = orgsApi.create(Map.of(
-            "name", "Lifecycle-Test",
-            "slug", "lifecycle-" + System.nanoTime()
-        )).getData().getId();
+        orgId = orgsApi.create(organizationRequest("Lifecycle-Test")).getData().getId();
     }
 
     // ========== Raw Mongo helpers ==========
