@@ -151,18 +151,19 @@ public class ClusterService {
 
     private String uniqueDnsLabel(String baseDnsLabel, ObjectId clusterId) {
         String clusterIdSuffix = clusterId.toHexString();
+        String candidate = clusterIdSuffix;
         for (int attempt = 0; attempt < 100; attempt++) {
             String suffix = attempt == 0 ? clusterIdSuffix : clusterIdSuffix + "-" + attempt;
             int prefixLength = DnsLabels.MAX_LABEL_LENGTH - suffix.length() - 1;
             String prefix = baseDnsLabel.substring(0, Math.min(baseDnsLabel.length(), prefixLength))
                 .replaceAll("-+$", "");
-            String candidate = prefix + "-" + suffix;
+            candidate = prefix + "-" + suffix;
             if (DnsLabels.isValidLabel(candidate)
                     && !clusterRepository.existsByDnsLabelAndStateNot(candidate, ClusterState.TERMINATED)) {
                 return candidate;
             }
         }
-        throw new BusinessException(AppErrorCode.CLUSTER_DNS_LABEL_CONFLICT, 409, clusterIdSuffix);
+        throw new BusinessException(AppErrorCode.CLUSTER_DNS_LABEL_CONFLICT, 409, candidate);
     }
 
     /**

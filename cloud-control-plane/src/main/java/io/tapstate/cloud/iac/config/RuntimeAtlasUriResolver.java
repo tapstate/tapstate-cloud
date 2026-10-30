@@ -83,6 +83,15 @@ public class RuntimeAtlasUriResolver {
      *                      connection string
      */
     public String resolve(Cluster cluster) {
+        return resolve(cluster, true);
+    }
+
+    /** Resolve an already READY allocation for HTTP callers without polling provisioning. */
+    public String resolveReady(Cluster cluster) {
+        return resolve(cluster, false);
+    }
+
+    private String resolve(Cluster cluster, boolean waitForReady) {
         ObjectId allocationId = cluster.getMdbAllocationId();
         String clusterId = cluster.getId().toHexString();
 
@@ -99,7 +108,7 @@ public class RuntimeAtlasUriResolver {
             return globalUri == null ? "" : globalUri;
         }
 
-        MdbAllocation allocation = awaitReady(allocationId, clusterId);
+        MdbAllocation allocation = waitForReady ? awaitReady(allocationId, clusterId) : readyAllocation(allocationId);
         MdbCluster mdbCluster = mdbClusterRepository.findById(allocation.getMdbClusterId())
             .orElseThrow(() -> new IacException(AppErrorCode.IAC_MDB_NOT_READY,
                 "parent MdbCluster " + allocation.getMdbClusterId() + " not found"));
@@ -115,6 +124,13 @@ public class RuntimeAtlasUriResolver {
             clusterId, allocationId.toHexString(), mdbCluster.getId().toHexString(),
             allocation.getDatabaseName(), allocation.getDbUsername());
         return uri;
+    }
+
+    private MdbAllocation readyAllocation(ObjectId allocationId) {
+        return allocationRepository.findById(allocationId)
+            .filter(allocation -> allocation.getStatus() == MdbAllocationStatus.READY)
+            .orElseThrow(() -> new IacException(AppErrorCode.IAC_MDB_NOT_READY,
+                "MdbAllocation " + allocationId + " is not READY"));
     }
 
     /** Poll the allocation until READY; fail coded on terminal state or timeout. */

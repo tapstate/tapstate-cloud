@@ -21,6 +21,7 @@ import static org.mockito.ArgumentMatchers.any;
 /** Real single-document competition and stale snapshots, with no infrastructure or external Cloud calls. */
 @Testcontainers(disabledWithoutDocker = true)
 class ClusterConfigurationInitializationMongoTest {
+    private static final String FIELD = ClusterConfigurationInitialization.FIELD;
     @Container static final MongoDBContainer MONGO = new MongoDBContainer("mongo:7.0");
     private MongoClient client;
     private MongoTemplate mongo;
@@ -36,13 +37,76 @@ class ClusterConfigurationInitializationMongoTest {
             .configurationInitialization(ClusterConfigurationInitialization.available()).build();
         mongo.insert(cluster);
         resolver = mock(RuntimeAtlasUriResolver.class);
-        when(resolver.resolve(any())).thenReturn("mongodb://fixture/config");
+        when(resolver.resolveReady(any())).thenReturn("mongodb://fixture/config");
         service = new ClusterConfigurationInitializationService(mongo, resolver);
         hash = ClusterConfigurationInitializationService.fingerprint("mongodb://fixture/config");
     }
     @AfterEach void close() { if (client != null) client.close(); }
     private String id() { return cluster.getId().toHexString(); }
     private Document stored() { return mongo.getCollection("clusters").find(new Document("_id", cluster.getId())).first(); }
+
+    @Test void uuidRequestCaseDoesNotChangeTheCanonicalOwnerOrOperation() {
+        String boot = "f550e840-e29b-41d4-a716-446655440001";
+        var claimed = service.claim(id(), cluster.getSdkStaticToken(), boot.toUpperCase(Locale.ROOT), hash);
+        assertThat(claimed.creationGranted()).isTrue();
+        assertThat(stored().get(FIELD, Document.class).getString("ownerBootId")).isEqualTo(boot);
+        assertThat(service.claim(id(), cluster.getSdkStaticToken(), boot, hash)).isEqualTo(claimed);
+        var completed = service.complete(id(), cluster.getSdkStaticToken(), claimed.operationId().toUpperCase(Locale.ROOT), hash);
+        assertThat(completed.operationId()).isEqualTo(claimed.operationId());
+        assertThat(completed.phase()).isEqualTo("COMPLETE");
+        assertThat(service.complete(id(), cluster.getSdkStaticToken(), claimed.operationId(), hash)).isEqualTo(completed);
+        assertThat(service.claim(id(), cluster.getSdkStaticToken(), boot.toUpperCase(Locale.ROOT), hash).creationGranted()).isFalse();
+    }
+
+    @Test void requestAliasesDoNotRelaxMalformedUuidHashOrPersistedFacetValidation() {
+        Document before = stored();
+        String valid = "f550e840-e29b-41d4-a716-446655440001";
+        for (String invalid : List.of("1-1-1-1-1", " " + valid, valid + " ", valid.replace("-", ""))) {
+            assertThatThrownBy(() -> service.claim(id(), cluster.getSdkStaticToken(), invalid, hash)).isInstanceOf(BusinessException.class);
+            assertThat(stored()).isEqualTo(before);
+        }
+        assertThat(hash.toUpperCase(Locale.ROOT)).isNotEqualTo(hash);
+        assertThatThrownBy(() -> service.claim(id(), cluster.getSdkStaticToken(), valid, hash.toUpperCase(Locale.ROOT)))
+            .isInstanceOf(BusinessException.class);
+        assertThat(stored()).isEqualTo(before);
+        service.claim(id(), cluster.getSdkStaticToken(), valid, hash);
+        mongo.getCollection("clusters").updateOne(new Document("_id", cluster.getId()),
+            new Document("$set", new Document(FIELD + ".ownerBootId", valid.toUpperCase(Locale.ROOT))));
+        before = stored();
+        assertThatThrownBy(() -> service.claim(id(), cluster.getSdkStaticToken(), valid, hash)).isInstanceOf(BusinessException.class);
+        assertThat(stored()).isEqualTo(before);
+    }
+
+    @Test void pendingAllocationReturns503AfterOneReadWithoutChangingAuthority() throws Exception {
+        var allocations = mock(io.tapstate.cloud.mdb.MdbAllocationRepository.class);
+        var parents = mock(io.tapstate.cloud.mdb.MdbClusterRepository.class);
+        var allocationId = new ObjectId();
+        var pending = io.tapstate.cloud.mdb.MdbAllocation.builder().id(allocationId)
+            .status(io.tapstate.cloud.mdb.MdbAllocationStatus.PROVISIONING).build();
+        var reads = new java.util.concurrent.atomic.AtomicInteger();
+        when(allocations.findById(allocationId)).thenAnswer(ignored -> {
+            if (reads.incrementAndGet() > 1) throw new AssertionError("initialization HTTP must not poll allocation readiness");
+            return Optional.of(pending);
+        });
+        mongo.getCollection("clusters").updateOne(new Document("_id", cluster.getId()),
+            new Document("$set", new Document("mdbAllocationId", allocationId)));
+        Document before = stored();
+        var endpoint = new RuntimeAtlasUriResolver(allocations, parents, new io.tapstate.cloud.iac.IacProperties(), false);
+        var actual = new ClusterConfigurationInitializationService(mongo, endpoint);
+        var http = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(
+            new ClusterConfigurationInitializationController(actual))
+            .setControllerAdvice(new io.tapstate.cloud.common.api.GlobalExceptionHandler()).build();
+        var response = http.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(
+                "/v1/api/clusters/" + id() + "/configuration-initialization/claim")
+                .header("Authorization", "Bearer " + cluster.getSdkStaticToken()).contentType("application/json")
+                .content(new Document("bootId", UUID.randomUUID().toString()).append("configurationHash", hash).toJson()))
+            .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isServiceUnavailable())
+            .andReturn().getResponse().getContentAsString();
+        assertThat(Document.parse(response).getString("code")).isEqualTo("cluster.configuration-initialization-unavailable");
+        assertThat(stored()).isEqualTo(before);
+        verify(allocations).findById(allocationId);
+        verifyNoInteractions(parents);
+    }
 
     @Test void concurrentBootsHaveOneOwnerAndCompletedAuthorityNeverReopens() throws Exception {
         String first = UUID.randomUUID().toString(), second = UUID.randomUUID().toString();
@@ -104,7 +168,7 @@ class ClusterConfigurationInitializationMongoTest {
     }
 
     @Test void sidecarProofMatchesTheEndpointActuallyRenderedForTheRuntime() {
-        when(resolver.resolve(any())).thenReturn("");
+        when(resolver.resolveReady(any())).thenReturn("");
         String actual = ClusterRuntimeConfigs.effectiveAtlasUri("");
         assertThat(actual).isEqualTo("mongodb://tapstate-mongo:27017/tapstate_cluster");
         assertThat(service.claim(id(), cluster.getSdkStaticToken(), UUID.randomUUID().toString(),
@@ -113,7 +177,7 @@ class ClusterConfigurationInitializationMongoTest {
 
     @Test void allocationUnavailabilityReturns503WithoutChangingAuthority() throws Exception {
         Document before = stored().get(ClusterConfigurationInitialization.FIELD, Document.class);
-        when(resolver.resolve(any())).thenThrow(new io.tapstate.cloud.iac.IacException(
+        when(resolver.resolveReady(any())).thenThrow(new io.tapstate.cloud.iac.IacException(
             io.tapstate.cloud.common.api.AppErrorCode.IAC_MDB_NOT_READY, "allocation-private-detail"));
         var http = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(
             new ClusterConfigurationInitializationController(service))

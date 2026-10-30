@@ -13,6 +13,8 @@ import org.bson.types.ObjectId;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -21,6 +23,9 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 /**
  * Unit tests for {@link RuntimeAtlasUriResolver} — the bridge that makes the
@@ -89,6 +94,7 @@ class RuntimeAtlasUriResolverTest {
             "mongodb+srv://owner_mdb_" + clusterHex() + ":pw@tapstate-shared.mongodb.net/"
                 + "mdb_" + clusterHex() + "?authSource=admin",
             uri);
+        assertEquals(uri, resolver.resolveReady(clusterWithAllocation()));
     }
 
     @Test
@@ -106,6 +112,41 @@ class RuntimeAtlasUriResolverTest {
         assertEquals(AppErrorCode.IAC_MDB_NOT_READY, ex.errorCode());
     }
 
+    @ParameterizedTest
+    @EnumSource(value = MdbAllocationStatus.class, names = "READY", mode = EnumSource.Mode.EXCLUDE)
+    void initializationRejectsEveryNonReadyAllocationWithoutPolling(MdbAllocationStatus status) {
+        when(allocationRepository.findById(allocationId)).thenReturn(Optional.of(
+            MdbAllocation.builder().id(allocationId).status(status).build()));
+
+        assertEquals(AppErrorCode.IAC_MDB_NOT_READY,
+            assertThrows(IacException.class, () -> resolver.resolveReady(clusterWithAllocation())).errorCode());
+        verify(allocationRepository).findById(allocationId);
+        verifyNoInteractions(mdbClusterRepository);
+    }
+
+    @Test
+    void initializationRejectsMissingAllocationWithoutPolling() {
+        when(allocationRepository.findById(allocationId)).thenReturn(Optional.empty());
+
+        assertEquals(AppErrorCode.IAC_MDB_NOT_READY,
+            assertThrows(IacException.class, () -> resolver.resolveReady(clusterWithAllocation())).errorCode());
+        verify(allocationRepository).findById(allocationId);
+        verifyNoInteractions(mdbClusterRepository);
+    }
+
+    @Test
+    void provisioningStillWaitsForTheLinkedAllocation() {
+        when(allocationRepository.findById(allocationId)).thenReturn(
+            Optional.of(MdbAllocation.builder().id(allocationId).status(MdbAllocationStatus.PROVISIONING).build()),
+            Optional.of(readyAllocation()));
+        when(mdbClusterRepository.findById(mdbClusterId)).thenReturn(Optional.of(
+            MdbCluster.builder().id(mdbClusterId).connectionString("mongodb+srv://tapstate-shared.mongodb.net").build()));
+
+        assertEquals("mongodb+srv://owner_mdb_" + clusterHex() + ":pw@tapstate-shared.mongodb.net/"
+            + "mdb_" + clusterHex() + "?authSource=admin", resolver.resolve(clusterWithAllocation()));
+        verify(allocationRepository, times(2)).findById(allocationId);
+    }
+
     @Test
     void deletedAllocationIsRejected() {
         MdbAllocation deleted = MdbAllocation.builder()
@@ -117,6 +158,8 @@ class RuntimeAtlasUriResolverTest {
 
         assertEquals(AppErrorCode.IAC_MDB_NOT_READY,
             assertThrows(IacException.class, () -> resolver.resolve(clusterWithAllocation())).errorCode());
+        assertEquals(AppErrorCode.IAC_MDB_NOT_READY,
+            assertThrows(IacException.class, () -> resolver.resolveReady(clusterWithAllocation())).errorCode());
     }
 
     @Test
@@ -135,6 +178,8 @@ class RuntimeAtlasUriResolverTest {
         cluster.setId(new ObjectId());
 
         assertEquals("mongodb+srv://global-fallback.example", resolver.resolve(cluster));
+        assertEquals("mongodb+srv://global-fallback.example", resolver.resolveReady(cluster));
+        verifyNoInteractions(allocationRepository, mdbClusterRepository);
     }
 
     @Test
@@ -144,6 +189,8 @@ class RuntimeAtlasUriResolverTest {
         cluster.setId(new ObjectId());
 
         assertEquals("", resolver.resolve(cluster));
+        assertEquals("", resolver.resolveReady(cluster));
+        verifyNoInteractions(allocationRepository, mdbClusterRepository);
     }
 
     @Test
@@ -156,6 +203,9 @@ class RuntimeAtlasUriResolverTest {
 
         assertEquals("mongodb+srv://global-fallback.example",
             mockResolver.resolve(clusterWithAllocation()));
+        assertEquals("mongodb+srv://global-fallback.example",
+            mockResolver.resolveReady(clusterWithAllocation()));
+        verifyNoInteractions(allocationRepository, mdbClusterRepository);
     }
 
     @Test
@@ -165,5 +215,7 @@ class RuntimeAtlasUriResolverTest {
             allocationRepository, mdbClusterRepository, properties, true);
 
         assertEquals("", mockResolver.resolve(clusterWithAllocation()));
+        assertEquals("", mockResolver.resolveReady(clusterWithAllocation()));
+        verifyNoInteractions(allocationRepository, mdbClusterRepository);
     }
 }

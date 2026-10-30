@@ -121,6 +121,22 @@ class ClusterServiceDnsNameTest {
     }
 
     @Test
+    void exhaustedDnsCandidatesReportTheActualLastLabel() {
+        var candidates = new java.util.ArrayList<String>();
+        when(clusterRepository.existsByDnsLabelAndStateNot(anyString(), any())).thenAnswer(invocation -> {
+            candidates.add(invocation.getArgument(0));
+            return true;
+        });
+        assertThatThrownBy(() -> clusterService.createCluster(orgId, new ObjectId(),
+            "ap-southeast-1", "Production", "basic", "user@example.com", "1.0.0"))
+            .isInstanceOfSatisfying(BusinessException.class, failure -> {
+                assertThat(failure.getErrorCode()).isEqualTo(AppErrorCode.CLUSTER_DNS_LABEL_CONFLICT);
+                assertThat(candidates).hasSize(100);
+                assertThat(failure.getParams()).containsExactly(candidates.getLast());
+            });
+    }
+
+    @Test
     void mapsNameIndexDuplicateFromConcurrentInsert() {
         when(clusterRepository.save(any(Cluster.class)))
             .thenThrow(new DuplicateKeyException(

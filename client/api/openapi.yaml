@@ -2131,6 +2131,7 @@ components:
         bootId:
           type: string
           format: uuid
+          description: Full hyphenated UUID; case aliases are normalized to the canonical lowercase identity.
         configurationHash:
           type: string
           pattern: '^[0-9a-f]{64}$'
@@ -2142,6 +2143,7 @@ components:
         operationId:
           type: string
           format: uuid
+          description: Original operation UUID; case aliases are normalized to the canonical lowercase identity.
         configurationHash:
           type: string
           pattern: '^[0-9a-f]{64}$'
