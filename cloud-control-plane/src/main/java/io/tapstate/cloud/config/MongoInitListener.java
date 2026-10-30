@@ -200,7 +200,6 @@ public class MongoInitListener implements ApplicationListener<ApplicationReadyEv
 
     private boolean mustHaveIndexes(String className) {
         return Cluster.class.getName().equals(className)
-            || "io.tapstate.cloud.org.Organization".equals(className)
             || "io.tapstate.cloud.org.Member".equals(className)
             || "io.tapstate.cloud.identity.LinkedIdentity".equals(className)
             || "io.tapstate.cloud.identity.OrganizationInvitation".equals(className)

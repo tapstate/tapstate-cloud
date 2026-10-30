@@ -230,12 +230,6 @@ public class AuthController extends BaseController {
             oauthRequest.deferOrganizationCreation());
         session.setAttribute("TAPSTATE_OAUTH_TRIAL_INVITATION",
             oauthRequest.deferOrganizationCreation() && trialInvitation);
-        if (oauthRequest.deferOrganizationCreation() && trialInvitation) {
-            session.setAttribute("TAPSTATE_OAUTH_TRIAL_ORGANIZATION_CREATION_KEY",
-                java.util.UUID.randomUUID().toString());
-        } else {
-            session.removeAttribute("TAPSTATE_OAUTH_TRIAL_ORGANIZATION_CREATION_KEY");
-        }
         return ok(new OAuthStartResult(request.getContextPath() + "/oauth2/authorization/" + provider));
     }
 

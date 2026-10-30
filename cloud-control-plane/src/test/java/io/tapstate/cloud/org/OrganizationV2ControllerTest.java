@@ -1,8 +1,5 @@
 package io.tapstate.cloud.org;
 
-import io.tapstate.cloud.common.CurrentUser;
-import io.tapstate.cloud.common.api.AppErrorCode;
-import io.tapstate.cloud.common.api.BusinessException;
 import io.tapstate.cloud.identity.InvitationService;
 import org.bson.types.ObjectId;
 import org.junit.jupiter.api.AfterEach;
@@ -13,13 +10,12 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.util.List;
-import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.anyBoolean;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 class OrganizationV2ControllerTest {
 
@@ -35,70 +31,42 @@ class OrganizationV2ControllerTest {
     }
 
     @Test
-    void retryAfterTrialInvitationConsumptionReusesTheGrantCreationKey() {
+    void createsAnOrganizationWithoutASlugForAnAuthenticatedOwner() {
         authenticateAsOwner();
-        Organization existing = Organization.builder().id(new ObjectId()).name("Second Workspace")
-            .ownerEmail("owner@example.com").creationKey("trial:grant-key").build();
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        MockHttpSession session = new MockHttpSession();
-        session.setAttribute(InvitationService.PENDING_TRIAL_ORGANIZATION_CREATION_KEY_SESSION_ATTRIBUTE,
-            "grant-key");
-        request.setSession(session);
-        when(organizationService.findCreatedOrganization("trial:grant-key", "owner@example.com", "Second Workspace"))
-            .thenReturn(Optional.of(existing));
+        Organization created = Organization.builder()
+            .id(new ObjectId()).name("FLY").ownerEmail("owner@example.com").build();
+        when(organizationService.createOrganizationWithoutSlug("FLY", "owner@example.com", false))
+            .thenReturn(created);
 
         var response = controller.create(
-            new OrganizationV2Controller.CreateOrganizationRequest("Second Workspace"), request);
+            new OrganizationV2Controller.CreateOrganizationRequest("FLY"), new MockHttpServletRequest());
 
         assertThat(response.getStatusCode().value()).isEqualTo(200);
-        verify(organizationService, never()).createOrganizationWithoutSlug(anyString(), anyString(), anyBoolean(), anyString());
+        verify(organizationService).createOrganizationWithoutSlug("FLY", "owner@example.com", false);
         verifyNoInteractions(invitationService);
     }
 
     @Test
-    void consumesPendingTrialInvitationAndKeepsItsCreationKeyForRetries() {
+    void validatesAndConsumesThePendingTrialInvitationWhenCreatingAnOrganization() {
         authenticateAsOwner();
-        Organization created = Organization.builder().id(new ObjectId()).name("Second Workspace")
-            .ownerEmail("owner@example.com").creationKey("trial:grant-key").build();
+        Organization created = Organization.builder()
+            .id(new ObjectId()).name("Second Workspace").ownerEmail("owner@example.com").build();
+        when(organizationService.createOrganizationWithoutSlug(
+            "Second Workspace", "owner@example.com", true)).thenReturn(created);
         MockHttpServletRequest request = new MockHttpServletRequest();
         MockHttpSession session = new MockHttpSession();
         session.setAttribute(InvitationService.PENDING_TRIAL_ORGANIZATION_SESSION_ATTRIBUTE, "invite-hash");
-        session.setAttribute(InvitationService.PENDING_TRIAL_ORGANIZATION_CREATION_KEY_SESSION_ATTRIBUTE,
-            "grant-key");
         request.setSession(session);
-        when(organizationService.findCreatedOrganization("trial:grant-key", "owner@example.com", "Second Workspace"))
-            .thenReturn(Optional.empty());
-        when(organizationService.createOrganizationWithoutSlug(
-            "Second Workspace", "owner@example.com", true, "trial:grant-key")).thenReturn(created);
 
         var response = controller.create(
             new OrganizationV2Controller.CreateOrganizationRequest("Second Workspace"), request);
 
         assertThat(response.getStatusCode().value()).isEqualTo(200);
         verify(invitationService).requireUsableTrialHash("invite-hash", "owner@example.com");
+        verify(organizationService).createOrganizationWithoutSlug(
+            "Second Workspace", "owner@example.com", true);
         verify(invitationService).consumeTrialHash("invite-hash", "owner@example.com");
         assertThat(session.getAttribute(InvitationService.PENDING_TRIAL_ORGANIZATION_SESSION_ATTRIBUTE)).isNull();
-        assertThat(session.getAttribute(
-            InvitationService.PENDING_TRIAL_ORGANIZATION_CREATION_KEY_SESSION_ATTRIBUTE)).isEqualTo("grant-key");
-    }
-
-    @Test
-    void retainedTrialCreationKeyCannotCreateAnOrganizationWithoutItsPendingInvitation() {
-        authenticateAsOwner();
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        MockHttpSession session = new MockHttpSession();
-        session.setAttribute(InvitationService.PENDING_TRIAL_ORGANIZATION_CREATION_KEY_SESSION_ATTRIBUTE,
-            "grant-key");
-        request.setSession(session);
-        when(organizationService.findCreatedOrganization("trial:grant-key", "owner@example.com", "Second Workspace"))
-            .thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> controller.create(
-            new OrganizationV2Controller.CreateOrganizationRequest("Second Workspace"), request))
-            .isInstanceOfSatisfying(BusinessException.class, exception ->
-                assertThat(exception.getErrorCode()).isEqualTo(AppErrorCode.ORG_LIMIT_REACHED));
-        verify(organizationService, never()).createOrganizationWithoutSlug(anyString(), anyString(), anyBoolean(), anyString());
-        verifyNoInteractions(invitationService);
     }
 
     private void authenticateAsOwner() {

@@ -202,8 +202,6 @@ class OAuthAuthenticationSuccessHandlerTest {
         session.setAttribute("TAPSTATE_OAUTH_TRIAL_INVITATION", true);
         session.setAttribute(AuthController.SESSION_USER_EMAIL, "previous@example.com");
         session.setAttribute(InvitationService.PENDING_TRIAL_ORGANIZATION_SESSION_ATTRIBUTE, "old-invite");
-        session.setAttribute(InvitationService.PENDING_TRIAL_ORGANIZATION_CREATION_KEY_SESSION_ATTRIBUTE,
-            "old-grant-key");
         request.setSession(session);
         MockHttpServletResponse response = new MockHttpServletResponse();
 
@@ -213,7 +211,6 @@ class OAuthAuthenticationSuccessHandlerTest {
             response.getRedirectedUrl());
         assertEquals("guest@example.com", session.getAttribute(AuthController.SESSION_USER_EMAIL));
         assertNull(session.getAttribute(InvitationService.PENDING_TRIAL_ORGANIZATION_SESSION_ATTRIBUTE));
-        assertNull(session.getAttribute(InvitationService.PENDING_TRIAL_ORGANIZATION_CREATION_KEY_SESSION_ATTRIBUTE));
         verify(identities).authenticate("google", "google-subject", "guest@example.com", true,
             "Guest", "signup", "previous@example.com", null, "invitation-digest", null, true);
     }
@@ -242,8 +239,6 @@ class OAuthAuthenticationSuccessHandlerTest {
             response.getRedirectedUrl());
         assertEquals("invitation-digest",
             session.getAttribute(InvitationService.PENDING_TRIAL_ORGANIZATION_SESSION_ATTRIBUTE));
-        assertNotNull(session.getAttribute(
-            InvitationService.PENDING_TRIAL_ORGANIZATION_CREATION_KEY_SESSION_ATTRIBUTE));
     }
 
     private OAuthAuthenticationSuccessHandler handler(IdentityAuthenticationService identities) {

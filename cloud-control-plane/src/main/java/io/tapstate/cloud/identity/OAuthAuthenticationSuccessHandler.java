@@ -122,9 +122,6 @@ public class OAuthAuthenticationSuccessHandler implements AuthenticationSuccessH
                 || (trialInvitation && invitation != null));
         if (deferOrganizationCreation && trialInvitation && linkedIdentity && invitation != null) {
             session.setAttribute(InvitationService.PENDING_TRIAL_ORGANIZATION_SESSION_ATTRIBUTE, invitation);
-            Object creationKey = session.getAttribute("TAPSTATE_OAUTH_TRIAL_ORGANIZATION_CREATION_KEY");
-            session.setAttribute(InvitationService.PENDING_TRIAL_ORGANIZATION_CREATION_KEY_SESSION_ATTRIBUTE,
-                creationKey instanceof String key ? key : java.util.UUID.randomUUID().toString());
         }
 
         request.changeSessionId();

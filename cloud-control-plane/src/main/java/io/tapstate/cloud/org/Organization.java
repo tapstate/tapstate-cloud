@@ -8,7 +8,6 @@ import lombok.NoArgsConstructor;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.annotation.LastModifiedDate;
-import org.springframework.data.mongodb.core.index.CompoundIndex;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.Instant;
@@ -25,8 +24,6 @@ import org.bson.types.ObjectId;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@CompoundIndex(name = "organization_creation_key_unique", def = "{'creationKey': 1}", unique = true,
-    partialFilter = "{'creationKey': {'$type': 'string'}}")
 @Schema(description = "Organization — isolation boundary for Clusters and resources")
 public class Organization {
 
@@ -42,9 +39,6 @@ public class Organization {
 
     @Schema(description = "Owner user email")
     private String ownerEmail;
-
-    @Schema(hidden = true)
-    private String creationKey;
 
     @Builder.Default
     @Schema(description = "Organization status", allowableValues = {"active", "suspended"})

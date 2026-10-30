@@ -39,8 +39,6 @@ public class InvitationService {
 
     public static final String PENDING_TRIAL_ORGANIZATION_SESSION_ATTRIBUTE =
         "TAPSTATE_PENDING_TRIAL_ORGANIZATION_INVITATION";
-    public static final String PENDING_TRIAL_ORGANIZATION_CREATION_KEY_SESSION_ATTRIBUTE =
-        "TAPSTATE_PENDING_TRIAL_ORGANIZATION_CREATION_KEY";
 
     private static final String INVITATION_CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
     private static final Pattern INVITATION_CODE_PATTERN =
@@ -228,8 +226,6 @@ public class InvitationService {
             throw new BusinessException(AppErrorCode.BAD_REQUEST, HttpStatus.BAD_REQUEST.value());
         }
         session.setAttribute(PENDING_TRIAL_ORGANIZATION_SESSION_ATTRIBUTE, invitation.getTokenHash());
-        session.setAttribute(PENDING_TRIAL_ORGANIZATION_CREATION_KEY_SESSION_ATTRIBUTE,
-            java.util.UUID.randomUUID().toString());
         return user;
     }
 
@@ -337,7 +333,6 @@ public class InvitationService {
     public static void clearPendingTrialOrganization(HttpSession session) {
         if (session == null) return;
         session.removeAttribute(PENDING_TRIAL_ORGANIZATION_SESSION_ATTRIBUTE);
-        session.removeAttribute(PENDING_TRIAL_ORGANIZATION_CREATION_KEY_SESSION_ATTRIBUTE);
     }
 
     private String generateInvitationCode() {

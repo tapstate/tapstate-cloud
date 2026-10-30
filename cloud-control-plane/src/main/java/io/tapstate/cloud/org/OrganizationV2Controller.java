@@ -59,30 +59,12 @@ public class OrganizationV2Controller extends BaseController {
         String pendingTrialHash = session == null ? null : (String) session.getAttribute(
             InvitationService.PENDING_TRIAL_ORGANIZATION_SESSION_ATTRIBUTE);
         if (pendingTrialHash != null && pendingTrialHash.isBlank()) pendingTrialHash = null;
-        String trialCreationKey = session == null ? null : (String) session.getAttribute(
-            InvitationService.PENDING_TRIAL_ORGANIZATION_CREATION_KEY_SESSION_ATTRIBUTE);
-        if (trialCreationKey != null && trialCreationKey.isBlank()) trialCreationKey = null;
-
-        if (pendingTrialHash != null && trialCreationKey == null) {
-            trialCreationKey = java.util.UUID.randomUUID().toString();
-            session.setAttribute(InvitationService.PENDING_TRIAL_ORGANIZATION_CREATION_KEY_SESSION_ATTRIBUTE,
-                trialCreationKey);
-        }
-        String creationKey = trialCreationKey == null
-            ? "owner:" + userEmail.trim().toLowerCase(java.util.Locale.ROOT)
-            : "trial:" + trialCreationKey;
-        var existing = organizationService.findCreatedOrganization(
-            creationKey, userEmail, request.name());
-        if (existing.isPresent()) return ok(OrganizationV2Response.from(existing.get()));
-        if (trialCreationKey != null && pendingTrialHash == null) {
-            throw new BusinessException(AppErrorCode.ORG_LIMIT_REACHED, HttpStatus.CONFLICT.value());
-        }
         if (pendingTrialHash != null) {
             invitationService.requireUsableTrialHash(pendingTrialHash, userEmail);
         }
 
         Organization organization = organizationService.createOrganizationWithoutSlug(
-            request.name(), userEmail, pendingTrialHash != null, creationKey);
+            request.name(), userEmail, pendingTrialHash != null);
 
         if (pendingTrialHash != null) {
             invitationService.consumeTrialHash(pendingTrialHash, userEmail);
