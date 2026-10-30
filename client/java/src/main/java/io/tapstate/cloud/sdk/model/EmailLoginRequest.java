@@ -27,43 +27,73 @@ import java.net.URLEncoder;
 import java.util.StringJoiner;
 
 /**
- * CreateOrganizationV2Request
+ * EmailLoginRequest
  */
 @JsonPropertyOrder({
-  CreateOrganizationV2Request.JSON_PROPERTY_NAME
+  EmailLoginRequest.JSON_PROPERTY_EMAIL,
+  EmailLoginRequest.JSON_PROPERTY_CODE
 })
 @jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", comments = "Generator version: 7.25.0")
-public class CreateOrganizationV2Request {
-  public static final String JSON_PROPERTY_NAME = "name";
+public class EmailLoginRequest {
+  public static final String JSON_PROPERTY_EMAIL = "email";
   @jakarta.annotation.Nonnull
-  private String name;
+  private String email;
 
-  public CreateOrganizationV2Request() {
+  public static final String JSON_PROPERTY_CODE = "code";
+  @jakarta.annotation.Nonnull
+  private String code;
+
+  public EmailLoginRequest() {
   }
 
-  public CreateOrganizationV2Request name(@jakarta.annotation.Nonnull String name) {
+  public EmailLoginRequest email(@jakarta.annotation.Nonnull String email) {
 
-    this.name = name;
+    this.email = email;
     return this;
   }
 
   /**
-   * Organization display name
-   * @return name
+   * Get email
+   * @return email
    */
   @jakarta.annotation.Nonnull
-  @JsonProperty(value = JSON_PROPERTY_NAME, required = true)
+  @JsonProperty(value = JSON_PROPERTY_EMAIL, required = true)
   @JsonInclude(value = JsonInclude.Include.ALWAYS)
 
-  public String getName() {
-    return name;
+  public String getEmail() {
+    return email;
   }
 
 
-  @JsonProperty(value = JSON_PROPERTY_NAME, required = true)
+  @JsonProperty(value = JSON_PROPERTY_EMAIL, required = true)
   @JsonInclude(value = JsonInclude.Include.ALWAYS)
-  public void setName(@jakarta.annotation.Nonnull String name) {
-    this.name = name;
+  public void setEmail(@jakarta.annotation.Nonnull String email) {
+    this.email = email;
+  }
+
+  public EmailLoginRequest code(@jakarta.annotation.Nonnull String code) {
+
+    this.code = code;
+    return this;
+  }
+
+  /**
+   * Get code
+   * @return code
+   */
+  @jakarta.annotation.Nonnull
+  @JsonProperty(value = JSON_PROPERTY_CODE, required = true)
+  @JsonInclude(value = JsonInclude.Include.ALWAYS)
+
+  public String getCode() {
+    return code;
+  }
+
+
+  @JsonProperty(value = JSON_PROPERTY_CODE, required = true)
+  @JsonInclude(value = JsonInclude.Include.ALWAYS)
+  public void setCode(@jakarta.annotation.Nonnull String code) {
+    this.code = code;
   }
 
 
@@ -75,20 +105,22 @@ public class CreateOrganizationV2Request {
     if (o == null || getClass() != o.getClass()) {
       return false;
     }
-    CreateOrganizationV2Request createOrganizationV2Request = (CreateOrganizationV2Request) o;
-    return Objects.equals(this.name, createOrganizationV2Request.name);
+    EmailLoginRequest emailLoginRequest = (EmailLoginRequest) o;
+    return Objects.equals(this.email, emailLoginRequest.email) &&
+        Objects.equals(this.code, emailLoginRequest.code);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(name);
+    return Objects.hash(email, code);
   }
 
   @Override
   public String toString() {
     StringBuilder sb = new StringBuilder();
-    sb.append("class CreateOrganizationV2Request {\n");
-    sb.append("    name: ").append(toIndentedString(name)).append("\n");
+    sb.append("class EmailLoginRequest {\n");
+    sb.append("    email: ").append(toIndentedString(email)).append("\n");
+    sb.append("    code: ").append(toIndentedString(code)).append("\n");
     sb.append("}");
     return sb.toString();
   }
@@ -133,10 +165,20 @@ public class CreateOrganizationV2Request {
 
     StringJoiner joiner = new StringJoiner("&");
 
-    // add `name` to the URL query string
-    if (getName() != null) {
+    // add `email` to the URL query string
+    if (getEmail() != null) {
       try {
-        joiner.add(String.format(java.util.Locale.ROOT, "%sname%s=%s", prefix, suffix, URLEncoder.encode(String.valueOf(getName()), "UTF-8").replaceAll("\\+", "%20")));
+        joiner.add(String.format(java.util.Locale.ROOT, "%semail%s=%s", prefix, suffix, URLEncoder.encode(String.valueOf(getEmail()), "UTF-8").replaceAll("\\+", "%20")));
+      } catch (UnsupportedEncodingException e) {
+        // Should never happen, UTF-8 is always supported
+        throw new RuntimeException(e);
+      }
+    }
+
+    // add `code` to the URL query string
+    if (getCode() != null) {
+      try {
+        joiner.add(String.format(java.util.Locale.ROOT, "%scode%s=%s", prefix, suffix, URLEncoder.encode(String.valueOf(getCode()), "UTF-8").replaceAll("\\+", "%20")));
       } catch (UnsupportedEncodingException e) {
         // Should never happen, UTF-8 is always supported
         throw new RuntimeException(e);

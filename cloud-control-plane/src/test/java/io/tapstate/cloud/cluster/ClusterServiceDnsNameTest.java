@@ -12,14 +12,13 @@ import org.junit.jupiter.api.Test;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.mongodb.core.MongoTemplate;
 
-import java.util.concurrent.atomic.AtomicInteger;
-
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
 
 /**
  * Cluster creation must derive and persist the DNS label from the display name,
@@ -60,14 +59,13 @@ class ClusterServiceDnsNameTest {
     }
 
     @Test
-    void preservesTheDisplayNameAndDerivesADnsLabelWithTheClusterId() {
+    void preservesTheDisplayNameAndUsesItsNormalizedDnsLabel() {
         Cluster saved = clusterService.createCluster(orgId, new ObjectId(),
             "ap-southeast-1", "My Production Cluster", "basic",
             "user@example.com", "1.0.0");
 
         assertThat(saved.getName()).isEqualTo("My Production Cluster");
-        assertThat(saved.getDnsLabel()).startsWith("my-production-cluster-");
-        assertThat(saved.getDnsLabel()).endsWith(saved.getId().toHexString());
+        assertThat(saved.getDnsLabel()).isEqualTo("my-production-cluster");
         assertThat(saved.getConfigurationInitialization()).isNotNull();
         assertThat(saved.getConfigurationInitialization().phase()).isEqualTo("AVAILABLE");
         assertThat(saved.getConfigurationInitialization().formatVersion()).isEqualTo(1);
@@ -94,18 +92,18 @@ class ClusterServiceDnsNameTest {
     }
 
     @Test
-    void preservesDisplayNameAndUsesUniqueDnsLabelWhenNormalizedNameIsTaken() {
-        AtomicInteger dnsLabelChecks = new AtomicInteger();
-        when(clusterRepository.existsByDnsLabelAndStateNot(anyString(), any()))
-            .thenAnswer(invocation -> dnsLabelChecks.getAndIncrement() == 0);
+    void rejectsNormalizedDnsLabelWhenItIsAlreadyTakenGlobally() {
+        when(clusterRepository.existsByDnsLabelAndStateNot("production", ClusterState.TERMINATED))
+            .thenReturn(true);
 
-        Cluster saved = clusterService.createCluster(orgId, new ObjectId(),
-            "us-east-1", "Production", "basic", "user@example.com", "1.0.0");
-
-        assertThat(saved.getName()).isEqualTo("Production");
-        assertThat(saved.getDnsLabel()).startsWith("production-");
-        assertThat(saved.getDnsLabel()).endsWith(saved.getId().toHexString() + "-1");
-        assertThat(DnsLabels.isValidLabel(saved.getDnsLabel())).isTrue();
+        assertThatThrownBy(() -> clusterService.createCluster(orgId, new ObjectId(),
+            "us-east-1", "Production", "basic", "user@example.com", "1.0.0"))
+            .isInstanceOfSatisfying(BusinessException.class, ex -> {
+                assertThat(ex.getErrorCode()).isEqualTo(AppErrorCode.CLUSTER_DNS_LABEL_CONFLICT);
+                assertThat(ex.getHttpStatus()).isEqualTo(409);
+                assertThat(ex.getParams()).containsExactly("production");
+            });
+        verify(clusterRepository).existsByDnsLabelAndStateNot("production", ClusterState.TERMINATED);
     }
 
     @Test
@@ -118,22 +116,6 @@ class ClusterServiceDnsNameTest {
             "ap-southeast-1", "Production", "basic", "user@example.com", "1.0.0"))
             .isInstanceOfSatisfying(BusinessException.class, ex ->
                 assertThat(ex.getErrorCode()).isEqualTo(AppErrorCode.CLUSTER_DNS_LABEL_CONFLICT));
-    }
-
-    @Test
-    void exhaustedDnsCandidatesReportTheActualLastLabel() {
-        var candidates = new java.util.ArrayList<String>();
-        when(clusterRepository.existsByDnsLabelAndStateNot(anyString(), any())).thenAnswer(invocation -> {
-            candidates.add(invocation.getArgument(0));
-            return true;
-        });
-        assertThatThrownBy(() -> clusterService.createCluster(orgId, new ObjectId(),
-            "ap-southeast-1", "Production", "basic", "user@example.com", "1.0.0"))
-            .isInstanceOfSatisfying(BusinessException.class, failure -> {
-                assertThat(failure.getErrorCode()).isEqualTo(AppErrorCode.CLUSTER_DNS_LABEL_CONFLICT);
-                assertThat(candidates).hasSize(100);
-                assertThat(failure.getParams()).containsExactly(candidates.getLast());
-            });
     }
 
     @Test

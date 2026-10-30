@@ -1,6 +1,7 @@
 package io.tapstate.cloud.it;
 
 import io.tapstate.cloud.sdk.ApiException;
+import io.tapstate.cloud.sdk.model.CreateOrganizationRequest;
 import io.tapstate.cloud.sdk.model.LoginResult;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -185,9 +186,11 @@ public abstract class RealEnvIT {
     protected String resolveOrgId() throws ApiException {
         if (ORG_ID != null && !ORG_ID.isBlank()) return ORG_ID;
         long suffix = System.nanoTime();
-        return orgsApi.create(java.util.Map.of(
-            "name", "real-env-test-" + suffix,
-            "slug", "real-env-test-" + suffix)).getData().getId();
+        return orgsApi.create(organizationRequest("real-env-test-" + suffix)).getData().getId();
+    }
+
+    protected CreateOrganizationRequest organizationRequest(String name) {
+        return new CreateOrganizationRequest().name(name);
     }
 
     /** Register + login a brand-new user (self-service; works only on envs that allow it). */

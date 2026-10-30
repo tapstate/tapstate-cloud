@@ -22,6 +22,7 @@ import io.tapstate.cloud.sdk.Pair;
 
 import io.tapstate.cloud.sdk.model.ApiResponseListOrganizationResponse;
 import io.tapstate.cloud.sdk.model.ApiResponseOrganizationResponse;
+import io.tapstate.cloud.sdk.model.CreateOrganizationRequest;
 
 
 import java.util.ArrayList;
@@ -44,30 +45,30 @@ public class OrganizationsApi extends BaseApi {
 
   /**
    * Create new organization (user becomes owner automatically)
-   * Creates a new Organization and adds the caller as its first member with owner role. The Organization starts with no subscriptions — create them explicitly via POST /v1/api/orgs/{orgId}/subscriptions. Organization slug must be unique system-wide (lowercase, hyphenated).
-   * @param requestBody Organization create payload: {\&quot;name\&quot;: \&quot;Acme Corp\&quot;, \&quot;slug\&quot;: \&quot;acme-corp\&quot;} (required)
+   * Creates a new Organization from its display name and adds the caller as its first member with owner role. The Organization starts with no subscriptions — create them explicitly via POST /v1/api/orgs/{orgId}/subscriptions.
+   * @param createOrganizationRequest Organization create payload with the display name only (required)
    * @return ApiResponseOrganizationResponse
    * @throws ApiException if fails to make API call
    */
-  public ApiResponseOrganizationResponse create(@jakarta.annotation.Nonnull Map<String, String> requestBody) throws ApiException {
-    return this.create(requestBody, Collections.emptyMap());
+  public ApiResponseOrganizationResponse create(@jakarta.annotation.Nonnull CreateOrganizationRequest createOrganizationRequest) throws ApiException {
+    return this.create(createOrganizationRequest, Collections.emptyMap());
   }
 
 
   /**
    * Create new organization (user becomes owner automatically)
-   * Creates a new Organization and adds the caller as its first member with owner role. The Organization starts with no subscriptions — create them explicitly via POST /v1/api/orgs/{orgId}/subscriptions. Organization slug must be unique system-wide (lowercase, hyphenated).
-   * @param requestBody Organization create payload: {\&quot;name\&quot;: \&quot;Acme Corp\&quot;, \&quot;slug\&quot;: \&quot;acme-corp\&quot;} (required)
+   * Creates a new Organization from its display name and adds the caller as its first member with owner role. The Organization starts with no subscriptions — create them explicitly via POST /v1/api/orgs/{orgId}/subscriptions.
+   * @param createOrganizationRequest Organization create payload with the display name only (required)
    * @param additionalHeaders additionalHeaders for this call
    * @return ApiResponseOrganizationResponse
    * @throws ApiException if fails to make API call
    */
-  public ApiResponseOrganizationResponse create(@jakarta.annotation.Nonnull Map<String, String> requestBody, Map<String, String> additionalHeaders) throws ApiException {
-    Object localVarPostBody = requestBody;
+  public ApiResponseOrganizationResponse create(@jakarta.annotation.Nonnull CreateOrganizationRequest createOrganizationRequest, Map<String, String> additionalHeaders) throws ApiException {
+    Object localVarPostBody = createOrganizationRequest;
     
-    // verify the required parameter 'requestBody' is set
-    if (requestBody == null) {
-      throw new ApiException(400, "Missing the required parameter 'requestBody' when calling create");
+    // verify the required parameter 'createOrganizationRequest' is set
+    if (createOrganizationRequest == null) {
+      throw new ApiException(400, "Missing the required parameter 'createOrganizationRequest' when calling create");
     }
     
     // create path and map variables

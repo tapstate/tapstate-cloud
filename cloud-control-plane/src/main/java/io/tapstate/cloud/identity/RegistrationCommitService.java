@@ -55,8 +55,7 @@ public class RegistrationCommitService {
             throw new BusinessException(AppErrorCode.EMAIL_CODE_INVALID, HttpStatus.BAD_REQUEST.value());
         }
         if (users.existsByEmail(email)) {
-            // Keep the result indistinguishable from an invalid code to avoid exposing account existence.
-            throw new BusinessException(AppErrorCode.EMAIL_CODE_INVALID, HttpStatus.BAD_REQUEST.value());
+            throw new BusinessException(AppErrorCode.EMAIL_ALREADY_REGISTERED, HttpStatus.CONFLICT.value(), email);
         }
 
         if (invitation != null) {

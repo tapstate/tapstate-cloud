@@ -91,19 +91,19 @@ public class ClusterService {
             throw new BusinessException(AppErrorCode.CLUSTER_ALREADY_EXISTS, 409, name, orgId, region);
         }
 
-        // Keep the display name intact; normalize it for DNS and add a stable
-        // Cluster-ID suffix so concurrent creates cannot claim the same label.
-        ObjectId clusterId = new ObjectId();
-        String baseDnsLabel = DnsLabels.normalize(name);
-        if (!DnsLabels.isValidLabel(baseDnsLabel)) {
+        // Keep the display name intact and use its normalized form as the public
+        // hostname label. The shared DNS namespace rejects active collisions.
+        String dnsLabel = DnsLabels.normalize(name);
+        if (!DnsLabels.isValidLabel(dnsLabel)) {
             throw new BusinessException(AppErrorCode.CLUSTER_NAME_DNS_INVALID, 400,
-                name, baseDnsLabel, DnsLabels.MAX_LABEL_LENGTH);
+                name, dnsLabel, DnsLabels.MAX_LABEL_LENGTH);
         }
-        String dnsLabel = uniqueDnsLabel(baseDnsLabel, clusterId);
+        if (clusterRepository.existsByDnsLabelAndStateNot(dnsLabel, ClusterState.TERMINATED)) {
+            throw new BusinessException(AppErrorCode.CLUSTER_DNS_LABEL_CONFLICT, 409, dnsLabel);
+        }
 
         // ---- Cluster record ----
         Cluster cluster = Cluster.builder()
-            .id(clusterId)
             .orgId(new ObjectId(orgId))
             .subscriptionId(subscriptionId)
             .region(region)
@@ -147,23 +147,6 @@ public class ClusterService {
         log.info("Cluster created: {} (provisioning pending until started)",
             saved.getId().toHexString());
         return saved;
-    }
-
-    private String uniqueDnsLabel(String baseDnsLabel, ObjectId clusterId) {
-        String clusterIdSuffix = clusterId.toHexString();
-        String candidate = clusterIdSuffix;
-        for (int attempt = 0; attempt < 100; attempt++) {
-            String suffix = attempt == 0 ? clusterIdSuffix : clusterIdSuffix + "-" + attempt;
-            int prefixLength = DnsLabels.MAX_LABEL_LENGTH - suffix.length() - 1;
-            String prefix = baseDnsLabel.substring(0, Math.min(baseDnsLabel.length(), prefixLength))
-                .replaceAll("-+$", "");
-            candidate = prefix + "-" + suffix;
-            if (DnsLabels.isValidLabel(candidate)
-                    && !clusterRepository.existsByDnsLabelAndStateNot(candidate, ClusterState.TERMINATED)) {
-                return candidate;
-            }
-        }
-        throw new BusinessException(AppErrorCode.CLUSTER_DNS_LABEL_CONFLICT, 409, candidate);
     }
 
     /**
