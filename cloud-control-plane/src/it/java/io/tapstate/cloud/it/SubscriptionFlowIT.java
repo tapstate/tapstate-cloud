@@ -188,7 +188,7 @@ class SubscriptionFlowIT extends BaseIT {
     private String createOrg(String name) throws Exception {
         String suffix = uniqueSuffix();
         signupAndLogin("subflow-" + suffix + "@tapstate.io", "StrongPass123!");
-        return orgsApi.create(Map.of("name", name, "slug", "subflow-" + suffix))
+        return orgsApi.create(organizationRequest(name))
             .getData().getId();
     }
 

@@ -29,10 +29,7 @@ class CancelCascadeIT extends BaseIT {
     @BeforeEach
     void setUpOrg() throws Exception {
         signupAndLogin("cancel-" + System.nanoTime() + "@tapstate.io", "StrongPass123!");
-        orgId = orgsApi.create(Map.of(
-            "name", "Cancel-Test",
-            "slug", "cancel-" + System.nanoTime()
-        )).getData().getId();
+        orgId = orgsApi.create(organizationRequest("Cancel-Test")).getData().getId();
     }
 
     /** Create a subscription (its Cluster id comes back on the response). */

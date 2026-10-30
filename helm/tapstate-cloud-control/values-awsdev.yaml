@@ -21,11 +21,21 @@ imagePullSecrets:
 
 # Single-node k3s on EC2 — no nodeSelector needed
 config:
+  feishuLongConnectionEnabled: true
+  feishuProductionInviteApiUrl: https://cloud.tapstate.com/v1/api/webhooks/feishu/production-invite
   springProfilesActive: dev
   # Must point at THIS control plane; the base values default to the prod
   # issuer, which would make dev-issued resolve JWTs carry the prod issuer.
   jwtIssuer: https://dev.cloud.tapstate.com
   corsAllowedOrigins: "https://dev.cloud.tapstate.com,https://*.dev.cloud.tapstate.com,http://localhost:5173,http://localhost:5174"
+  oauthCallbackBaseUrl: https://dev.cloud.tapstate.com
+  cloudConsoleUrl: https://dev.cloud.tapstate.com
+  jiraCloudId: "9ee330de-c28d-40f8-a92e-5317b5670ea8"
+  jiraServiceDeskId: "71"
+  jiraRequestTypeId: "129"
+  jiraCustomerProvisioningEnabled: "true"
+  jiraCustomerProvisioningSiteAdminRiskAcknowledged: "true"
+  jiraCloseTransitionName: "Cancel request"
 
   # awsdev drives real AWS (ap-southeast-1) + real Atlas provisioning.
   # Required secrets beyond the base set:
@@ -43,10 +53,26 @@ config:
   logLevelCloud: DEBUG
   tawkPropertyId: 6ad811f9c0b97c34b365a428
 
+  # Alert email delivery. SMTP host/username/password come from the shared
+  # tapstate-cloud-control-smtp Secret and config.smtp* values; this block only
+  # opts the event pipeline in.
+  notifications:
+    emailEnabled: "true"
+    emailFrom: "no-reply@tapstate.com"
+
 service:
   type: NodePort
   port: 8080
   nodePort: 30180
 
+# awsdev uses ECR (ap-east-1); CronJob keeps the 12h pull token fresh
+ecrRotation:
+  enabled: true
+  awsRegion: ap-east-1
+  secretName: tapstate-ecr-pull
+
 ingress:
   enabled: false
+readinessProbe:
+  httpGet:
+    path: /actuator/health/readiness

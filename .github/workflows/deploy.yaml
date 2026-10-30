@@ -8,9 +8,12 @@
 #                           Integration run only while the repository
 #                           variable FULL_INTEGRATION_ENABLED is "true"
 #                           and the push touches Full Integration trigger
-#                           paths (see the await-main-gate job below)
+#                           paths (see the await-gate job below)
 #   release-v<version>    → production environment (values-awsprod.yaml, namespace: tapstate-cloud-control)
-#                           e.g. release-v0.2.0; '*' matches any version suffix
+#                           e.g. release-v0.2.0; '*' matches any version suffix.
+#                           Also gated on CI + conditional Full IT (same rules as main)
+#                           via await-gate. Production environment has required reviewers
+#                           configured — GitHub pauses the job until approval.
 # ============================================================
 # Prerequisites (GitHub Repository Secrets):
 #   AWS_ACCESS_KEY_ID       — AWS credentials for ECR push
@@ -46,20 +49,21 @@ concurrency:
 
 jobs:
   # ============================================================
-  # main gate — nothing deploys until the CI workflow has passed on
-  # THIS commit; the Full Integration workflow is additionally
-  # required only while the repository variable
-  # FULL_INTEGRATION_ENABLED is "true" AND this push touches its
-  # trigger paths — the same two conditions under which that
-  # workflow actually runs. GitHub Actions has no cross-workflow
-  # needs, so the script polls the runs for the pushed SHA.
-  # release-v* pushes skip this job and deploy directly, exactly
-  # as before.
+  # Gate — nothing deploys until the CI workflow has passed on
+  # THIS commit. On main, the Full Integration workflow is additionally
+  # required while the repository variable FULL_INTEGRATION_ENABLED is
+  # "true" AND this push touches its trigger paths. release-v* branches
+  # skip Full IT (the workflow never runs there — push trigger only
+  # covers main/develop) and only wait for CI, but they still MUST pass
+  # CI before deploying to production.
+  #
+  # GitHub Actions has no cross-workflow needs, so the script polls the
+  # runs for the pushed SHA.
   # ============================================================
-  await-main-gate:
-    name: Gate — CI and Full Integration green
+  await-gate:
+    name: Gate — CI green
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release-v')
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
@@ -84,14 +88,11 @@ jobs:
   deploy-sdk:
     name: Publish SDK to Nexus
     runs-on: ubuntu-latest
-    needs: [await-main-gate]
-    # release-v* never runs the gate (it is skipped there); on main the
-    # SDK publish is allowed only when the gate succeeded.
+    needs: [await-gate]
+    # Both main and release-v* run the gate now; publish only after CI (and
+    # Full IT on main) is green for this SHA.
     if: >-
-      always() &&
-      (startsWith(github.ref, 'refs/heads/release-v') ||
-       (github.ref == 'refs/heads/main' &&
-        needs.await-main-gate.result == 'success'))
+      always() && needs.await-gate.result == 'success'
 
     steps:
       - uses: actions/checkout@v4
@@ -136,13 +137,17 @@ jobs:
           # Strip -SNAPSHOT / -rc / -alpha etc. pre-release suffix — baseline is always .N
           TAG=$(echo "${TAG}" | sed -E 's/[-_.](SNAPSHOT|rc|alpha|beta)[-_.0-9]*$//i')
           COMMIT="${GITHUB_SHA:0:8}"
-          if [[ "${GITHUB_REF_NAME}" == "main" ]]; then
+          if [[ "${GITHUB_REF_NAME}" == release-v* ]]; then
+            # Release branch: pure tag version (e.g. 0.3) — no SHA, no SNAPSHOT.
+            VERSION="${TAG}"
+          elif [[ "${GITHUB_REF_NAME}" == "main" ]]; then
             VERSION="${TAG}-${COMMIT}-SNAPSHOT"
           else
             VERSION="${TAG}-${COMMIT}"
           fi
           echo "Baseline tag: ${TAG}"
           echo "Commit short:  ${COMMIT}"
+          echo "Branch:       ${GITHUB_REF_NAME}"
           echo "Computed ver:  ${VERSION}"
           echo "sdk_version=${VERSION}" >> $GITHUB_OUTPUT
 
@@ -182,8 +187,8 @@ jobs:
   deploy-awsdev:
     name: Deploy to awsdev
     runs-on: ubuntu-latest
-    needs: [await-main-gate]
-    if: ${{ github.ref == 'refs/heads/main' && needs.await-main-gate.result == 'success' }}
+    needs: [await-gate]
+    if: ${{ github.ref == 'refs/heads/main' && needs.await-gate.result == 'success' }}
     environment:
       name: awsdev
 
@@ -287,7 +292,8 @@ jobs:
   deploy-prod:
     name: Deploy to production
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/heads/release-v')
+    needs: [await-gate]
+    if: startsWith(github.ref, 'refs/heads/release-v') && needs.await-gate.result == 'success'
     environment:
       name: production
       url: https://cloud.tapstate.com/health

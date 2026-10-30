@@ -32,7 +32,6 @@ import java.util.StringJoiner;
 @JsonPropertyOrder({
   OrganizationResponse.JSON_PROPERTY_ID,
   OrganizationResponse.JSON_PROPERTY_NAME,
-  OrganizationResponse.JSON_PROPERTY_SLUG,
   OrganizationResponse.JSON_PROPERTY_OWNER_EMAIL,
   OrganizationResponse.JSON_PROPERTY_STATUS
 })
@@ -45,10 +44,6 @@ public class OrganizationResponse {
   public static final String JSON_PROPERTY_NAME = "name";
   @jakarta.annotation.Nullable
   private String name;
-
-  public static final String JSON_PROPERTY_SLUG = "slug";
-  @jakarta.annotation.Nullable
-  private String slug;
 
   public static final String JSON_PROPERTY_OWNER_EMAIL = "ownerEmail";
   @jakarta.annotation.Nullable
@@ -109,31 +104,6 @@ public class OrganizationResponse {
   @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
   public void setName(@jakarta.annotation.Nullable String name) {
     this.name = name;
-  }
-
-  public OrganizationResponse slug(@jakarta.annotation.Nullable String slug) {
-    
-    this.slug = slug;
-    return this;
-  }
-
-  /**
-   * URL-friendly slug (lowercase, hyphenated, unique)
-   * @return slug
-   */
-  @jakarta.annotation.Nullable
-  @JsonProperty(value = JSON_PROPERTY_SLUG, required = false)
-  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
-
-  public String getSlug() {
-    return slug;
-  }
-
-
-  @JsonProperty(value = JSON_PROPERTY_SLUG, required = false)
-  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
-  public void setSlug(@jakarta.annotation.Nullable String slug) {
-    this.slug = slug;
   }
 
   public OrganizationResponse ownerEmail(@jakarta.annotation.Nullable String ownerEmail) {
@@ -198,14 +168,13 @@ public class OrganizationResponse {
     OrganizationResponse organizationResponse = (OrganizationResponse) o;
     return Objects.equals(this.id, organizationResponse.id) &&
         Objects.equals(this.name, organizationResponse.name) &&
-        Objects.equals(this.slug, organizationResponse.slug) &&
         Objects.equals(this.ownerEmail, organizationResponse.ownerEmail) &&
         Objects.equals(this.status, organizationResponse.status);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(id, name, slug, ownerEmail, status);
+    return Objects.hash(id, name, ownerEmail, status);
   }
 
   @Override
@@ -214,7 +183,6 @@ public class OrganizationResponse {
     sb.append("class OrganizationResponse {\n");
     sb.append("    id: ").append(toIndentedString(id)).append("\n");
     sb.append("    name: ").append(toIndentedString(name)).append("\n");
-    sb.append("    slug: ").append(toIndentedString(slug)).append("\n");
     sb.append("    ownerEmail: ").append(toIndentedString(ownerEmail)).append("\n");
     sb.append("    status: ").append(toIndentedString(status)).append("\n");
     sb.append("}");
@@ -275,16 +243,6 @@ public class OrganizationResponse {
     if (getName() != null) {
       try {
         joiner.add(String.format(java.util.Locale.ROOT, "%sname%s=%s", prefix, suffix, URLEncoder.encode(String.valueOf(getName()), "UTF-8").replaceAll("\\+", "%20")));
-      } catch (UnsupportedEncodingException e) {
-        // Should never happen, UTF-8 is always supported
-        throw new RuntimeException(e);
-      }
-    }
-
-    // add `slug` to the URL query string
-    if (getSlug() != null) {
-      try {
-        joiner.add(String.format(java.util.Locale.ROOT, "%sslug%s=%s", prefix, suffix, URLEncoder.encode(String.valueOf(getSlug()), "UTF-8").replaceAll("\\+", "%20")));
       } catch (UnsupportedEncodingException e) {
         // Should never happen, UTF-8 is always supported
         throw new RuntimeException(e);

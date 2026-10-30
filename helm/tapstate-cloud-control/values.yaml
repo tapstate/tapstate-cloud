@@ -71,15 +71,36 @@ secrets:
   clusterVersionReleaseToken:
     name: tapstate-cloud-control-cluster-version
     key: release-token
-  # Tawk callback signing secret and Feishu custom-bot credentials are optional
+  # Invited email registration and OAuth providers (optional per feature)
+  authHmacKey:
+    name: tapstate-cloud-control-auth
+    key: otp-hmac-key
+  googleOAuth:
+    name: tapstate-cloud-control-google-oauth
+    clientIdKey: client-id
+    clientSecretKey: client-secret
+  githubOAuth:
+    name: tapstate-cloud-control-github-oauth
+    clientIdKey: client-id
+    clientSecretKey: client-secret
+  smtp:
+    name: tapstate-cloud-control-smtp
+    hostKey: host
+    usernameKey: username
+    passwordKey: password
+  # Tawk callback signing secret and Feishu application-bot credentials are optional
   # until the feedback notification integration is enabled in an environment.
   tawkWebhook:
     name: tapstate-cloud-control-tawk-webhook
     secretKey: webhook-secret
   feishuBot:
     name: tapstate-cloud-control-feishu-bot
-    webhookUrlKey: webhook-url
-    signingSecretKey: signing-secret
+    appIdKey: app-id
+    appSecretKey: app-secret
+    chatIdKey: chat-id
+    productionInviteSharedSecretKey: production-invite-shared-secret
+  # Alert email reuses the shared SMTP Secret above (host/username/password);
+  # there is no second credential source.
   # Stripe API key + webhook secret (Week 4 — Stripe Checkout)
   # Optional: when the Secret is absent the payment controller stays up but
   # stripe_product catalog refresh logs a warning and /specs excludes
@@ -88,6 +109,22 @@ secrets:
     name: tapstate-cloud-control-secrets
     secretKeyKey: stripe.secret-key
     webhookSecretKey: stripe.webhook-secret
+  jira:
+    name: tapstate-cloud-control-jira
+    clientIdKey: client-id
+    clientSecretKey: client-secret
+  # Customer provisioning uses a separate Jira Administrator service account.
+  # The deployment references this Secret only when customer provisioning is enabled.
+  jiraCustomerAdmin:
+    name: tapstate-cloud-control-jira-customer-admin
+    clientIdKey: client-id
+    clientSecretKey: client-secret
+  # Ops subscription immediate-cancel static bearer token. Optional: when the
+  # Secret is absent the ops endpoint stays fail-closed (503), so environments
+  # that never call the ops cancel endpoint need no key.
+  opsSubscriptionToken:
+    name: tapstate-cloud-control-ops
+    key: subscription-token
 
 # ========== ConfigMap (non-sensitive config) ==========
 config:
@@ -99,7 +136,33 @@ config:
   defaultRegion: ap-southeast-1
   awsRegion: ap-southeast-1
   corsAllowedOrigins: "https://cloud.tapstate.io,https://*.cloud.tapstate.io"
+  smtpPort: "587"
+  smtpAuth: "true"
+  smtpStarttls: "true"
+  # Implicit TLS on 465: set smtpStarttls=false and smtpSslEnable=true.
+  smtpSslEnable: "false"
+  authOtpMaxAttempts: "5"
+  authOtpSendsPerHour: "5"
+  authOtpCooldownSeconds: "60"
+  authOtpLifetimeMinutes: "10"
+  authMailFrom: no-reply@tapstate.com
+  authTrialCodeRequired: "true"
+  feishuLongConnectionEnabled: false
+  feishuProductionInviteApiUrl: ""
+  trialIssuerEmail: ""
+  oauthCallbackBaseUrl: https://dev.cloud.tapstate.com
+  cloudConsoleUrl: https://dev.cloud.tapstate.com
   sampleSourcesHost: "47.238.126.103"
+
+  # ----- Jira Service Management (non-sensitive routing configuration) -----
+  jiraCloudId: ""
+  jiraServiceDeskId: ""
+  jiraRequestTypeId: ""
+  jiraCustomerProvisioningEnabled: "false"
+  jiraCustomerProvisioningSiteAdminRiskAcknowledged: "false"
+  jiraCloseTransitionName: "Close Request"
+  jiraConnectTimeoutSeconds: "3"
+  jiraRequestTimeoutSeconds: "10"
 
   # ----- API docs -----
   swaggerUiEnabled: "true"
@@ -135,6 +198,19 @@ config:
   logLevelSecurity: WARN
   tawkPropertyId: ""
   tawkRetryIntervalMs: "30000"
+
+  # ----- Alert email delivery -----
+  # Transport (host/port/auth/TLS) is the shared spring.mail configuration fed
+  # by the SMTP Secret and config.smtp* above. This block only opts the event
+  # pipeline in; when disabled, deliveries fail visibly in the Console instead
+  # of being reported as sent.
+  notifications:
+    emailEnabled: "false"
+    emailFrom: "no-reply@tapstate.com"
+    maxAttempts: "5"
+    retryBaseSeconds: "30"
+    leaseSeconds: "60"
+    pollIntervalMs: "5000"
 
 # ========== Kubernetes resources ==========
 serviceAccount:
@@ -216,6 +292,49 @@ autoscaling:
 nodeSelector: {}
 tolerations: []
 affinity: {}
+
+# ========== ECR pull secret rotation ==========
+# Continuously refresh the ECR pull secret token (valid for 12 hours) so
+# pods created after a quiet period (rollout restart, node replacement) do
+# not hit ErrImagePull on an expired token. Off by default — only ECR-backed
+# envs (awsdev, awsprod) enable it; Harbor-backed (dev) and local k3s do not.
+# Set image.repository to an ECR URI (ends with dkr.ecr.<region>.amazonaws.com)
+# and enable this block.
+ecrRotation:
+  enabled: false
+  # 6h = half of the 12h ECR token lifetime; 2x safety margin
+  schedule: "0 */6 * * *"
+  awsRegion: ap-east-1
+  # Must match an already-created secret in the install namespace. ops
+  # pre-creates it with a bootstrap token so helm install itself does not
+  # depend on the CronJob to succeed first run.
+  secretName: tapstate-ecr-pull
+  # Refresher container — amazon/aws-cli:alpine + curl (curl is installed at
+  # entrypoint via apk; it hits the in-cluster K8s API to patch the secret).
+  image:
+    repository: amazon/aws-cli
+    tag: "alpine"
+    pullPolicy: IfNotPresent
+  # The CronJob reuses the existing AWS creds Secret the control-plane pod
+  # already mounts — it only calls ecr:GetAuthorizationToken, which this key
+  # already has. Replace with a pull-only key in production when you have one.
+  awsCredentials:
+    secretName: tapstate-cloud-control-aws-credentials
+    accessKeyIdKey: access-key-id
+    secretAccessKeyKey: secret-access-key
+  # CronJob runtime policy
+  concurrencyPolicy: Replace
+  restartPolicy: OnFailure
+  backoffLimit: 2
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "300m"
+      memory: "256Mi"
 
 # ========== Rolling update strategy ==========
 # Per ADR-0120: kubectl rollout restart tapstate-cloud-api

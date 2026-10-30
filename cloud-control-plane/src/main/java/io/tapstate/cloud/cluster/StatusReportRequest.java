@@ -1,6 +1,7 @@
 package io.tapstate.cloud.cluster;
 
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.NotBlank;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -27,6 +28,7 @@ import lombok.NoArgsConstructor;
 @Schema(description = "C2 status report payload — runtime heartbeat + infrastructure metrics")
 public class StatusReportRequest {
 
+    @NotBlank(message = "nonce must not be blank")
     @Schema(description = "Unique nonce per request — MUST change every call. Same value twice → 409 auth.nonce-replay", requiredMode = Schema.RequiredMode.REQUIRED)
     private String nonce;
 

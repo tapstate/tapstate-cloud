@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "recoveryProfiles": {
+    "email-login-challenge-v1": {
+      "goal": "Keep a bounded, one-time email login challenge until expiry; loss requires requesting a new code.",
+      "entry": "Read the existing email verification challenge by the purpose-scoped key and atomically consume it after verifying the HMAC.",
+      "prerequisites": [
+        "The existing Cloud authentication MongoDB and HMAC key remain available.",
+        "A lost or expired challenge cannot be reconstructed and requires a new code request."
+      ]
+    }
+  },
+  "consistencyProfiles": {
+    "email-login-challenge-v1": {
+      "atomicDomain": "One document in the existing email_verification_challenges collection.",
+      "fencing": "A unique purpose-scoped key and conditional single-document update prevent replay; registration keys are distinct."
+    }
+  },
+  "resources": [
+    {
+      "id": "mongo.cloud.email_verification_challenges",
+      "resourceVersion": 1,
+      "proposalVersion": 1,
+      "kind": "COLLECTION",
+      "layer": "LEGACY",
+      "database": "STORE",
+      "physicalNames": [
+        "email_verification_challenges"
+      ],
+      "responsibility": "Store expiring, purpose-separated registration and login email verification challenges.",
+      "writers": [
+        "io.tapstate.cloud.identity.EmailVerificationService"
+      ],
+      "readers": [
+        "io.tapstate.cloud.identity.EmailVerificationService",
+        "io.tapstate.cloud.identity.RegistrationCommitService"
+      ],
+      "recovery": "email-login-challenge-v1",
+      "consistency": "email-login-challenge-v1",
+      "growth": "At most one login challenge per normalized email alongside existing registration challenges; existing send limits and the TTL index bound retention.",
+      "evidence": [
+        "cloud-control-plane/src/test/java/io/tapstate/cloud/identity/EmailVerificationServiceTest.java"
+      ]
+    }
+  ]
+}

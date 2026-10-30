@@ -52,8 +52,7 @@ class RealEnvHealthIT extends RealEnvIT {
         // listOrganizations signature may differ across SDK versions;
         // the real assertion is "no auth failure".
         try {
-            orgsApi.create(java.util.Map.of("name", "real-env-check-" + System.nanoTime(),
-                "slug", "real-env-check-" + System.nanoTime()));
+            orgsApi.create(organizationRequest("real-env-check-" + System.nanoTime()));
         } catch (ApiException e) {
             if (e.getCode() == 401 || e.getCode() == 403) {
                 throw new AssertionError("login session is not working — got HTTP " + e.getCode());

@@ -103,6 +103,19 @@ public class MdbAllocation {
     @Schema(description = "Diagnostic detail (only when PROVISIONING_FAILED / DELETING)")
     private String provisionErrorDetail;
 
+    // ========== Reclaim retry state ==========
+
+    /** Number of reclaim retries already attempted (transient Atlas API
+     * failures trigger bounded backoff retries instead of permanent orphaning). */
+    @Schema(description = "Number of reclaim retries already attempted")
+    @Builder.Default
+    private int reclaimRetryCount = 0;
+
+    /** Scheduled time for the next reclaim retry (exponential backoff).
+     * Null means no retry scheduled yet / retries exhausted. */
+    @Schema(description = "When the next reclaim retry is scheduled (exponential backoff)")
+    private Instant reclaimNextRetryAt;
+
     // ========== Timestamps ==========
 
     @CreatedDate

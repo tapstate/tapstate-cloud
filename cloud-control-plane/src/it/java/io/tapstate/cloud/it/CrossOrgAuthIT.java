@@ -59,11 +59,11 @@ class CrossOrgAuthIT extends BaseIT {
         OrganizationsApi orgs = new OrganizationsApi(api);
         SubscriptionApi subs = new SubscriptionApi(api);
 
-        auth.register(new RegisterRequest().email(email).password("StrongPass123!").displayName(email.split("@")[0]));
+        register(email, "StrongPass123!");
         auth.login(new LoginRequest().email(email).password("StrongPass123!"));
         pinSessionCookie(api);
 
-        String orgId = orgs.create(Map.of("name", orgName, "slug", orgName.toLowerCase())).getData().getId();
+        String orgId = orgs.create(organizationRequest(orgName)).getData().getId();
         // Seed the subscription directly (no payment channel here) and finalize it
         // with THIS user's client, because the shared BaseIT client belongs to
         // another session and would be denied on this Organization.
@@ -108,7 +108,7 @@ class CrossOrgAuthIT extends BaseIT {
         clientB.setBasePath(BASE_URL);
         AuthApi authB = new AuthApi(clientB);
         ResolveExchangeApi resolveB = new ResolveExchangeApi(clientB);
-        authB.register(new RegisterRequest().email("userB@tapstate.io").password("StrongPass123!").displayName("userB"));
+        register("userB@tapstate.io", "StrongPass123!");
         authB.login(new LoginRequest().email("userB@tapstate.io").password("StrongPass123!"));
         pinSessionCookie(clientB);
 

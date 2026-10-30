@@ -4,6 +4,7 @@ import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
 import com.github.tomakehurst.wiremock.junit5.WireMockExtension;
 import com.stripe.Stripe;
 import io.tapstate.cloud.cluster.ClusterService;
+import io.tapstate.cloud.event.EventCenterService;
 import io.tapstate.cloud.mdb.MdbAllocationService;
 import io.tapstate.cloud.payment.PaymentGateway;
 import io.tapstate.cloud.payment.stripe.StripeCustomerService;
@@ -121,10 +122,12 @@ class SubscriptionCancelIT {
         subscriptionService = new SubscriptionService(
                 subscriptionRepository, itemRepository, subscriptionStateMachineService,
                 eventPublisher, clusterService, mdbAllocationService, deploymentStepRecorder,
-                clusterVersionService, specConfigService, stripeProductService, stripePaymentService);
+                clusterVersionService, specConfigService, stripeProductService, stripePaymentService,
+                mock(EventCenterService.class));
         webhookEventService = new StripeWebhookEventService(
                 stripeEventRepository, subscriptionRepository, subscriptionService,
-                subscriptionStateMachineService, stripePaymentService, config);
+                subscriptionStateMachineService, stripePaymentService, config,
+                mock(EventCenterService.class));
 
         StripeStub.checkout(stripe);
         StripeStub.cancelAtPeriodEnd(stripe);

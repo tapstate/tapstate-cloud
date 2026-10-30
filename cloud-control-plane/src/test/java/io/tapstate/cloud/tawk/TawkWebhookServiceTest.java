@@ -85,7 +85,8 @@ class TawkWebhookServiceTest {
             "chat:start", "property-1", "Cloud Dev", "chat-123", null);
         when(eventRepository.insert(any(TawkWebhookEvent.class)))
             .thenAnswer(invocation -> invocation.getArgument(0));
-        when(feishuBotClient.send(anyString())).thenReturn(FeishuBotClient.DeliveryResult.success());
+        when(feishuBotClient.send(anyString(), anyString(), anyString()))
+            .thenReturn(FeishuBotClient.DeliveryResult.success());
 
         ArgumentCaptor<Runnable> deliveryTask = ArgumentCaptor.forClass(Runnable.class);
         assertTrue(webhookService.record("event-immediate", payload));
@@ -105,7 +106,10 @@ class TawkWebhookServiceTest {
         deliveryTask.getValue().run();
 
         assertEquals(TawkWebhookEvent.DeliveryStatus.DELIVERED, accepted.getDeliveryStatus());
-        verify(feishuBotClient).send(anyString());
+        verify(feishuBotClient).send(
+            org.mockito.ArgumentMatchers.eq("property-1"),
+            org.mockito.ArgumentMatchers.eq("event-immediate"),
+            anyString());
     }
 
     @Test
@@ -124,7 +128,8 @@ class TawkWebhookServiceTest {
         when(eventRepository.findTop20ByDeliveryStatusAndNextAttemptAtLessThanEqualOrderByNextAttemptAtAsc(
             org.mockito.ArgumentMatchers.eq(TawkWebhookEvent.DeliveryStatus.PENDING),
             org.mockito.ArgumentMatchers.any(Instant.class))).thenReturn(List.of(pending));
-        when(feishuBotClient.send(anyString())).thenReturn(FeishuBotClient.DeliveryResult.failed("network_error"));
+        when(feishuBotClient.send(anyString(), anyString(), anyString()))
+            .thenReturn(FeishuBotClient.DeliveryResult.failed("network_error"));
 
         webhookService.dispatchPending();
 
@@ -133,7 +138,10 @@ class TawkWebhookServiceTest {
         assertTrue(pending.getNextAttemptAt().isAfter(pending.getLastAttemptAt()));
         verify(eventRepository).save(pending);
         ArgumentCaptor<String> messageCaptor = ArgumentCaptor.forClass(String.class);
-        verify(feishuBotClient).send(messageCaptor.capture());
+        verify(feishuBotClient).send(
+            org.mockito.ArgumentMatchers.eq("property-1"),
+            org.mockito.ArgumentMatchers.eq("event-2"),
+            messageCaptor.capture());
         assertTrue(messageCaptor.getValue().contains("Tapstate Cloud feedback notification"));
         assertTrue(messageCaptor.getValue().contains("Property: Cloud Prod"));
         assertTrue(messageCaptor.getValue().contains("Event: chat:start (new online feedback)"));
@@ -156,12 +164,16 @@ class TawkWebhookServiceTest {
         when(eventRepository.findTop20ByDeliveryStatusAndNextAttemptAtLessThanEqualOrderByNextAttemptAtAsc(
             org.mockito.ArgumentMatchers.eq(TawkWebhookEvent.DeliveryStatus.PENDING),
             org.mockito.ArgumentMatchers.any(Instant.class))).thenReturn(List.of(pending));
-        when(feishuBotClient.send(anyString())).thenReturn(FeishuBotClient.DeliveryResult.success());
+        when(feishuBotClient.send(anyString(), anyString(), anyString()))
+            .thenReturn(FeishuBotClient.DeliveryResult.success());
 
         webhookService.dispatchPending();
 
         ArgumentCaptor<String> messageCaptor = ArgumentCaptor.forClass(String.class);
-        verify(feishuBotClient).send(messageCaptor.capture());
+        verify(feishuBotClient).send(
+            org.mockito.ArgumentMatchers.eq("property-1"),
+            org.mockito.ArgumentMatchers.eq("offline:d63a5409-7796-48cb-9c94-f0420dcb0c31"),
+            messageCaptor.capture());
         assertTrue(messageCaptor.getValue().contains("Event: offline:form_submit (new offline feedback)"));
         assertTrue(messageCaptor.getValue().contains("https://dashboard.tawk.to/#/inbox/property-1/all"));
         verify(eventRepository).save(pending);
@@ -183,6 +195,6 @@ class TawkWebhookServiceTest {
 
         webhookService.dispatchPending();
 
-        verify(feishuBotClient, never()).send(anyString());
+        verify(feishuBotClient, never()).send(anyString(), anyString(), anyString());
     }
 }

@@ -25,6 +25,8 @@ nodeSelector:
 config:
   springProfilesActive: dev
   corsAllowedOrigins: "http://localhost:5173,http://localhost:5174"
+  oauthCallbackBaseUrl: http://localhost:30180
+  cloudConsoleUrl: http://localhost:5174
 
 service:
   type: NodePort

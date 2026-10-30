@@ -42,9 +42,20 @@ imagePullSecrets:
   - name: tapstate-ecr-pull
 
 config:
+  # The dev Cloud instance is the only Feishu long-connection consumer.
+  # Production issues trial links through its signed internal relay endpoint.
+  feishuLongConnectionEnabled: false
   springProfilesActive: prod
   jwtIssuer: https://cloud.tapstate.com
   corsAllowedOrigins: "https://cloud.tapstate.com,https://*.cloud.tapstate.com"
+  oauthCallbackBaseUrl: https://cloud.tapstate.com
+  cloudConsoleUrl: https://cloud.tapstate.com
+  jiraCloudId: "9ee330de-c28d-40f8-a92e-5317b5670ea8"
+  jiraServiceDeskId: "71"
+  jiraRequestTypeId: "129"
+  jiraCustomerProvisioningEnabled: "true"
+  jiraCustomerProvisioningSiteAdminRiskAcknowledged: "true"
+  jiraCloseTransitionName: "Cancel request"
 
   # Production drives real AWS (ap-southeast-1) + real Atlas provisioning.
   # Requires the dns / iac k3s Secrets and Activated AtlasConfig + ACTIVE
@@ -56,13 +67,27 @@ config:
   # API explorers are not exposed in production.
   swaggerUiEnabled: "false"
   knife4jEnabled: "false"
-  tawkPropertyId: 6ad81a2c88dd6c34b5979eb7
+  tawkPropertyId: 6ad811f9c0b97c34b365a428
+  # Notification email channel — SMTP secret (tapstate-cloud-control-smtp)
+  # must already exist in the namespace; auth verification mail shares it.
+  notifications:
+    emailEnabled: "true"
+    emailFrom: "no-reply@tapstate.com"
 
 # nginx edge on k3sm01 proxies 127.0.0.1:30180.
 service:
   type: NodePort
   port: 8080
   nodePort: 30180
+
+# Production uses ECR (ap-east-1); CronJob keeps the 12h pull token fresh.
+# The prod namespace is pre-created and ops seeds tapstate-ecr-pull with a
+# bootstrap token before helm install, so the first rollout never depends on
+# the CronJob succeeding first.
+ecrRotation:
+  enabled: true
+  awsRegion: ap-east-1
+  secretName: tapstate-ecr-pull
 
 # k3s runs with traefik and servicelb disabled; the edge is nginx.
 ingress:

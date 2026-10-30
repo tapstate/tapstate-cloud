@@ -1,0 +1,17 @@
+package io.tapstate.cloud.notification;
+
+/**
+ * Outbound notification channel. This release ships {@code EMAIL}; SMS and
+ * webhook implementations can be added without changing events or policies.
+ */
+public interface NotificationChannel {
+
+    String name();
+
+    /** Whether this channel has enough configuration to attempt a send. */
+    default boolean isConfigured() {
+        return true;
+    }
+
+    void send(NotificationMessage message);
+}

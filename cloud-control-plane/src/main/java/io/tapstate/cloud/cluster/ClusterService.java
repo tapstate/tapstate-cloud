@@ -91,16 +91,13 @@ public class ClusterService {
             throw new BusinessException(AppErrorCode.CLUSTER_ALREADY_EXISTS, 409, name, orgId, region);
         }
 
-        // The public domain prefix is the display name normalized into one DNS
-        // label. Reject names with no usable letter/digit (e.g. CJK-only) or an
-        // over-long normalized form instead of provisioning an invalid domain.
+        // Keep the display name intact and use its normalized form as the public
+        // hostname label. The shared DNS namespace rejects active collisions.
         String dnsLabel = DnsLabels.normalize(name);
         if (!DnsLabels.isValidLabel(dnsLabel)) {
             throw new BusinessException(AppErrorCode.CLUSTER_NAME_DNS_INVALID, 400,
                 name, dnsLabel, DnsLabels.MAX_LABEL_LENGTH);
         }
-        // The hosted zone is shared per environment across every org/region, so
-        // the derived subdomain must be globally unique among active Clusters.
         if (clusterRepository.existsByDnsLabelAndStateNot(dnsLabel, ClusterState.TERMINATED)) {
             throw new BusinessException(AppErrorCode.CLUSTER_DNS_LABEL_CONFLICT, 409, dnsLabel);
         }
@@ -328,14 +325,17 @@ public class ClusterService {
      * Storage dual-write:
      * <ul>
      *   <li>{@code Cluster.lastStatusReport} — latest-only embedded document, serves as
-     *       the fleet console's "current status" snapshot</li>
+     *       the fleet console's "current status" snapshot; written via a single
+     *       atomic {@code updateFirst} with optimistic locking on {@code lastC2Nonce}.</li>
      *   <li>{@code cluster_status_report_history} — time-series collection, keeps every
-     *       report ever accepted, for trend/diagnostics/audit</li>
+     *       report ever accepted, for trend/diagnostics/audit.</li>
      * </ul>
-     * Both writes are inside the same {@code @Transactional} — MongoDB 5.0+ supports
-     * inserting into time-series collections inside multi-doc transactions.
+     * The method is deliberately NOT {@code @Transactional}: MongoDB does not support
+     * inserts into a time-series collection inside a multi-document transaction (error 263
+     * OperationNotSupportedInTransaction). The Cluster update is already atomic as a single
+     * {@code updateFirst}; the history append runs independently and does not need
+     * cross-collection atomicity with the Cluster write.
      */
-    @Transactional
     public void recordStatusReport(String clusterId, StatusReportRequest request) {
         Cluster cluster = clusterRepository.findById(new ObjectId(clusterId))
             .orElseThrow(() -> new BusinessException(AppErrorCode.CLUSTER_NOT_FOUND, 404, clusterId));
@@ -344,8 +344,15 @@ public class ClusterService {
 
         String nonce = request.getNonce();
 
+        // Ingress double-check: reject missing/null/blank nonce before any persistence.
+        // The controller's @Valid already covers this on the normal HTTP path, but
+        // the service layer defends against direct bean invocation or test bypasses.
+        if (nonce == null || nonce.isBlank()) {
+            throw new BusinessException(AppErrorCode.BAD_REQUEST, 400, "nonce must not be blank");
+        }
+
         // Nonce replay guard — Cluster.lastC2Nonce stores the previously accepted nonce
-        if (nonce != null && nonce.equals(cluster.getLastC2Nonce())) {
+        if (nonce.equals(cluster.getLastC2Nonce())) {
             throw new BusinessException(AppErrorCode.NONCE_REPLAY, 409);
         }
 

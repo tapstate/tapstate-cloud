@@ -34,7 +34,7 @@ public class Organization {
     @Schema(description = "Organization name", example = "Acme Corp")
     private String name;
 
-    @Schema(description = "Organization slug (URL-friendly)", example = "acme-corp")
+    @Schema(hidden = true)
     private String slug;
 
     @Schema(description = "Owner user email")

@@ -11,13 +11,19 @@ import io.tapstate.cloud.common.api.AppErrorCode;
 import io.tapstate.cloud.common.api.BaseController;
 import io.tapstate.cloud.common.api.BusinessException;
 import io.tapstate.cloud.common.CurrentUser;
+import io.tapstate.cloud.identity.InvitationService;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
+import org.bson.types.ObjectId;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
-import java.util.Map;
 
 /**
  * Organization endpoints — create, list, membership.
@@ -31,6 +37,8 @@ import java.util.Map;
 public class OrganizationController extends BaseController {
 
     private final OrganizationService organizationService;
+    private final OrganizationRepository organizationRepository;
+    private final InvitationService invitationService;
 
     @GetMapping
     @Operation(
@@ -52,31 +60,38 @@ public class OrganizationController extends BaseController {
     }
 
     @PostMapping
+    @Transactional
     @Operation(
         summary = "Create new organization (user becomes owner automatically)",
-        description = "Creates a new Organization and adds the caller as its first member with owner role. " +
+        description = "Creates a new Organization from its display name and adds the caller as its owner. " +
                       "The Organization starts with no subscriptions — create them explicitly via " +
-                      "POST /v1/api/orgs/{orgId}/subscriptions. " +
-                      "Organization slug must be unique system-wide (lowercase, hyphenated)."
+                      "POST /v1/api/orgs/{orgId}/subscriptions."
     )
     @ApiResponses(value = {
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Organization created"),
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Invalid input (missing name/slug, slug format)"),
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Organization name is invalid"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "Not authenticated"),
-        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "Slug already taken or account already belongs to an organization")
+        @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "Account already belongs to an organization")
     })
     public ResponseEntity<ApiResponse<OrganizationResponse>> create(
-            @io.swagger.v3.oas.annotations.parameters.RequestBody(description = "Organization create payload: {\"name\": \"Acme Corp\", \"slug\": \"acme-corp\"}")
-            @RequestBody Map<String, String> request) {
+            @Valid @RequestBody CreateOrganizationRequest request, HttpServletRequest httpRequest) {
         String userEmail = CurrentUser.getEmail();
         if (userEmail == null) {
             return fail(AppErrorCode.UNAUTHORIZED, HttpStatus.UNAUTHORIZED);
         }
-        Organization org = organizationService.createOrganization(
-            request.get("name"),
-            request.get("slug"),
-            userEmail
-        );
+        var session = httpRequest.getSession(false);
+        String pendingTrialHash = session == null ? null : (String) session.getAttribute(
+            InvitationService.PENDING_TRIAL_ORGANIZATION_SESSION_ATTRIBUTE);
+        if (pendingTrialHash != null && pendingTrialHash.isBlank()) pendingTrialHash = null;
+        Organization org;
+        if (pendingTrialHash != null) {
+            invitationService.requireUsableTrialHash(pendingTrialHash, userEmail);
+            org = organizationService.createTrialOrganization(request.name(), userEmail);
+            invitationService.consumeTrialHash(pendingTrialHash, userEmail);
+            session.removeAttribute(InvitationService.PENDING_TRIAL_ORGANIZATION_SESSION_ATTRIBUTE);
+        } else {
+            org = organizationService.createOrganization(request.name(), userEmail);
+        }
         return ok(OrganizationResponse.from(org));
     }
 
@@ -98,27 +113,34 @@ public class OrganizationController extends BaseController {
         if (userEmail == null) {
             return fail(AppErrorCode.UNAUTHORIZED, HttpStatus.UNAUTHORIZED);
         }
+        ObjectId orgObjectId;
+        try {
+            orgObjectId = new ObjectId(orgId);
+        } catch (IllegalArgumentException e) {
+            return fail(AppErrorCode.BAD_REQUEST, HttpStatus.BAD_REQUEST, orgId);
+        }
+        Organization org = organizationRepository.findById(orgObjectId)
+            .orElseThrow(() -> new BusinessException(AppErrorCode.ORG_NOT_FOUND, 404, orgId));
         if (!organizationService.isMember(orgId, userEmail)) {
             return fail(AppErrorCode.ORG_NOT_MEMBER, HttpStatus.FORBIDDEN, orgId);
         }
-        Organization org = organizationService.listUserOrganizations(userEmail).stream()
-            .filter(o -> o.getId().equals(orgId))
-            .findFirst()
-            .orElseThrow(() -> new BusinessException(AppErrorCode.ORG_NOT_FOUND, 404, orgId));
         return ok(OrganizationResponse.from(org));
     }
 
     public record OrganizationResponse(
         @Schema(description = "Organization UUID") String id,
         @Schema(description = "Organization display name") String name,
-        @Schema(description = "URL-friendly slug (lowercase, hyphenated, unique)") String slug,
         @Schema(description = "Owner user email") String ownerEmail,
         @Schema(description = "Organization status: ACTIVE / SUSPENDED") String status
     ) {
         public static OrganizationResponse from(Organization org) {
             return new OrganizationResponse(
                 org.getId() != null ? org.getId().toHexString() : null,
-                org.getName(), org.getSlug(), org.getOwnerEmail(), org.getStatus());
+                org.getName(), org.getOwnerEmail(), org.getStatus());
         }
     }
+
+    public record CreateOrganizationRequest(
+        @NotBlank @Size(max = 100) String name
+    ) {}
 }

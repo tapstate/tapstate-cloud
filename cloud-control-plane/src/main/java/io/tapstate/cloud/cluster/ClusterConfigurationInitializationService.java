@@ -37,39 +37,39 @@ public class ClusterConfigurationInitializationService {
     public record Result(String clusterId, String operationId, String phase, String configurationHash, boolean creationGranted) {}
 
     public Result claim(String clusterId, String secret, String bootId, String configurationHash) {
-        requireUuid(bootId); requireHash(configurationHash);
+        String canonicalBoot = requestUuid(bootId); requireHash(configurationHash);
         return guarded(() -> {
             var collection = collection(); var identity = identity(clusterId, secret);
             Document cluster = authenticated(collection, identity); Document original = original(cluster);
             Cluster mapped = mongo.getConverter().read(Cluster.class, cluster);
-            String expected = fingerprint(ClusterRuntimeConfigs.effectiveAtlasUri(endpoints.resolve(mapped)));
+            String expected = fingerprint(ClusterRuntimeConfigs.effectiveAtlasUri(endpoints.resolveReady(mapped)));
             if (!expected.equals(configurationHash)) throw refused();
             if ("AVAILABLE".equals(original.getString("phase"))) {
                 Document next = new Document(original).append("phase", "CLAIMED")
-                    .append("ownerBootId", bootId).append("configurationHash", expected);
+                    .append("ownerBootId", canonicalBoot).append("configurationHash", expected);
                 var winner = collection.findOneAndUpdate(new Document(identity).append(FIELD, original),
                     new Document("$set", new Document(FIELD, next)), new FindOneAndUpdateOptions().returnDocument(ReturnDocument.AFTER));
                 cluster = winner == null ? authenticated(collection, identity) : winner;
                 original = original(cluster);
             }
             if (!configurationHash.equals(original.getString("configurationHash"))) throw refused();
-            return result(clusterId, original, "CLAIMED".equals(original.getString("phase")) && bootId.equals(original.getString("ownerBootId")));
+            return result(clusterId, original, "CLAIMED".equals(original.getString("phase")) && canonicalBoot.equals(original.getString("ownerBootId")));
         });
     }
 
     public Result complete(String clusterId, String secret, String operationId, String configurationHash) {
-        requireUuid(operationId); requireHash(configurationHash);
+        String canonicalOperation = requestUuid(operationId); requireHash(configurationHash);
         return guarded(() -> {
             var collection = collection(); var identity = identity(clusterId, secret);
             var original = original(authenticated(collection, identity));
-            if (!operationId.equals(original.getString("operationId")) || !configurationHash.equals(original.getString("configurationHash"))) throw refused();
+            if (!canonicalOperation.equals(original.getString("operationId")) || !configurationHash.equals(original.getString("configurationHash"))) throw refused();
             if ("COMPLETE".equals(original.getString("phase"))) return result(clusterId, original, false);
             if (!"CLAIMED".equals(original.getString("phase"))) throw refused();
             var next = new Document(original).append("phase", "COMPLETE");
             var winner = collection.findOneAndUpdate(new Document(identity).append(FIELD, original),
                 new Document("$set", new Document(FIELD, next)), new FindOneAndUpdateOptions().returnDocument(ReturnDocument.AFTER));
             var actual = original(winner == null ? authenticated(collection, identity) : winner);
-            if (!"COMPLETE".equals(actual.getString("phase")) || !operationId.equals(actual.getString("operationId"))
+            if (!"COMPLETE".equals(actual.getString("phase")) || !canonicalOperation.equals(actual.getString("operationId"))
                     || !configurationHash.equals(actual.getString("configurationHash"))) throw refused();
             return result(clusterId, actual, false);
         });
@@ -111,11 +111,21 @@ public class ClusterConfigurationInitializationService {
         try { if (value == null || !UUID.fromString(value).toString().equals(value)) throw refused(); }
         catch (IllegalArgumentException invalid) { throw refused(); }
     }
+    /** Accept case aliases at the request boundary; persisted identities remain canonical. */
+    private static String requestUuid(String value) {
+        if (value == null) throw refused();
+        try {
+            String canonical = UUID.fromString(value).toString();
+            if (!canonical.equalsIgnoreCase(value)) throw refused();
+            return canonical;
+        } catch (IllegalArgumentException invalid) { throw refused(); }
+    }
     private static void requireHash(String value) { if (value == null || !value.matches("[0-9a-f]{64}")) throw refused(); }
     private static <T> T guarded(java.util.function.Supplier<T> action) {
         try { return action.get(); }
         catch (BusinessException refused) { throw refused; }
-        catch (org.springframework.dao.DataAccessException | com.mongodb.MongoException failure) {
+        catch (org.springframework.dao.DataAccessException | com.mongodb.MongoException
+                | io.tapstate.cloud.iac.IacException failure) {
             throw new BusinessException(AppErrorCode.CLUSTER_CONFIGURATION_INITIALIZATION_UNAVAILABLE, 503);
         }
     }

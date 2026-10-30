@@ -20,6 +20,8 @@ import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.AuthenticationFailureHandler;
+import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -48,7 +50,9 @@ public class SecurityConfig {
     private String corsAllowedOrigins;
 
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain securityFilterChain(HttpSecurity http,
+            AuthenticationSuccessHandler oauthSuccessHandler,
+            AuthenticationFailureHandler oauthFailureHandler) throws Exception {
         http
             // CSRF disabled — API uses cookie-based session (Spring Session handles cookie)
             .csrf(AbstractHttpConfigurer::disable)
@@ -83,16 +87,34 @@ public class SecurityConfig {
                     "/actuator/info",
                     "/v1/api/auth/register",
                     "/v1/api/auth/login",
+                    "/v1/api/auth/registration-policy",
+                    "/v1/api/auth/email/**",
+                    "/v1/api/auth/access",
+                    "/v1/api/auth/oauth/**",
                     "/v1/api/auth/verify-email",
+                    "/oauth2/**",
+                    "/login/oauth2/**",
                     // /v1/api/auth/exchange — Cluster Server backend calls this with per-Cluster
                     // service identity Secret (validated inside ExchangeController)
                     "/v1/api/auth/exchange",
                     "/v1/api/jwks.json",
                     "/v1/api/webhooks/tawk",
+                    "/v1/api/webhooks/feishu",
+                    "/v1/api/webhooks/feishu/production-invite",
+                    // External event ingestion — authenticated by a deployment token
+                    // inside the controller, not by a user session.
+                    "/v1/api/internal/events",
+
+                    // Ops-triggered immediate subscription cancellation — authenticated
+                    // by a static Bearer token inside OpsSubscriptionController.
+                    // Spring Security leaves it open; the controller gates with
+                    // the configured ops.subscription-token before any state change.
+                    "/v1/api/internal/orgs/{orgId}/subscriptions/{subscriptionId}/cancel-now",
 
                 // C2 status-report endpoints — runtime SDK authenticates with Bearer sdk-static-token
                     // (validated inside the controller, NOT via Spring Session)
                     "/v1/api/clusters/*/status-report",
+                    "/v1/api/clusters/*/events",
                     "/v1/api/clusters/*/egress-address",
                     "/v1/api/clusters/*/sample-sources/**"
                 ).permitAll()
@@ -129,6 +151,10 @@ public class SecurityConfig {
                 .authenticationEntryPoint((request, response, authException) ->
                     response.sendError(HttpStatus.UNAUTHORIZED.value(), "Unauthorized"))
             );
+
+        http.oauth2Login(oauth -> oauth
+            .successHandler(oauthSuccessHandler)
+            .failureHandler(oauthFailureHandler));
 
         return http.build();
     }

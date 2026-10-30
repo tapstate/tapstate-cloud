@@ -36,8 +36,6 @@ tags:
 - name: Exchange
   description: Atomic exchange_code → resolve JWT redemption. Called by Cluster Server
     backend only — JWT never reaches the browser (ADR-0125).
-- name: Organizations
-  description: Organization management — isolation boundary for Clusters
 - name: C2 Status Report
   description: Runtime → Global Control Plane heartbeat + health metrics (SDK Bearer
     auth)
@@ -46,19 +44,32 @@ tags:
     exchange_code; /auth/exchange (handled by ExchangeController) atomically redeems
     it for a resolve JWT. JWKS endpoint publishes public key for runtime offline JWT
     verification.
-- name: Auth
-  description: "Cloud Console authentication — register, login, session management"
-- name: Subscription
-  description: Organization subscriptions — each subscription provisions one Cluster
-    + one MDB allocation
-- name: Clusters
-  description: Cluster read, retry, and egress address management — lifecycle managed via Subscription
+- name: Cluster Versions
+  description: "Published Cluster versions — listing for console, publish/delist for\
+    \ operators"
+- name: C2 Cluster Events
+  description: Runtime → event center event push (SDK Bearer auth)
 - name: Regions
   description: Available AWS regions for Cluster provisioning
 - name: Deployment Progress
   description: Subscription deployment/reclamation progress
+- name: Support tickets
+  description: Cloud session-owned Jira Service Management requests
 - name: Health
   description: Health check endpoints
+- name: Organizations
+  description: Organization management using display names and stable IDs
+- name: Auth
+  description: "Cloud Console authentication, session management and trial access"
+- name: Subscription
+  description: Organization subscriptions — each subscription provisions one Cluster
+    + one MDB allocation
+- name: Organization invitations
+  description: Owner-managed single-use organization invitations
+- name: Clusters
+  description: Cluster read + retry — lifecycle managed via Subscription
+- name: Spec Catalog
+  description: Platform subscription specs with channel pricing
 paths:
   /v1/api/clusters/{clusterId}/configuration-initialization/claim:
     post:
@@ -124,6 +135,76 @@ paths:
           description: Original initialization conditions are not satisfied
         '503':
           description: Initialization authority is unavailable
+  /v1/api/orgs/{orgId}/alert-policies/{policyId}:
+    put:
+      tags:
+      - alert-policy-controller
+      operationId: updateAlertPolicy
+      parameters:
+      - name: orgId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: policyId
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AlertPolicyRequest"
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseAlertPolicyResponse"
+    delete:
+      tags:
+      - alert-policy-controller
+      operationId: deleteAlertPolicy
+      parameters:
+      - name: orgId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: policyId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseVoid"
+  /v1/api/trial-codes:
+    post:
+      tags:
+      - Auth
+      summary: Issue a single-use trial code
+      operationId: createTrialCode
+      responses:
+        "201":
+          description: Trial code created
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseTrialCode"
+        "403":
+          description: Caller is not the configured trial issuer
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseTrialCode"
   /v1/api/orgs:
     get:
       tags:
@@ -149,20 +230,16 @@ paths:
       tags:
       - Organizations
       summary: Create new organization (user becomes owner automatically)
-      description: "Creates a new Organization and adds the caller as its first member\
-        \ with owner role. The Organization starts with no subscriptions — create\
-        \ them explicitly via POST /v1/api/orgs/{orgId}/subscriptions. Organization\
-        \ slug must be unique system-wide (lowercase, hyphenated)."
+      description: "Creates a new Organization from its display name and adds the caller\
+        \ as its first member with owner role. The Organization starts with no subscriptions\
+        \ — create them explicitly via POST /v1/api/orgs/{orgId}/subscriptions."
       operationId: create
       requestBody:
-        description: "Organization create payload: {\"name\": \"Acme Corp\", \"slug\"\
-          : \"acme-corp\"}"
+        description: Organization create payload with the display name only
         content:
           application/json:
             schema:
-              type: object
-              additionalProperties:
-                type: string
+              $ref: "#/components/schemas/CreateOrganizationRequest"
         required: true
       responses:
         "200":
@@ -172,7 +249,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseOrganizationResponse"
         "400":
-          description: "Invalid input (missing name/slug, slug format)"
+          description: Organization name is invalid
           content:
             '*/*':
               schema:
@@ -184,80 +261,110 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseOrganizationResponse"
         "409":
-          description: Slug already taken
+          description: Account already belongs to an organization
           content:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseOrganizationResponse"
-  /v1/api/specs:
-    get:
+  /v1/api/orgs/{orgId}/subscriptions/{subscriptionId}/finalize-provisioning:
+    post:
       tags:
       - Subscription
-      summary: List subscription specs with their payment-channel pricing
-      description: |-
-        Public catalog endpoint — no session required, because the Console renders
-        pricing before the user signs in.
-
-        JOINs the platform spec catalog (`spec_config`, enabled only) with the active
-        Stripe prices (`stripe_products`, enabled Product + enabled Price). A spec with
-        no active price on any enabled Product is omitted: it cannot be purchased.
-      operationId: listSpecs
-      security: []
-      responses:
-        "200":
-          description: Enabled specs that have active pricing
-          content:
-            '*/*':
-              schema:
-                $ref: "#/components/schemas/ApiResponseListSpecWithPricingResponse"
-  /v1/api/orgs/{orgId}/subscriptions:
-    get:
-      tags:
-      - Subscription
-      summary: List organization subscriptions
-      description: "Returns every Subscription owned by the Organization, newest first.\
-        \ The list may be empty — creating an Organization no longer creates a subscription."
-      operationId: listSubscriptions
+      summary: Finalize Cluster + MDB provisioning after Checkout confirmation
+      description: "Called by the Console after the user confirms on the Checkout\
+        \ success page. Requires a paid state (ACTIVE, or TRIAL when the spec carries\
+        \ a trial). Creates Cluster + MdbAllocation and kicks off async provisioning.\
+        \ An optional version pins the Cluster version; omitted resolves the latest\
+        \ ACTIVE version."
+      operationId: finalizeProvisioning
       parameters:
       - name: orgId
         in: path
-        description: Organization UUID
+        required: true
+        schema:
+          type: string
+      - name: subscriptionId
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FinalizeProvisioningRequest"
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+  /v1/api/orgs/{orgId}/subscriptions/{subscriptionId}/cancel-now:
+    post:
+      tags:
+      - Subscription
+      summary: Immediate subscription cancellation — no grace period
+      description: "Cancels the Stripe subscription immediately and transitions to\
+        \ CANCELLED, triggering cascade termination of the Cluster + reclaim of MdbAllocation."
+      operationId: cancelNow
+      parameters:
+      - name: orgId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: subscriptionId
+        in: path
         required: true
         schema:
           type: string
       responses:
         "200":
-          description: List of subscriptions (may be empty)
+          description: OK
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/ApiResponseListSubscriptionResponse"
-        "401":
-          description: Not authenticated
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+  /v1/api/orgs/{orgId}/subscriptions/{subscriptionId}/cancel-at-period-end:
+    post:
+      tags:
+      - Subscription
+      summary: Cancel subscription at the next billing period end
+      description: "Stripe subscription is marked cancel_at_period_end=true. The subscription\
+        \ stays ACTIVE (PENDING_CANCEL) until the billing cycle expires, then auto-terminates\
+        \ via the PERIOD_END_REAPED scheduled reaper. No immediate Cluster termination."
+      operationId: cancelAtPeriodEnd
+      parameters:
+      - name: orgId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: subscriptionId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          description: OK
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/ApiResponseListSubscriptionResponse"
-        "403":
-          description: Not a member of this Organization
-          content:
-            '*/*':
-              schema:
-                $ref: "#/components/schemas/ApiResponseListSubscriptionResponse"
+                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
   /v1/api/orgs/{orgId}/subscriptions/checkout:
     post:
       tags:
       - Subscription
-      summary: Start a Stripe Checkout session for a spec
-      description: |-
-        Validates the spec against the platform catalog and its payment-channel
-        pricing, creates a Stripe Checkout Session, and persists a
-        `PENDING_PAYMENT` Subscription shell.
-
-        No Cluster and no MdbAllocation are created here. Provisioning starts only
-        after Stripe confirms payment via the `checkout.session.completed` webhook,
-        which drives `PENDING_PAYMENT → ACTIVE` and sets `provisionInitiated`.
-      operationId: createCheckoutSession
+      summary: Create a Stripe Checkout Session + PENDING_PAYMENT subscription shell
+      description: "Validates the spec exists (platform spec_config.enabled=true)\
+        \ and has Stripe pricing configured, then creates a hosted Stripe Checkout\
+        \ Session. Returns the redirect URL and a PENDING_PAYMENT Subscription shell.\
+        \ Cluster provisioning does NOT start until the Checkout Session completes\
+        \ (webhook-driven PENDING_PAYMENT→ACTIVE transition + activateAndProvision)."
+      operationId: createCheckout
       parameters:
       - name: orgId
         in: path
@@ -273,13 +380,13 @@ paths:
         required: true
       responses:
         "201":
-          description: Checkout session created — shell subscription plus redirect URL
+          description: Checkout session created — shell subscription + redirect URL
           content:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseCheckoutResponse"
         "400":
-          description: Unknown spec key, or no active pricing configured for it
+          description: Invalid specKey or spec deprecated
           content:
             '*/*':
               schema:
@@ -297,137 +404,41 @@ paths:
               schema:
                 $ref: "#/components/schemas/ApiResponseCheckoutResponse"
         "409":
-          description: Duplicate request (clientRequestId already used)
+          description: Duplicate subscription (clientRequestId already used)
           content:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseCheckoutResponse"
-  /v1/api/orgs/{orgId}/subscriptions/{subscriptionId}/cancel-at-period-end:
-    post:
+  /v1/api/orgs/{orgId}/invitations:
+    get:
       tags:
-      - Subscription
-      summary: Cancel at the end of the current billing period
-      description: |-
-        Sets `cancel_at_period_end=true` on the payment channel's subscription and
-        moves the Subscription to `PENDING_CANCEL`. Resources stay usable until the
-        period ends; a scheduled reaper then transitions to `CANCELLED` and cascades
-        Cluster termination.
-
-        Only valid from `ACTIVE`. Idempotent from `PENDING_CANCEL` / `CANCELLED`.
-      operationId: cancelAtPeriodEnd
+      - Organization invitations
+      summary: List organization invitations
+      description: Returns invitation status without disclosing invitation tokens.
+      operationId: listInvitations
       parameters:
       - name: orgId
         in: path
-        description: Organization UUID
-        required: true
-        schema:
-          type: string
-      - name: subscriptionId
-        in: path
-        description: Subscription UUID
         required: true
         schema:
           type: string
       responses:
         "200":
-          description: Subscription moved to PENDING_CANCEL
+          description: OK
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
-        "400":
-          description: Invalid state for this operation
-          content:
-            '*/*':
-              schema:
-                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
-        "401":
-          description: Not authenticated
-          content:
-            '*/*':
-              schema:
-                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
-        "403":
-          description: Not a member of this Organization
-          content:
-            '*/*':
-              schema:
-                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
-        "404":
-          description: Subscription not found
-          content:
-            '*/*':
-              schema:
-                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
-  /v1/api/orgs/{orgId}/subscriptions/{subscriptionId}/cancel-now:
+                $ref: "#/components/schemas/ApiResponseListInvitationView"
     post:
       tags:
-      - Subscription
-      summary: Cancel immediately, with no grace period
-      description: |-
-        Cancels the payment channel's subscription right away and moves the
-        Subscription to `CANCELLED`, cascading Cluster termination and MdbAllocation
-        reclaim. Unlike `/cancel-at-period-end` there is no remaining service period.
-      operationId: cancelNow
+      - Organization invitations
+      summary: Create an organization invitation
+      description: "Only the organization owner may create a seven-day, single-use\
+        \ invitation. The returned token is shown once."
+      operationId: createInvitation
       parameters:
       - name: orgId
         in: path
-        description: Organization UUID
-        required: true
-        schema:
-          type: string
-      - name: subscriptionId
-        in: path
-        description: Subscription UUID
-        required: true
-        schema:
-          type: string
-      responses:
-        "200":
-          description: Subscription cancelled immediately
-          content:
-            '*/*':
-              schema:
-                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
-        "401":
-          description: Not authenticated
-          content:
-            '*/*':
-              schema:
-                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
-        "403":
-          description: Not a member of this Organization
-          content:
-            '*/*':
-              schema:
-                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
-        "404":
-          description: Subscription not found
-          content:
-            '*/*':
-              schema:
-                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
-  /v1/api/orgs/{orgId}/subscriptions/{subscriptionId}/finalize-provisioning:
-    post:
-      tags:
-      - Subscription
-      summary: Provision Cluster + MDB after a confirmed checkout
-      description: |-
-        Called by the Console once the user returns from Stripe Checkout. Requires a
-        Subscription already activated by the webhook (`ACTIVE` + `provisionInitiated`).
-        Creates the Cluster and MdbAllocation from the spec snapshot taken at checkout
-        time and starts asynchronous provisioning.
-      operationId: finalizeProvisioning
-      parameters:
-      - name: orgId
-        in: path
-        description: Organization UUID
-        required: true
-        schema:
-          type: string
-      - name: subscriptionId
-        in: path
-        description: Subscription UUID
         required: true
         schema:
           type: string
@@ -435,39 +446,15 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/FinalizeProvisioningRequest"
+              $ref: "#/components/schemas/CreateInvitationRequest"
         required: true
       responses:
-        "201":
-          description: Resources created, provisioning started
+        "200":
+          description: OK
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
-        "400":
-          description: Subscription not activated, or spec snapshot missing
-          content:
-            '*/*':
-              schema:
-                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
-        "401":
-          description: Not authenticated
-          content:
-            '*/*':
-              schema:
-                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
-        "403":
-          description: Not a member of this Organization
-          content:
-            '*/*':
-              schema:
-                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
-        "404":
-          description: Subscription not found
-          content:
-            '*/*':
-              schema:
-                $ref: "#/components/schemas/ApiResponseSubscriptionResponse"
+                $ref: "#/components/schemas/ApiResponseCreatedInvitation"
   /v1/api/orgs/{orgId}/clusters/{clusterId}/retry:
     post:
       tags:
@@ -524,80 +511,194 @@ paths:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseClusterResponse"
-  /v1/api/orgs/{orgId}/clusters/{clusterId}/egress-address:stabilize:
+  /v1/api/orgs/{orgId}/clusters/{clusterId}/retry-cleanup:
     post:
       tags:
       - Clusters
-      summary: Stabilize the Cluster egress IPv4 address
-      description: Attaches a Cluster-owned Elastic IP to a live Cluster. The public address and DNS record change when the operation completes; the EC2 runtime is not replaced.
-      operationId: stabilizeClusterEgressAddress
+      summary: Retry cleanup failure
+      description: |-
+        Retries resource cleanup for a Cluster whose previous cleanup attempt failed (cleanupErrorCode is non-null). Common causes: CloudFormation stack locked by another operation, AWS API throttling, or IAM drift. Requires the user to fix the root cause before retrying.
+
+        Idempotent: returns current Cluster state if no cleanup failure exists (cleanupErrorCode is null).
+
+        Returns 500 if cleanup still fails — AWS error details are persisted on the Cluster document.
+      operationId: retryCleanup
       parameters:
       - name: orgId
         in: path
+        description: Organization UUID
         required: true
         schema:
           type: string
       - name: clusterId
         in: path
+        description: Cluster UUID
         required: true
         schema:
           type: string
       responses:
         "200":
-          description: Egress address stabilization started or is already in progress
+          description: Cleanup attempted — check cleanupErrorCode in response; null
+            means success
           content:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseClusterResponse"
         "401":
           description: Not authenticated
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseClusterResponse"
         "403":
-          description: Not a member of this Organization or not cluster owner
+          description: Not cluster owner
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseClusterResponse"
         "404":
           description: Cluster not found
-        "409":
-          description: Cluster is not live
-  /v1/api/clusters/{clusterId}/egress-address:
-    get:
-      tags: [C2 Status Report]
-      summary: Read the runtime Cluster's current outbound address
-      operationId: currentEgressAddress
-      description: Uses the per-Cluster SDK Bearer token and returns no credentials. The token must own the requested Cluster.
-      security: []
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseClusterResponse"
+        "500":
+          description: Cleanup still failing — check cleanupErrorDetail
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseClusterResponse"
+  /v1/api/orgs/{orgId}/clusters/{clusterId}/egress-address:stabilize:
+    post:
+      tags:
+      - Clusters
+      summary: Stabilize the Cluster egress IPv4 address
+      description: Attaches a Cluster-owned Elastic IP to a live Cluster. The public
+        address and DNS record change when the operation completes; the EC2 runtime
+        is not replaced.
+      operationId: stabilizeEgressAddress
       parameters:
-      - name: clusterId
+      - name: orgId
         in: path
+        description: Organization UUID
         required: true
         schema:
           type: string
-      - name: Authorization
-        in: header
+      - name: clusterId
+        in: path
+        description: Cluster UUID
         required: true
         schema:
           type: string
       responses:
         "200":
-          description: Current Cluster address; response is not cacheable
+          description: OK
           content:
-            application/json:
+            '*/*':
               schema:
-                type: object
-                properties:
-                  code:
-                    type: string
-                  data:
-                    type: object
-                    properties:
-                      organizationId:
-                        type: string
-                      clusterId:
-                        type: string
-                      ec2PublicIp:
-                        type: [string, "null"]
-                      egressAddressStatus:
-                        type: string
-        "401":
-          description: SDK token missing, invalid, or owned by another Cluster
+                $ref: "#/components/schemas/ApiResponseClusterResponse"
+  /v1/api/orgs/{orgId}/alert-policies:
+    get:
+      tags:
+      - alert-policy-controller
+      operationId: listAlertPolicies
+      parameters:
+      - name: orgId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseListAlertPolicyResponse"
+    post:
+      tags:
+      - alert-policy-controller
+      operationId: createAlertPolicy
+      parameters:
+      - name: orgId
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AlertPolicyRequest"
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseAlertPolicyResponse"
+  /v1/api/internal/payment/stripe/webhook:
+    post:
+      tags:
+      - stripe-webhook-controller
+      operationId: handleWebhook
+      parameters:
+      - name: Stripe-Signature
+        in: header
+        required: false
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: string
+              format: byte
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                type: string
+  /v1/api/internal/payment/stripe/products/refresh:
+    post:
+      tags:
+      - stripe-webhook-controller
+      operationId: refreshProducts
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseString"
+  /v1/api/internal/events:
+    post:
+      tags:
+      - internal-event-controller
+      operationId: ingest
+      parameters:
+      - name: X-Event-Token
+        in: header
+        required: false
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EventIngestRequest"
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseEventResponse"
   /v1/api/clusters/{clusterId}/status-report:
     post:
       tags:
@@ -657,13 +758,70 @@ paths:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseStatusReportResponse"
+  /v1/api/clusters/{clusterId}/events:
+    post:
+      tags:
+      - C2 Cluster Events
+      summary: Push a runtime Cluster event into the event center
+      description: |-
+        Accepts task failures/interruptions, data validation results and other runtime occurrences. The event is stored, then evaluated against the organization's enabled alert policies; matching policies create alerts and notification deliveries.
+
+        Authentication: Bearer token in Authorization header — the Cluster's per-Cluster sdk-static-token. The organization and event source are derived from that token, never from the request body.
+
+        Idempotency: reuse the same dedupeKey when retrying the same occurrence; a duplicate reports the stored event and does not re-evaluate policies.
+
+        Supported types (any type under the cluster. namespace): cluster.task.failed, cluster.task.interrupted, cluster.validation.failed, cluster.validation.succeeded, cluster.runtime.degraded.
+      operationId: ingestClusterEvent
+      parameters:
+      - name: clusterId
+        in: path
+        description: Cluster ObjectId — must match the Bearer token's owning Cluster
+        required: true
+        schema:
+          type: string
+      - name: Authorization
+        in: header
+        required: false
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClusterEventRequest"
+        required: true
+      responses:
+        "200":
+          description: Event accepted
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseEventResponse"
+        "400":
+          description: Invalid event (event.invalid)
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseEventResponse"
+        "401":
+          description: SDK token missing or invalid (sdk.token-invalid)
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseEventResponse"
+        "409":
+          description: Cluster has no owning organization yet (cluster.invalid-state)
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseEventResponse"
   /v1/api/auth/register:
     post:
       tags:
       - Auth
-      summary: Register new user
-      description: "Create a new Cloud Console account with email + password. In Week\
-        \ 2 preview, email is auto-verified (magic link deferred)."
+      summary: Reject open registration
+      description: Open registration is disabled. New accounts require an organization
+        invitation and email verification.
       operationId: register
       requestBody:
         content:
@@ -672,18 +830,58 @@ paths:
               $ref: "#/components/schemas/RegisterRequest"
         required: true
       responses:
-        "201":
-          description: User created
+        "403":
+          description: Open registration is disabled
           content:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseUserResponse"
+  /v1/api/auth/oauth/{provider}/start:
+    post:
+      tags:
+      - Auth
+      summary: Start Google or GitHub sign-in
+      description: Stores a hashed invitation or identity-link intent in the server
+        session and returns the provider authorization path. New Cloud Console clients
+        may defer trial Organization creation until the authenticated onboarding step.
+      operationId: startOAuth
+      parameters:
+      - name: provider
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OAuthStartRequest"
+        required: true
+      responses:
+        "200":
+          description: Provider authorization path returned
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseOAuthStartResult"
         "400":
-          description: Invalid input or email already registered
+          description: Unsupported OAuth flow
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/ApiResponseUserResponse"
+                $ref: "#/components/schemas/ApiResponseOAuthStartResult"
+        "401":
+          description: Recent authentication required for identity linking
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseOAuthStartResult"
+        "503":
+          description: Provider is not configured
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseOAuthStartResult"
   /v1/api/auth/logout:
     post:
       tags:
@@ -729,6 +927,45 @@ paths:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseLoginResult"
+  /v1/api/auth/invitations/accept:
+    post:
+      tags:
+      - Auth
+      summary: Accept an organization invitation
+      description: Adds the authenticated existing account to the invitation's organization.
+        For a trial code, clients may instead defer Organization creation to onboarding.
+      operationId: acceptInvitation
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AcceptInvitationRequest"
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseLoginResult"
+  /v1/api/auth/identities/reauthenticate:
+    post:
+      tags:
+      - identity-controller
+      operationId: reauthenticate
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReauthenticationRequest"
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseVoid"
   /v1/api/auth/exchange:
     post:
       tags:
@@ -787,6 +1024,194 @@ paths:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseExchangeResponse"
+  /v1/api/auth/email/register:
+    post:
+      tags:
+      - Auth
+      summary: Complete email registration
+      description: Verifies the one-time code and creates the account. Organization
+        invitations add the account to their target Organization. A valid invitation
+        is required while trial-code registration is enabled. New Cloud Console
+        clients may defer trial Organization creation until the authenticated onboarding
+        step.
+      operationId: registerWithEmailCode
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailRegistrationRequest"
+        required: true
+      responses:
+        "201":
+          description: Account created and signed in
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseLoginResult"
+        "400":
+          description: Invalid or unusable verification code
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseLoginResult"
+        "403":
+          description: Invitation email does not match
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseLoginResult"
+        "409":
+          description: Invitation was already consumed
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseLoginResult"
+        "410":
+          description: Invitation or verification code expired
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseLoginResult"
+        "429":
+          description: Verification attempts exceeded
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseLoginResult"
+        "503":
+          description: OTP verification is not configured
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseLoginResult"
+  /v1/api/auth/email/login/code:
+    post:
+      tags: [Auth]
+      summary: Request an email sign-in code
+      operationId: requestEmailLoginCode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailLoginCodeRequest"
+      responses:
+        "202":
+          description: Request accepted
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseVoid"
+  /v1/api/auth/email/login:
+    post:
+      tags: [Auth]
+      summary: Sign in using an email verification code
+      operationId: loginWithEmailCode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailLoginRequest"
+      responses:
+        "200":
+          description: Login successful, session cookie set
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseLoginResult"
+  /v1/api/auth/email/code:
+    post:
+      tags:
+      - Auth
+      summary: Send an email verification code
+      description: "Requests an email code for a valid invitation, or for open self-registration\
+        \ when trial codes are not required."
+      operationId: requestEmailCode
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailCodeRequest"
+        required: true
+      responses:
+        "202":
+          description: Request accepted
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseVoid"
+        "400":
+          description: Invalid request or invitation token
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseVoid"
+        "403":
+          description: Invitation email does not match
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseVoid"
+        "409":
+          description: Email is already registered; sign in instead
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseVoid"
+        "410":
+          description: Invitation expired or revoked
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseVoid"
+        "429":
+          description: Cooldown or hourly rate limit reached
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseVoid"
+        "503":
+          description: Email delivery is unavailable
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseVoid"
+  /v1/api/auth/access:
+    post:
+      tags:
+      - Auth
+      summary: Inspect a trial code or organization invitation
+      operationId: accessType
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AccessCode"
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseAccessType"
+  /v1/api/specs:
+    get:
+      tags:
+      - Spec Catalog
+      summary: List enabled subscription specs with their channel pricing
+      description: JOINs platform spec_config (enabled=true) with Stripe product catalog
+        pricing (enabled=true on both Product and Price). Only specs with configured
+        pricing are returned.
+      operationId: listSpecs
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseListSpecWithPricingResponse"
   /v1/api/regions:
     get:
       tags:
@@ -873,6 +1298,40 @@ paths:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseOrganizationResponse"
+  /v1/api/orgs/{orgId}/subscriptions:
+    get:
+      tags:
+      - Subscription
+      summary: List organization subscriptions
+      description: "Returns every Subscription owned by the Organization, newest first.\
+        \ The list may be empty — creating an Organization no longer creates a subscription."
+      operationId: listSubscriptions
+      parameters:
+      - name: orgId
+        in: path
+        description: Organization UUID
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          description: List of subscriptions (may be empty)
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseListSubscriptionResponse"
+        "401":
+          description: Not authenticated
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseListSubscriptionResponse"
+        "403":
+          description: Not a member of this Organization
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseListSubscriptionResponse"
   /v1/api/orgs/{orgId}/subscriptions/{subscriptionId}:
     get:
       tags:
@@ -984,6 +1443,165 @@ paths:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseDeploymentProgressResponse"
+  /v1/api/orgs/{orgId}/events:
+    get:
+      tags:
+      - event-controller
+      operationId: listEvents
+      parameters:
+      - name: orgId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: from
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: to
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: source
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: type
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: severity
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - INFO
+          - WARNING
+          - CRITICAL
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int32
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseEventPageResponse"
+  /v1/api/orgs/{orgId}/events/{eventId}:
+    get:
+      tags:
+      - event-controller
+      operationId: getEvent
+      parameters:
+      - name: orgId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: eventId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseEventResponse"
+  /v1/api/orgs/{orgId}/events/types:
+    get:
+      tags:
+      - event-controller
+      operationId: listEventTypes
+      parameters:
+      - name: orgId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: q
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseListString"
+  /v1/api/orgs/{orgId}/deliveries:
+    get:
+      tags:
+      - notification-controller
+      operationId: listNotificationDeliveries
+      parameters:
+      - name: orgId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int32
+          default: 0
+      - name: size
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int32
+          default: 20
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseNotificationDeliveryPage"
+  /v1/api/orgs/{orgId}/deliveries/{deliveryId}:
+    get:
+      tags:
+      - notification-controller
+      operationId: getNotificationDelivery
+      parameters:
+      - name: orgId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: deliveryId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseNotificationDeliveryResponse"
   /v1/api/orgs/{orgId}/clusters:
     get:
       tags:
@@ -1066,6 +1684,53 @@ paths:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseClusterResponse"
+  /v1/api/orgs/{orgId}/alerts:
+    get:
+      tags:
+      - alert-controller
+      operationId: listAlerts
+      parameters:
+      - name: orgId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int32
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseListAlertResponse"
+  /v1/api/orgs/{orgId}/alerts/{alertId}:
+    get:
+      tags:
+      - alert-controller
+      operationId: getAlert
+      parameters:
+      - name: orgId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: alertId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseAlertResponse"
   /v1/api/jwks.json:
     get:
       tags:
@@ -1152,6 +1817,64 @@ paths:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseResolveResponse"
+  /v1/api/clusters/{clusterId}/egress-address:
+    get:
+      tags:
+      - cluster-egress-address-controller
+      summary: Read the runtime Cluster's current outbound address
+      operationId: current
+      parameters:
+      - name: clusterId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: Authorization
+        in: header
+        required: false
+        schema:
+          type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseAddress"
+  /v1/api/cluster-versions:
+    get:
+      tags:
+      - Cluster Versions
+      summary: "List active Cluster versions, newest first"
+      description: Returns every ACTIVE Cluster version ordered by descending versionNumber;
+        the first row is the latest version and the default for new subscriptions.
+      operationId: listClusterVersions
+      responses:
+        "200":
+          description: "Active versions, newest first"
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseListClusterVersionResponse"
+        "401":
+          description: Not authenticated
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseListClusterVersionResponse"
+  /v1/api/auth/registration-policy:
+    get:
+      tags:
+      - Auth
+      summary: Get public registration policy
+      operationId: registrationPolicy
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseRegistrationPolicy"
   /v1/api/auth/me:
     get:
       tags:
@@ -1172,6 +1895,141 @@ paths:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseLoginResult"
+  /v1/api/tickets:
+    get:
+      tags:
+      - Support tickets
+      summary: List the current user's support tickets
+      operationId: listMyTickets
+      parameters:
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+      - name: size
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      responses:
+        "200":
+          description: Page of the caller's tickets with live Jira status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseTicketPage"
+        "401":
+          description: Not authenticated
+        "503":
+          description: Jira Service Management is not configured
+        "502":
+          description: Jira Service Management is unavailable
+    post:
+      tags:
+      - Support tickets
+      summary: Create a support request for the current Cloud user
+      operationId: createMyTicket
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTicketRequest"
+      responses:
+        "201":
+          description: Jira request created and linked to the current Cloud user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseTicket"
+        "400":
+          description: Request title or description is invalid or rejected by Jira
+        "401":
+          description: Not authenticated
+        "403":
+          description: Cloud account email is not verified
+        "409":
+          description: Current Cloud email could not be resolved to one Jira customer
+        "502":
+          description: Jira Service Management is unavailable
+        "503":
+          description: Jira configuration is missing or submission result is uncertain
+  /v1/api/tickets/{cloudTicketId}:
+    get:
+      tags:
+      - Support tickets
+      summary: Read one of the current user's support tickets
+      operationId: getMyTicket
+      parameters:
+      - name: cloudTicketId
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: "^[0-9a-fA-F]{24}$"
+      responses:
+        "200":
+          description: Ticket details with live Jira status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseTicket"
+        "401":
+          description: Not authenticated
+        "404":
+          description: Ticket does not exist or is not owned by the caller
+        "503":
+          description: Jira Service Management is not configured
+        "502":
+          description: Jira Service Management is unavailable
+  /v1/api/tickets/{cloudTicketId}/close:
+    post:
+      tags:
+      - Support tickets
+      summary: Close one of the current user's tickets when the Jira workflow permits it
+      operationId: closeMyTicket
+      parameters:
+      - name: cloudTicketId
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: "^[0-9a-fA-F]{24}$"
+      responses:
+        "200":
+          description: Ticket closed and Jira status re-read
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponseTicket"
+        "401":
+          description: Not authenticated
+        "404":
+          description: Ticket does not exist or is not owned by the caller
+        "409":
+          description: Configured close transition is not available
+        "502":
+          description: Jira Service Management is unavailable
+        "503":
+          description: Jira Service Management is not configured
+  /v1/api/auth/identities:
+    get:
+      tags:
+      - identity-controller
+      operationId: listIdentities
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseListIdentityView"
   /health:
     get:
       tags:
@@ -1204,6 +2062,31 @@ paths:
               schema:
                 type: object
                 additionalProperties: {}
+  /v1/api/orgs/{orgId}/invitations/{invitationId}:
+    delete:
+      tags:
+      - Organization invitations
+      summary: Revoke an organization invitation
+      description: Revokes an unused invitation owned by the specified organization.
+      operationId: revokeInvitation
+      parameters:
+      - name: orgId
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: invitationId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseInvitationView"
 components:
   schemas:
     ConfigurationInitializationClaim:
@@ -1214,6 +2097,7 @@ components:
         bootId:
           type: string
           format: uuid
+          description: Full hyphenated UUID; case aliases are normalized to the canonical lowercase identity.
         configurationHash:
           type: string
           pattern: '^[0-9a-f]{64}$'
@@ -1225,6 +2109,7 @@ components:
         operationId:
           type: string
           format: uuid
+          description: Original operation UUID; case aliases are normalized to the canonical lowercase identity.
         configurationHash:
           type: string
           pattern: '^[0-9a-f]{64}$'
@@ -1253,6 +2138,120 @@ components:
               pattern: '^[0-9a-f]{64}$'
             creationGranted:
               type: boolean
+    AlertPolicyRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        enabled:
+          type: boolean
+        eventTypes:
+          type: array
+          items:
+            type: string
+        minSeverity:
+          type: string
+          enum:
+          - INFO
+          - WARNING
+          - CRITICAL
+        recipients:
+          type: array
+          items:
+            type: string
+        channel:
+          type: string
+        cooldownSeconds:
+          type: integer
+          format: int64
+        quietHoursStart:
+          type: string
+        quietHoursEnd:
+          type: string
+        timezone:
+          type: string
+    AlertPolicyResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        enabled:
+          type: boolean
+        eventTypes:
+          type: array
+          items:
+            type: string
+        minSeverity:
+          type: string
+        recipients:
+          type: array
+          items:
+            type: string
+        channel:
+          type: string
+        cooldownSeconds:
+          type: integer
+          format: int64
+        quietHoursStart:
+          type: string
+        quietHoursEnd:
+          type: string
+        timezone:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    ApiResponseAlertPolicyResponse:
+      type: object
+      description: Global API response envelope
+      properties:
+        opId:
+          type: string
+          description: Request correlation ID — unique per request
+          example: 3f2a1b4c-5d6e-7f8a-9b0c-1d2e3f4a5b6c
+        code:
+          type: string
+          description: "Business result code — 'ok' on success, error code on failure"
+          example: ok
+        msg:
+          type: string
+          description: Detailed message — success info or failure reason
+        data:
+          $ref: "#/components/schemas/AlertPolicyResponse"
+          description: "Response payload — object or array, null on void responses"
+    ApiResponseTrialCode:
+      type: object
+      description: Global API response envelope
+      properties:
+        opId:
+          type: string
+          description: Request correlation ID — unique per request
+          example: 3f2a1b4c-5d6e-7f8a-9b0c-1d2e3f4a5b6c
+        code:
+          type: string
+          description: "Business result code — 'ok' on success, error code on failure"
+          example: ok
+        msg:
+          type: string
+          description: Detailed message — success info or failure reason
+        data:
+          $ref: "#/components/schemas/TrialCode"
+          description: "Response payload — object or array, null on void responses"
+    TrialCode:
+      type: object
+      properties:
+        code:
+          type: string
+        url:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
     ApiResponseOrganizationResponse:
       type: object
       description: Global API response envelope
@@ -1271,6 +2270,16 @@ components:
         data:
           $ref: "#/components/schemas/OrganizationResponse"
           description: "Response payload — object or array, null on void responses"
+    CreateOrganizationRequest:
+      type: object
+      required:
+      - name
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Organization display name
     OrganizationResponse:
       type: object
       properties:
@@ -1280,66 +2289,19 @@ components:
         name:
           type: string
           description: Organization display name
-        slug:
-          type: string
-          description: "URL-friendly slug (lowercase, hyphenated, unique)"
         ownerEmail:
           type: string
           description: Owner user email
         status:
           type: string
           description: "Organization status: ACTIVE / SUSPENDED"
-    CreateCheckoutRequest:
-      type: object
-      properties:
-        specKey:
-          type: string
-          maxLength: 50
-          description: Platform spec key to purchase
-          example: 2c8g
-        clientRequestId:
-          type: string
-          maxLength: 100
-          description: Idempotency key — a retry with the same value must not create
-            a second Subscription
-      required:
-      - specKey
-    CheckoutResponse:
-      type: object
-      properties:
-        subscriptionId:
-          type: string
-          description: The PENDING_PAYMENT Subscription created by this call
-        status:
-          type: string
-          description: Subscription status — always PENDING_PAYMENT here
-          example: PENDING_PAYMENT
-        checkoutUrl:
-          type: string
-          description: Stripe-hosted Checkout URL the caller redirects the user to
-    ApiResponseCheckoutResponse:
-      type: object
-      description: Global API response envelope
-      properties:
-        opId:
-          type: string
-          description: Request correlation ID — unique per request
-        code:
-          type: string
-          description: "Business result code — 'ok' on success, error code on failure"
-          example: ok
-        msg:
-          type: string
-          description: Detailed message — success info or failure reason
-        data:
-          $ref: "#/components/schemas/CheckoutResponse"
     FinalizeProvisioningRequest:
       type: object
       properties:
         region:
           type: string
-          minLength: 1
-          example: ap-southeast-1
+          maxLength: 100
+          minLength: 0
         clusterName:
           type: string
           maxLength: 100
@@ -1347,66 +2309,10 @@ components:
         version:
           type: string
           maxLength: 100
-          description: Cluster version to deploy; omit/blank to use the latest ACTIVE
-            version
-          example: 1.4.0
+          minLength: 0
       required:
       - clusterName
       - region
-    SpecWithPricingResponse:
-      type: object
-      description: A platform spec joined with the pricing of one payment channel
-      properties:
-        key:
-          type: string
-          example: 2c8g
-        displayName:
-          type: string
-          example: 2C8G Starter
-        cpuCores:
-          type: integer
-          format: int32
-        memoryGb:
-          type: integer
-          format: int32
-        trialDays:
-          type: integer
-          format: int32
-        mdbSizeGb:
-          type: integer
-          format: int32
-        currency:
-          type: string
-          example: usd
-        unitPriceCents:
-          type: integer
-          format: int64
-          description: Price per billing interval, in the smallest currency unit
-          example: 19900
-        stripePriceId:
-          type: string
-          description: Payment-channel price identifier to pass back at checkout
-        paymentMethod:
-          type: string
-          example: STRIPE
-    ApiResponseListSpecWithPricingResponse:
-      type: object
-      description: Global API response envelope
-      properties:
-        opId:
-          type: string
-          description: Request correlation ID — unique per request
-        code:
-          type: string
-          description: "Business result code — 'ok' on success, error code on failure"
-          example: ok
-        msg:
-          type: string
-          description: Detailed message — success info or failure reason
-        data:
-          type: array
-          items:
-            $ref: "#/components/schemas/SpecWithPricingResponse"
     ApiResponseSubscriptionResponse:
       type: object
       description: Global API response envelope
@@ -1525,6 +2431,99 @@ components:
           description: Subscription item breakdown
           items:
             $ref: "#/components/schemas/ItemResponse"
+    CreateCheckoutRequest:
+      type: object
+      properties:
+        specKey:
+          type: string
+          maxLength: 50
+          minLength: 0
+        clientRequestId:
+          type: string
+          maxLength: 100
+          minLength: 0
+      required:
+      - specKey
+    ApiResponseCheckoutResponse:
+      type: object
+      description: Global API response envelope
+      properties:
+        opId:
+          type: string
+          description: Request correlation ID — unique per request
+          example: 3f2a1b4c-5d6e-7f8a-9b0c-1d2e3f4a5b6c
+        code:
+          type: string
+          description: "Business result code — 'ok' on success, error code on failure"
+          example: ok
+        msg:
+          type: string
+          description: Detailed message — success info or failure reason
+        data:
+          $ref: "#/components/schemas/CheckoutResponse"
+          description: "Response payload — object or array, null on void responses"
+    CheckoutResponse:
+      type: object
+      properties:
+        subscriptionId:
+          type: string
+          description: PENDING_PAYMENT Subscription UUID
+        status:
+          type: string
+          description: Subscription status (PENDING_PAYMENT)
+        checkoutUrl:
+          type: string
+          description: Stripe-hosted Checkout redirect URL — Console redirects the
+            user here
+    CreateInvitationRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          maxLength: 254
+          minLength: 0
+    ApiResponseCreatedInvitation:
+      type: object
+      description: Global API response envelope
+      properties:
+        opId:
+          type: string
+          description: Request correlation ID — unique per request
+          example: 3f2a1b4c-5d6e-7f8a-9b0c-1d2e3f4a5b6c
+        code:
+          type: string
+          description: "Business result code — 'ok' on success, error code on failure"
+          example: ok
+        msg:
+          type: string
+          description: Detailed message — success info or failure reason
+        data:
+          $ref: "#/components/schemas/CreatedInvitation"
+          description: "Response payload — object or array, null on void responses"
+    CreatedInvitation:
+      type: object
+      properties:
+        invitation:
+          $ref: "#/components/schemas/InvitationView"
+        token:
+          type: string
+    InvitationView:
+      type: object
+      properties:
+        id:
+          type: string
+        orgId:
+          type: string
+        invitedEmail:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        status:
+          type: string
     ApiResponseClusterResponse:
       type: object
       description: Global API response envelope
@@ -1598,13 +2597,13 @@ components:
           description: Cluster public and source-firewall egress IPv4 address
         egressAddressStatus:
           type: string
+          description: Stability state of the Cluster egress address
           enum:
           - DYNAMIC
           - STABILIZING
           - ATTACHING
           - STABLE
           - FAILED
-          description: Stability state of the Cluster egress address
         lastHeartbeatAt:
           type: string
           description: Last C2 heartbeat timestamp (ISO-8601 UTC)
@@ -1616,8 +2615,113 @@ components:
           description: Ready timestamp (ISO-8601 UTC) — null until state = READY
         clusterVersion:
           type: string
-          description: Cluster version pinned at subscription time; selects the
-            runtime container image tag
+          description: Cluster version pinned at subscription time; selects the runtime
+            container image tag
+        cleanupErrorCode:
+          type: string
+          description: Cleanup failure error code — non-null means the user should
+            call retry-cleanup
+        cleanupErrorDetail:
+          type: string
+          description: "Diagnostic detail for cleanup failure (AWS error, which resource,\
+            \ etc.)"
+        cleanupFailedAt:
+          type: string
+          description: When cleanup failure was recorded (ISO-8601 UTC)
+    ApiResponseString:
+      type: object
+      description: Global API response envelope
+      properties:
+        opId:
+          type: string
+          description: Request correlation ID — unique per request
+          example: 3f2a1b4c-5d6e-7f8a-9b0c-1d2e3f4a5b6c
+        code:
+          type: string
+          description: "Business result code — 'ok' on success, error code on failure"
+          example: ok
+        msg:
+          type: string
+          description: Detailed message — success info or failure reason
+        data:
+          type: string
+          description: "Response payload — object or array, null on void responses"
+    EventIngestRequest:
+      type: object
+      properties:
+        orgId:
+          type: string
+        source:
+          type: string
+        type:
+          type: string
+        severity:
+          type: string
+          enum:
+          - INFO
+          - WARNING
+          - CRITICAL
+        subject:
+          type: string
+        actor:
+          type: string
+        occurredAt:
+          type: string
+          format: date-time
+        dedupeKey:
+          type: string
+        payload:
+          type: object
+          additionalProperties: {}
+    ApiResponseEventResponse:
+      type: object
+      description: Global API response envelope
+      properties:
+        opId:
+          type: string
+          description: Request correlation ID — unique per request
+          example: 3f2a1b4c-5d6e-7f8a-9b0c-1d2e3f4a5b6c
+        code:
+          type: string
+          description: "Business result code — 'ok' on success, error code on failure"
+          example: ok
+        msg:
+          type: string
+          description: Detailed message — success info or failure reason
+        data:
+          $ref: "#/components/schemas/EventResponse"
+          description: "Response payload — object or array, null on void responses"
+    EventResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        orgId:
+          type: string
+        source:
+          type: string
+        type:
+          type: string
+        severity:
+          type: string
+        subject:
+          type: string
+        actor:
+          type: string
+        occurredAt:
+          type: string
+          format: date-time
+        dedupeKey:
+          type: string
+        schemaVersion:
+          type: integer
+          format: int32
+        payload:
+          type: object
+          additionalProperties: {}
+        createdAt:
+          type: string
+          format: date-time
     StatusReportRequest:
       type: object
       description: C2 status report payload — runtime heartbeat + infrastructure metrics
@@ -1667,6 +2771,27 @@ components:
         status:
           type: string
           description: Always 'accepted' on success
+    ClusterEventRequest:
+      type: object
+      properties:
+        type:
+          type: string
+        severity:
+          type: string
+          enum:
+          - INFO
+          - WARNING
+          - CRITICAL
+        subject:
+          type: string
+        occurredAt:
+          type: string
+          format: date-time
+        dedupeKey:
+          type: string
+        payload:
+          type: object
+          additionalProperties: {}
     RegisterRequest:
       type: object
       properties:
@@ -1731,6 +2856,44 @@ components:
           type: string
           format: date-time
           description: Last login time (ISO-8601)
+    OAuthStartRequest:
+      type: object
+      properties:
+        flow:
+          type: string
+          minLength: 1
+        invitationToken:
+          type: string
+        organizationName:
+          type: string
+        deferOrganizationCreation:
+          type: boolean
+          description: Complete account authentication first and create the Organization in Cloud onboarding.
+      required:
+      - flow
+    ApiResponseOAuthStartResult:
+      type: object
+      description: Global API response envelope
+      properties:
+        opId:
+          type: string
+          description: Request correlation ID — unique per request
+          example: 3f2a1b4c-5d6e-7f8a-9b0c-1d2e3f4a5b6c
+        code:
+          type: string
+          description: "Business result code — 'ok' on success, error code on failure"
+          example: ok
+        msg:
+          type: string
+          description: Detailed message — success info or failure reason
+        data:
+          $ref: "#/components/schemas/OAuthStartResult"
+          description: "Response payload — object or array, null on void responses"
+    OAuthStartResult:
+      type: object
+      properties:
+        authorizationUrl:
+          type: string
     ApiResponseVoid:
       type: object
       description: Global API response envelope
@@ -1782,6 +2945,102 @@ components:
         data:
           $ref: "#/components/schemas/LoginResult"
           description: "Response payload — object or array, null on void responses"
+
+    ApiResponseTicket:
+      type: object
+      description: Global API response envelope
+      properties:
+        opId:
+          type: string
+        code:
+          type: string
+        msg:
+          type: string
+        data:
+          $ref: "#/components/schemas/TicketResponse"
+    ApiResponseTicketPage:
+      type: object
+      description: Global API response envelope
+      properties:
+        opId:
+          type: string
+        code:
+          type: string
+        msg:
+          type: string
+        data:
+          $ref: "#/components/schemas/TicketPageResponse"
+    CreateTicketRequest:
+      type: object
+      required:
+      - summary
+      - description
+      properties:
+        summary:
+          type: string
+          minLength: 1
+          maxLength: 255
+        description:
+          type: string
+          minLength: 1
+          maxLength: 10000
+    TicketPageResponse:
+      type: object
+      required:
+      - items
+      - page
+      - size
+      - totalItems
+      - totalPages
+      - hasNext
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/TicketResponse"
+        page:
+          type: integer
+        size:
+          type: integer
+        totalItems:
+          type: integer
+          format: int64
+        totalPages:
+          type: integer
+        hasNext:
+          type: boolean
+    TicketResponse:
+      type: object
+      required:
+      - id
+      - jiraKey
+      - summary
+      - description
+      - status
+      - statusCategory
+      - createdAt
+      - canClose
+      properties:
+        id:
+          type: string
+          description: Cloud ticket ID used for subsequent requests
+        jiraKey:
+          type: string
+          description: Jira Service Management request key
+        summary:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+        statusCategory:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        canClose:
+          type: boolean
+          description: Whether the current Jira workflow allows the caller to close this ticket
     LoginResult:
       type: object
       properties:
@@ -1791,6 +3050,24 @@ components:
         displayName:
           type: string
           description: User display name
+    AcceptInvitationRequest:
+      type: object
+      properties:
+        invitationToken:
+          type: string
+          minLength: 1
+        organizationName:
+          type: string
+        deferOrganizationCreation:
+          type: boolean
+          description: For a trial code, retain one-time creation authority in the Cloud session until onboarding.
+      required:
+      - invitationToken
+    ReauthenticationRequest:
+      type: object
+      properties:
+        password:
+          type: string
     ExchangeRequest:
       type: object
       properties:
@@ -1848,26 +3125,163 @@ components:
           description: Cluster UUID bound to this session
         organizationName:
           type: string
-          description: Organization display name from the Organization bound to the redeemed exchange code
+          description: Organization display name from the bound Organization record
         clusterName:
           type: string
-          description: Cluster display name from the Cluster bound to the redeemed exchange code
+          description: Cluster display name from the bound Cluster record
         region:
           type: string
-          description: AWS region from the Cluster bound to the redeemed exchange code
+          description: AWS region from the bound Cluster record
         ec2PublicIp:
           type: string
-          nullable: true
           description: Cluster public and source-firewall egress IPv4 address
         egressAddressStatus:
           type: string
-          enum:
-            - DYNAMIC
-            - STABILIZING
-            - ATTACHING
-            - STABLE
-            - FAILED
           description: Stability state of the Cluster egress address
+          enum:
+          - DYNAMIC
+          - STABILIZING
+          - ATTACHING
+          - STABLE
+          - FAILED
+    EmailRegistrationRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          minLength: 1
+        invitationToken:
+          type: string
+        code:
+          type: string
+          maxLength: 6
+          minLength: 6
+        password:
+          type: string
+          maxLength: 128
+          minLength: 8
+        displayName:
+          type: string
+          maxLength: 100
+          minLength: 0
+        organizationName:
+          type: string
+          maxLength: 100
+          minLength: 0
+        deferOrganizationCreation:
+          type: boolean
+          description: Create the authenticated account first and defer Organization creation to Cloud onboarding.
+      required:
+      - code
+      - email
+      - password
+    EmailLoginCodeRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          minLength: 1
+      required: [email]
+    EmailLoginRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          minLength: 1
+        code:
+          type: string
+          minLength: 6
+          maxLength: 6
+      required: [email, code]
+    EmailCodeRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          minLength: 1
+        invitationToken:
+          type: string
+      required:
+      - email
+    AccessCode:
+      type: object
+      properties:
+        code:
+          type: string
+          minLength: 1
+      required:
+      - code
+    AccessType:
+      type: object
+      properties:
+        type:
+          type: string
+    ApiResponseAccessType:
+      type: object
+      description: Global API response envelope
+      properties:
+        opId:
+          type: string
+          description: Request correlation ID — unique per request
+          example: 3f2a1b4c-5d6e-7f8a-9b0c-1d2e3f4a5b6c
+        code:
+          type: string
+          description: "Business result code — 'ok' on success, error code on failure"
+          example: ok
+        msg:
+          type: string
+          description: Detailed message — success info or failure reason
+        data:
+          $ref: "#/components/schemas/AccessType"
+          description: "Response payload — object or array, null on void responses"
+    ApiResponseListSpecWithPricingResponse:
+      type: object
+      description: Global API response envelope
+      properties:
+        opId:
+          type: string
+          description: Request correlation ID — unique per request
+          example: 3f2a1b4c-5d6e-7f8a-9b0c-1d2e3f4a5b6c
+        code:
+          type: string
+          description: "Business result code — 'ok' on success, error code on failure"
+          example: ok
+        msg:
+          type: string
+          description: Detailed message — success info or failure reason
+        data:
+          type: array
+          description: "Response payload — object or array, null on void responses"
+          items:
+            $ref: "#/components/schemas/SpecWithPricingResponse"
+    SpecWithPricingResponse:
+      type: object
+      properties:
+        key:
+          type: string
+        displayName:
+          type: string
+        cpuCores:
+          type: integer
+          format: int32
+        memoryGb:
+          type: integer
+          format: int32
+        trialDays:
+          type: integer
+          format: int32
+        mdbSizeGb:
+          type: integer
+          format: int32
+        currency:
+          type: string
+        unitPriceCents:
+          type: integer
+          format: int64
+        stripePriceId:
+          type: string
+        paymentMethod:
+          type: string
     ApiResponseListRegionResponse:
       type: object
       description: Global API response envelope
@@ -2052,6 +3466,156 @@ components:
           type: integer
           format: int32
           description: Number of attempts made (1 = the current attempt only)
+    ApiResponseListInvitationView:
+      type: object
+      description: Global API response envelope
+      properties:
+        opId:
+          type: string
+          description: Request correlation ID — unique per request
+          example: 3f2a1b4c-5d6e-7f8a-9b0c-1d2e3f4a5b6c
+        code:
+          type: string
+          description: "Business result code — 'ok' on success, error code on failure"
+          example: ok
+        msg:
+          type: string
+          description: Detailed message — success info or failure reason
+        data:
+          type: array
+          description: "Response payload — object or array, null on void responses"
+          items:
+            $ref: "#/components/schemas/InvitationView"
+    ApiResponseEventPageResponse:
+      type: object
+      description: Global API response envelope
+      properties:
+        opId:
+          type: string
+          description: Request correlation ID — unique per request
+          example: 3f2a1b4c-5d6e-7f8a-9b0c-1d2e3f4a5b6c
+        code:
+          type: string
+          description: "Business result code — 'ok' on success, error code on failure"
+          example: ok
+        msg:
+          type: string
+          description: Detailed message — success info or failure reason
+        data:
+          $ref: "#/components/schemas/EventPageResponse"
+          description: "Response payload — object or array, null on void responses"
+    EventPageResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/EventResponse"
+        nextCursor:
+          type: string
+    ApiResponseListString:
+      type: object
+      description: Global API response envelope
+      properties:
+        opId:
+          type: string
+          description: Request correlation ID — unique per request
+          example: 3f2a1b4c-5d6e-7f8a-9b0c-1d2e3f4a5b6c
+        code:
+          type: string
+          description: "Business result code — 'ok' on success, error code on failure"
+          example: ok
+        msg:
+          type: string
+          description: Detailed message — success info or failure reason
+        data:
+          type: array
+          description: "Response payload — object or array, null on void responses"
+          items:
+            type: string
+    ApiResponseNotificationDeliveryPage:
+      type: object
+      description: Global API response envelope
+      properties:
+        opId:
+          type: string
+          description: Request correlation ID — unique per request
+          example: 3f2a1b4c-5d6e-7f8a-9b0c-1d2e3f4a5b6c
+        code:
+          type: string
+          description: "Business result code — 'ok' on success, error code on failure"
+          example: ok
+        msg:
+          type: string
+          description: Detailed message — success info or failure reason
+        data:
+          $ref: "#/components/schemas/NotificationDeliveryPage"
+          description: "Response payload — object or array, null on void responses"
+    NotificationDeliveryPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/NotificationDeliveryResponse"
+        page:
+          type: integer
+          format: int32
+        size:
+          type: integer
+          format: int32
+        total:
+          type: integer
+          format: int64
+    NotificationDeliveryResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        orgId:
+          type: string
+        alertId:
+          type: string
+        channel:
+          type: string
+        recipient:
+          type: string
+        subject:
+          type: string
+        status:
+          type: string
+        attempts:
+          type: integer
+          format: int32
+        lastError:
+          type: string
+        nextAttemptAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        sentAt:
+          type: string
+          format: date-time
+    ApiResponseNotificationDeliveryResponse:
+      type: object
+      description: Global API response envelope
+      properties:
+        opId:
+          type: string
+          description: Request correlation ID — unique per request
+          example: 3f2a1b4c-5d6e-7f8a-9b0c-1d2e3f4a5b6c
+        code:
+          type: string
+          description: "Business result code — 'ok' on success, error code on failure"
+          example: ok
+        msg:
+          type: string
+          description: Detailed message — success info or failure reason
+        data:
+          $ref: "#/components/schemas/NotificationDeliveryResponse"
+          description: "Response payload — object or array, null on void responses"
     ApiResponseListClusterResponse:
       type: object
       description: Global API response envelope
@@ -2072,6 +3636,90 @@ components:
           description: "Response payload — object or array, null on void responses"
           items:
             $ref: "#/components/schemas/ClusterResponse"
+    AlertResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        orgId:
+          type: string
+        policyId:
+          type: string
+        policyName:
+          type: string
+        eventId:
+          type: string
+        eventType:
+          type: string
+        severity:
+          type: string
+        subject:
+          type: string
+        actor:
+          type: string
+        status:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    ApiResponseListAlertResponse:
+      type: object
+      description: Global API response envelope
+      properties:
+        opId:
+          type: string
+          description: Request correlation ID — unique per request
+          example: 3f2a1b4c-5d6e-7f8a-9b0c-1d2e3f4a5b6c
+        code:
+          type: string
+          description: "Business result code — 'ok' on success, error code on failure"
+          example: ok
+        msg:
+          type: string
+          description: Detailed message — success info or failure reason
+        data:
+          type: array
+          description: "Response payload — object or array, null on void responses"
+          items:
+            $ref: "#/components/schemas/AlertResponse"
+    ApiResponseAlertResponse:
+      type: object
+      description: Global API response envelope
+      properties:
+        opId:
+          type: string
+          description: Request correlation ID — unique per request
+          example: 3f2a1b4c-5d6e-7f8a-9b0c-1d2e3f4a5b6c
+        code:
+          type: string
+          description: "Business result code — 'ok' on success, error code on failure"
+          example: ok
+        msg:
+          type: string
+          description: Detailed message — success info or failure reason
+        data:
+          $ref: "#/components/schemas/AlertResponse"
+          description: "Response payload — object or array, null on void responses"
+    ApiResponseListAlertPolicyResponse:
+      type: object
+      description: Global API response envelope
+      properties:
+        opId:
+          type: string
+          description: Request correlation ID — unique per request
+          example: 3f2a1b4c-5d6e-7f8a-9b0c-1d2e3f4a5b6c
+        code:
+          type: string
+          description: "Business result code — 'ok' on success, error code on failure"
+          example: ok
+        msg:
+          type: string
+          description: Detailed message — success info or failure reason
+        data:
+          type: array
+          description: "Response payload — object or array, null on void responses"
+          items:
+            $ref: "#/components/schemas/AlertPolicyResponse"
     ApiResponseResolveResponse:
       type: object
       description: Global API response envelope
@@ -2107,6 +3755,187 @@ components:
         expiresAt:
           type: string
           description: Expiration timestamp (ISO-8601 UTC)
+    Address:
+      type: object
+      properties:
+        organizationId:
+          type: string
+        clusterId:
+          type: string
+        ec2PublicIp:
+          type: string
+        egressAddressStatus:
+          type: string
+    ApiResponseAddress:
+      type: object
+      description: Global API response envelope
+      properties:
+        opId:
+          type: string
+          description: Request correlation ID — unique per request
+          example: 3f2a1b4c-5d6e-7f8a-9b0c-1d2e3f4a5b6c
+        code:
+          type: string
+          description: "Business result code — 'ok' on success, error code on failure"
+          example: ok
+        msg:
+          type: string
+          description: Detailed message — success info or failure reason
+        data:
+          $ref: "#/components/schemas/Address"
+          description: "Response payload — object or array, null on void responses"
+    ApiResponseListClusterVersionResponse:
+      type: object
+      description: Global API response envelope
+      properties:
+        opId:
+          type: string
+          description: Request correlation ID — unique per request
+          example: 3f2a1b4c-5d6e-7f8a-9b0c-1d2e3f4a5b6c
+        code:
+          type: string
+          description: "Business result code — 'ok' on success, error code on failure"
+          example: ok
+        msg:
+          type: string
+          description: Detailed message — success info or failure reason
+        data:
+          type: array
+          description: "Response payload — object or array, null on void responses"
+          items:
+            $ref: "#/components/schemas/ClusterVersionResponse"
+    ClusterVersionResponse:
+      type: object
+      description: Published Cluster version
+      properties:
+        id:
+          type: string
+          description: Cluster version document id
+        version:
+          type: string
+          description: Version string
+          example: 1.4.0
+        versionNumber:
+          type: integer
+          format: int64
+          description: Monotonic internal sequence number; greater means newer
+        releaseCode:
+          type: string
+          description: "Release channel: ALPHA / BETA / RC / STABLE"
+          enum:
+          - ALPHA
+          - BETA
+          - RC
+          - STABLE
+        releaseDate:
+          type: string
+          format: date-time
+          description: Release timestamp (UTC)
+        releaseNotes:
+          type: string
+          description: Release notes
+        state:
+          type: string
+          description: "Listing state: ACTIVE / OFFLINE"
+          enum:
+          - ACTIVE
+          - OFFLINE
+        git:
+          $ref: "#/components/schemas/GitInfo"
+          description: Git source information for this release
+    GitInfo:
+      type: object
+      description: Git source information for a Cluster version
+      properties:
+        branch:
+          type: string
+          description: Git branch name
+          example: main
+          minLength: 1
+        commitId:
+          type: string
+          description: Git commit id
+          example: 0.6.0
+          minLength: 1
+        extra:
+          type: object
+          additionalProperties:
+            type: string
+          description: Additional optional git source metadata
+      required:
+      - branch
+      - commitId
+    ApiResponseRegistrationPolicy:
+      type: object
+      description: Global API response envelope
+      properties:
+        opId:
+          type: string
+          description: Request correlation ID — unique per request
+          example: 3f2a1b4c-5d6e-7f8a-9b0c-1d2e3f4a5b6c
+        code:
+          type: string
+          description: "Business result code — 'ok' on success, error code on failure"
+          example: ok
+        msg:
+          type: string
+          description: Detailed message — success info or failure reason
+        data:
+          $ref: "#/components/schemas/RegistrationPolicy"
+          description: "Response payload — object or array, null on void responses"
+    RegistrationPolicy:
+      type: object
+      properties:
+        trialCodeRequired:
+          type: boolean
+    ApiResponseListIdentityView:
+      type: object
+      description: Global API response envelope
+      properties:
+        opId:
+          type: string
+          description: Request correlation ID — unique per request
+          example: 3f2a1b4c-5d6e-7f8a-9b0c-1d2e3f4a5b6c
+        code:
+          type: string
+          description: "Business result code — 'ok' on success, error code on failure"
+          example: ok
+        msg:
+          type: string
+          description: Detailed message — success info or failure reason
+        data:
+          type: array
+          description: "Response payload — object or array, null on void responses"
+          items:
+            $ref: "#/components/schemas/IdentityView"
+    IdentityView:
+      type: object
+      properties:
+        provider:
+          type: string
+        email:
+          type: string
+        linkedAt:
+          type: string
+          format: date-time
+    ApiResponseInvitationView:
+      type: object
+      description: Global API response envelope
+      properties:
+        opId:
+          type: string
+          description: Request correlation ID — unique per request
+          example: 3f2a1b4c-5d6e-7f8a-9b0c-1d2e3f4a5b6c
+        code:
+          type: string
+          description: "Business result code — 'ok' on success, error code on failure"
+          example: ok
+        msg:
+          type: string
+          description: Detailed message — success info or failure reason
+        data:
+          $ref: "#/components/schemas/InvitationView"
+          description: "Response payload — object or array, null on void responses"
   securitySchemes:
     session-cookie:
       type: apiKey

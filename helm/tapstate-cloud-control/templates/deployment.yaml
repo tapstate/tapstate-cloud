@@ -67,6 +67,30 @@ spec:
               value: {{ .Values.config.springProfilesActive | quote }}
             - name: CORS_ALLOWED_ORIGINS
               value: {{ .Values.config.corsAllowedOrigins | quote }}
+            - name: SMTP_PORT
+              value: {{ .Values.config.smtpPort | quote }}
+            - name: SMTP_AUTH
+              value: {{ .Values.config.smtpAuth | quote }}
+            - name: SMTP_STARTTLS
+              value: {{ .Values.config.smtpStarttls | quote }}
+            - name: SMTP_SSL_ENABLE
+              value: {{ .Values.config.smtpSslEnable | quote }}
+            - name: CLOUD_AUTH_OTP_MAX_ATTEMPTS
+              value: {{ .Values.config.authOtpMaxAttempts | quote }}
+            - name: CLOUD_AUTH_OTP_SENDS_PER_HOUR
+              value: {{ .Values.config.authOtpSendsPerHour | quote }}
+            - name: CLOUD_AUTH_OTP_COOLDOWN_SECONDS
+              value: {{ .Values.config.authOtpCooldownSeconds | quote }}
+            - name: CLOUD_AUTH_OTP_LIFETIME_MINUTES
+              value: {{ .Values.config.authOtpLifetimeMinutes | quote }}
+            - name: CLOUD_AUTH_MAIL_FROM
+              value: {{ .Values.config.authMailFrom | quote }}
+            - name: CLOUD_AUTH_TRIAL_CODE_REQUIRED
+              value: {{ .Values.config.authTrialCodeRequired | quote }}
+            - name: CLOUD_AUTH_OAUTH_CALLBACK_BASE_URL
+              value: {{ .Values.config.oauthCallbackBaseUrl | quote }}
+            - name: CLOUD_CONSOLE_URL
+              value: {{ .Values.config.cloudConsoleUrl | quote }}
             - name: SWAGGER_UI_ENABLED
               value: {{ .Values.config.swaggerUiEnabled | quote }}
             - name: KNIFE4J_ENABLED
@@ -85,6 +109,22 @@ spec:
               value: {{ .Values.config.awsRegion | quote }}
             - name: TAPSTATE_SAMPLE_SOURCES_HOST
               value: {{ .Values.config.sampleSourcesHost | quote }}
+            - name: TAPSTATE_CLOUD_JIRA_CLOUD_ID
+              value: {{ .Values.config.jiraCloudId | quote }}
+            - name: TAPSTATE_CLOUD_JIRA_SERVICE_DESK_ID
+              value: {{ .Values.config.jiraServiceDeskId | quote }}
+            - name: TAPSTATE_CLOUD_JIRA_REQUEST_TYPE_ID
+              value: {{ .Values.config.jiraRequestTypeId | quote }}
+            - name: TAPSTATE_CLOUD_JIRA_CUSTOMER_PROVISIONING_ENABLED
+              value: {{ .Values.config.jiraCustomerProvisioningEnabled | quote }}
+            - name: TAPSTATE_CLOUD_JIRA_CUSTOMER_PROVISIONING_SITE_ADMIN_RISK_ACKNOWLEDGED
+              value: {{ .Values.config.jiraCustomerProvisioningSiteAdminRiskAcknowledged | quote }}
+            - name: TAPSTATE_CLOUD_JIRA_CLOSE_TRANSITION_NAME
+              value: {{ .Values.config.jiraCloseTransitionName | quote }}
+            - name: TAPSTATE_CLOUD_JIRA_CONNECT_TIMEOUT_SECONDS
+              value: {{ .Values.config.jiraConnectTimeoutSeconds | default "3" | quote }}
+            - name: TAPSTATE_CLOUD_JIRA_REQUEST_TIMEOUT_SECONDS
+              value: {{ .Values.config.jiraRequestTimeoutSeconds | default "10" | quote }}
 
             # ========== JWKS management ==========
             - name: CLOUD_JWKS_ROTATION_ENABLED
@@ -130,24 +170,74 @@ spec:
             - name: TAPSTATE_CLOUD_TAWK_RETRY_INTERVAL_MS
               value: {{ .Values.config.tawkRetryIntervalMs | quote }}
 
+            # ========== Alert email delivery ==========
+            # Opt-in switch for the event pipeline. SMTP transport and credentials
+            # are the shared SMTP_* configuration above, also used by auth mail.
+            - name: TAPSTATE_CLOUD_NOTIFICATIONS_EMAIL_ENABLED
+              value: {{ .Values.config.notifications.emailEnabled | quote }}
+            - name: TAPSTATE_CLOUD_NOTIFICATIONS_EMAIL_FROM
+              value: {{ .Values.config.notifications.emailFrom | quote }}
+            - name: TAPSTATE_CLOUD_NOTIFICATIONS_MAX_ATTEMPTS
+              value: {{ .Values.config.notifications.maxAttempts | quote }}
+            - name: TAPSTATE_CLOUD_NOTIFICATIONS_RETRY_BASE_SECONDS
+              value: {{ .Values.config.notifications.retryBaseSeconds | quote }}
+            - name: TAPSTATE_CLOUD_NOTIFICATIONS_LEASE_SECONDS
+              value: {{ .Values.config.notifications.leaseSeconds | quote }}
+            - name: TAPSTATE_CLOUD_NOTIFICATIONS_POLL_INTERVAL_MS
+              value: {{ .Values.config.notifications.pollIntervalMs | quote }}
+
             # ========== Secrets from k3s Secret — Tawk and Feishu ==========
+            - name: FEISHU_LONG_CONNECTION_ENABLED
+              value: {{ .Values.config.feishuLongConnectionEnabled | quote }}
+            - name: FEISHU_PRODUCTION_INVITE_API_URL
+              value: {{ .Values.config.feishuProductionInviteApiUrl | quote }}
+            - name: FEISHU_EVENT_ENCRYPT_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.feishuBot.name }}
+                  key: event-encrypt-key
+                  optional: true
+            - name: FEISHU_EVENT_VERIFICATION_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.feishuBot.name }}
+                  key: event-verification-token
+                  optional: true
+            - name: FEISHU_INVITE_ALLOWED_CHAT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.feishuBot.name }}
+                  key: invite-allowed-chat-id
+                  optional: true
+            - name: FEISHU_PROD_INVITE_SHARED_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.feishuBot.name }}
+                  key: {{ .Values.secrets.feishuBot.productionInviteSharedSecretKey }}
+                  optional: true
             - name: TAWK_WEBHOOK_SECRET
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.secrets.tawkWebhook.name }}
                   key: {{ .Values.secrets.tawkWebhook.secretKey }}
                   optional: true
-            - name: FEISHU_BOT_WEBHOOK_URL
+            - name: FEISHU_BOT_APP_ID
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.secrets.feishuBot.name }}
-                  key: {{ .Values.secrets.feishuBot.webhookUrlKey }}
+                  key: {{ .Values.secrets.feishuBot.appIdKey }}
                   optional: true
-            - name: FEISHU_BOT_SIGNING_SECRET
+            - name: FEISHU_BOT_APP_SECRET
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.secrets.feishuBot.name }}
-                  key: {{ .Values.secrets.feishuBot.signingSecretKey }}
+                  key: {{ .Values.secrets.feishuBot.appSecretKey }}
+                  optional: true
+            - name: FEISHU_CHAT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.feishuBot.name }}
+                  key: {{ .Values.secrets.feishuBot.chatIdKey }}
                   optional: true
 
             # ========== Secrets from k3s Secret — MONGODB ==========
@@ -237,6 +327,68 @@ spec:
                   key: {{ .Values.secrets.clusterVersionReleaseToken.key }}
                   optional: true
 
+            # ========== Ops subscription immediate-cancel operator token (optional) ==========
+            # Static bearer token for the ops-triggered immediate subscription
+            # cancellation endpoint. Absent = fail-closed (503).
+            - name: TAPSTATE_CLOUD_OPS_SUBSCRIPTION_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.opsSubscriptionToken.name }}
+                  key: {{ .Values.secrets.opsSubscriptionToken.key }}
+                  optional: true
+
+            # ========== Secrets for invited authentication (optional) ==========
+            - name: CLOUD_AUTH_TRIAL_ISSUER_EMAIL
+              value: {{ .Values.config.trialIssuerEmail | quote }}
+            - name: CLOUD_AUTH_OTP_HMAC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.authHmacKey.name }}
+                  key: {{ .Values.secrets.authHmacKey.key }}
+                  optional: true
+            - name: GOOGLE_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.googleOAuth.name }}
+                  key: {{ .Values.secrets.googleOAuth.clientIdKey }}
+                  optional: true
+            - name: GOOGLE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.googleOAuth.name }}
+                  key: {{ .Values.secrets.googleOAuth.clientSecretKey }}
+                  optional: true
+            - name: GITHUB_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.githubOAuth.name }}
+                  key: {{ .Values.secrets.githubOAuth.clientIdKey }}
+                  optional: true
+            - name: GITHUB_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.githubOAuth.name }}
+                  key: {{ .Values.secrets.githubOAuth.clientSecretKey }}
+                  optional: true
+            - name: SMTP_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.smtp.name }}
+                  key: {{ .Values.secrets.smtp.hostKey }}
+                  optional: true
+            - name: SMTP_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.smtp.name }}
+                  key: {{ .Values.secrets.smtp.usernameKey }}
+                  optional: true
+            - name: SMTP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.smtp.name }}
+                  key: {{ .Values.secrets.smtp.passwordKey }}
+                  optional: true
+
             # ========== JVM config ==========
             - name: JAVA_OPTS
               value: "-Xms256m -Xmx512m -XX:+UseContainerSupport"
@@ -256,6 +408,35 @@ spec:
                   name: {{ .Values.secrets.stripe.name }}
                   key: {{ .Values.secrets.stripe.webhookSecretKey }}
                   optional: true
+
+            # Jira OAuth 2.0 service-account credentials are optional at deployment; ticket endpoints
+            # return a stable not-configured error until the Secret is present.
+            - name: TAPSTATE_CLOUD_JIRA_OAUTH_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.jira.name }}
+                  key: {{ .Values.secrets.jira.clientIdKey }}
+                  optional: true
+            - name: TAPSTATE_CLOUD_JIRA_OAUTH_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.jira.name }}
+                  key: {{ .Values.secrets.jira.clientSecretKey }}
+                  optional: true
+            {{ if eq (toString .Values.config.jiraCustomerProvisioningEnabled) "true" }}
+            - name: TAPSTATE_CLOUD_JIRA_CUSTOMER_ADMIN_OAUTH_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.jiraCustomerAdmin.name }}
+                  key: {{ .Values.secrets.jiraCustomerAdmin.clientIdKey }}
+                  optional: true
+            - name: TAPSTATE_CLOUD_JIRA_CUSTOMER_ADMIN_OAUTH_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.jiraCustomerAdmin.name }}
+                  key: {{ .Values.secrets.jiraCustomerAdmin.clientSecretKey }}
+                  optional: true
+            {{ end }}
 
           resources:
             {{- toYaml .Values.resources | nindent 12 }}

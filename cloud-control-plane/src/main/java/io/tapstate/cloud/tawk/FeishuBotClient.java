@@ -1,75 +1,143 @@
 package io.tapstate.cloud.tawk;
 
-import java.nio.charset.StandardCharsets;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.http.HttpClient;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
-import java.util.Base64;
+import java.time.Instant;
+import java.util.HexFormat;
+import java.util.LinkedHashMap;
 import java.util.Map;
-import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
-import org.springframework.web.client.ResourceAccessException;
 
-/** Sends short text alerts to the configured Feishu custom bot. */
+/** Sends messages through the configured Feishu application bot. */
 @Component
 @Slf4j
 public class FeishuBotClient {
 
+    private static final String TOKEN_ENDPOINT = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal";
+    private static final String MESSAGE_ENDPOINT = "https://open.feishu.cn/open-apis/im/v1/messages"
+        + "?receive_id_type=chat_id";
+    private static final long TOKEN_REFRESH_SKEW_SECONDS = 60;
+    private static final String IDEMPOTENCY_KEY_PREFIX = "tawk-";
+    private static final String TICKET_IDEMPOTENCY_KEY_PREFIX = "ticket-";
+    private static final int IDEMPOTENCY_KEY_MAX_LENGTH = 50;
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final ParameterizedTypeReference<Map<String, Object>> RESPONSE_TYPE =
         new ParameterizedTypeReference<>() {};
 
     private final RestClient restClient;
-    private final String webhookUrl;
-    private final String signingSecret;
+    private final String appId;
+    private final String appSecret;
+    private final String chatId;
+    private final String tokenEndpoint;
+    private final String messageEndpoint;
+    private volatile CachedAccessToken cachedAccessToken;
 
+    @Autowired
     public FeishuBotClient(
             RestClient.Builder restClientBuilder,
-            @Value("${tapstate.cloud.tawk.feishu.webhook-url:}") String webhookUrl,
-            @Value("${tapstate.cloud.tawk.feishu.signing-secret:}") String signingSecret) {
+            @Value("${tapstate.cloud.tawk.feishu.app-id:}") String appId,
+            @Value("${tapstate.cloud.tawk.feishu.app-secret:}") String appSecret,
+            @Value("${tapstate.cloud.tawk.feishu.chat-id:}") String chatId) {
+        this(buildRestClient(restClientBuilder), appId, appSecret, chatId, TOKEN_ENDPOINT, MESSAGE_ENDPOINT);
+    }
+
+    FeishuBotClient(
+            RestClient restClient,
+            String appId,
+            String appSecret,
+            String chatId,
+            String tokenEndpoint,
+            String messageEndpoint) {
+        this.restClient = restClient;
+        this.appId = appId;
+        this.appSecret = appSecret;
+        this.chatId = chatId;
+        this.tokenEndpoint = tokenEndpoint;
+        this.messageEndpoint = messageEndpoint;
+    }
+
+    private static RestClient buildRestClient(RestClient.Builder restClientBuilder) {
         JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(
             HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build());
         requestFactory.setReadTimeout(Duration.ofSeconds(10));
-        this.restClient = restClientBuilder.requestFactory(requestFactory).build();
-        this.webhookUrl = webhookUrl;
-        this.signingSecret = signingSecret;
+        return restClientBuilder.requestFactory(requestFactory).build();
     }
 
-    DeliveryResult send(String text) {
-        if (webhookUrl == null || webhookUrl.isBlank()) {
-            return DeliveryResult.failed("recipient_not_configured");
+    DeliveryResult send(String propertyId, String eventId, String text) {
+        return sendToChat(chatId, propertyId, eventId, text);
+    }
+
+    public DeliveryResult sendToChat(String targetChatId, String propertyId, String eventId, String text) {
+        return sendMessageToChat(targetChatId, propertyId, eventId, "text", text, IDEMPOTENCY_KEY_PREFIX);
+    }
+
+    private DeliveryResult sendMessageToChat(
+            String targetChatId,
+            String propertyId,
+            String eventId,
+            String messageType,
+            String content,
+            String idempotencyKeyPrefix) {
+        if (isBlank(appId) || isBlank(appSecret) || isBlank(targetChatId)) {
+            return DeliveryResult.failed("application_bot_not_configured");
         }
-        if (signingSecret == null || signingSecret.isBlank()) {
-            return DeliveryResult.failed("signing_secret_not_configured");
+        if (isBlank(propertyId) || isBlank(eventId)) {
+            return DeliveryResult.failed("event_identity_missing");
         }
 
-        long timestamp = System.currentTimeMillis() / 1000;
-        Map<String, Object> requestBody = new java.util.LinkedHashMap<>();
-        requestBody.put("msg_type", "text");
-        requestBody.put("content", Map.of("text", text));
-        try {
-            requestBody.put("timestamp", Long.toString(timestamp));
-            requestBody.put("sign", sign(timestamp, signingSecret));
-        } catch (Exception e) {
-            log.warn("Feishu message signing failed: {}", e.getClass().getSimpleName());
-            return DeliveryResult.failed("signing_failed");
+        TokenResult tokenResult = getAccessToken();
+        if (tokenResult.failureCategory() != null) {
+            return DeliveryResult.failed(tokenResult.failureCategory());
         }
+
+        String messageContent = content;
+        if ("text".equals(messageType)) {
+            try {
+                messageContent = OBJECT_MAPPER.writeValueAsString(Map.of("text", content));
+            } catch (JsonProcessingException e) {
+                log.warn("Feishu message serialization failed: {}", e.getClass().getSimpleName());
+                return DeliveryResult.failed("message_serialization_failed");
+            }
+        }
+
+        Map<String, Object> requestBody = new LinkedHashMap<>();
+        requestBody.put("receive_id", targetChatId);
+        requestBody.put("msg_type", messageType);
+        requestBody.put("uuid", idempotencyKey(targetChatId, propertyId, eventId, idempotencyKeyPrefix));
+        requestBody.put("content", messageContent);
 
         try {
             Map<String, Object> response = restClient.post()
-                .uri(webhookUrl)
+                .uri(messageEndpoint)
+                .header("Authorization", "Bearer " + tokenResult.accessToken())
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(requestBody)
                 .retrieve()
                 .body(RESPONSE_TYPE);
             if (isSuccess(response)) {
                 return DeliveryResult.success();
+            }
+            // 99991663: tenant_access_token invalid; 20005: generic invalid access_token.
+            // Clear the cached token so the next attempt fetches a fresh one.
+            // Note: Feishu IM v1 handles uuid idempotency internally — duplicate
+            // message_id/uuid within the 1-hour window returns code=0, no error.
+            if (hasErrorCode(response, 99991663) || hasErrorCode(response, 20005)) {
+                cachedAccessToken = null;
+                return DeliveryResult.failed("access_token_rejected");
             }
             return DeliveryResult.failed("feishu_rejected");
         } catch (RestClientResponseException e) {
@@ -84,26 +152,102 @@ public class FeishuBotClient {
         }
     }
 
+    public DeliveryResult sendInteractive(String eventId, String cardJson) {
+        return sendMessageToChat(
+            chatId, "jira-ticket", eventId, "interactive", cardJson, TICKET_IDEMPOTENCY_KEY_PREFIX);
+    }
+
+    private TokenResult getAccessToken() {
+        Instant now = Instant.now();
+        CachedAccessToken cached = cachedAccessToken;
+        if (isReusable(cached, now)) {
+            return TokenResult.success(cached.value());
+        }
+
+        synchronized (this) {
+            now = Instant.now();
+            cached = cachedAccessToken;
+            if (isReusable(cached, now)) {
+                return TokenResult.success(cached.value());
+            }
+
+            Map<String, Object> requestBody = new LinkedHashMap<>();
+            requestBody.put("app_id", appId);
+            requestBody.put("app_secret", appSecret);
+            try {
+                Map<String, Object> response = restClient.post()
+                    .uri(tokenEndpoint)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(requestBody)
+                    .retrieve()
+                    .body(RESPONSE_TYPE);
+                if (!isSuccess(response)) {
+                    return TokenResult.failed("token_rejected");
+                }
+                Object token = response.get("tenant_access_token");
+                Object expiresIn = response.get("expire");
+                if (!(token instanceof String accessToken) || accessToken.isBlank()
+                        || !(expiresIn instanceof Number expires) || expires.longValue() <= 0) {
+                    return TokenResult.failed("token_response_invalid");
+                }
+                long cacheSeconds = Math.max(1, expires.longValue() - TOKEN_REFRESH_SKEW_SECONDS);
+                cachedAccessToken = new CachedAccessToken(accessToken, Instant.now().plusSeconds(cacheSeconds));
+                return TokenResult.success(accessToken);
+            } catch (RestClientResponseException e) {
+                log.warn("Feishu token request returned HTTP {}", e.getStatusCode().value());
+                return TokenResult.failed("token_http_" + e.getStatusCode().value());
+            } catch (ResourceAccessException e) {
+                log.warn("Feishu token request failed: {}", e.getClass().getSimpleName());
+                return TokenResult.failed("token_network_error");
+            } catch (RuntimeException e) {
+                log.warn("Feishu token request failed: {}", e.getClass().getSimpleName());
+                return TokenResult.failed("token_client_error");
+            }
+        }
+    }
+
+    private static boolean isReusable(CachedAccessToken token, Instant now) {
+        return token != null && now.isBefore(token.refreshAt());
+    }
+
     private static boolean isSuccess(Map<String, Object> response) {
-        if (response == null) {
-            return false;
-        }
-        Object code = response.get("code");
-        if (code instanceof Number number) {
-            return number.intValue() == 0;
-        }
-        Object statusCode = response.get("StatusCode");
-        return statusCode instanceof Number number && number.intValue() == 0;
+        return response != null && response.get("code") instanceof Number code && code.intValue() == 0;
     }
 
-    private static String sign(long timestamp, String secret) throws Exception {
-        String key = timestamp + "\n" + secret;
-        Mac mac = Mac.getInstance("HmacSHA256");
-        mac.init(new SecretKeySpec(key.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
-        return Base64.getEncoder().encodeToString(mac.doFinal(new byte[0]));
+    private static boolean hasErrorCode(Map<String, Object> response, int expected) {
+        return response != null && response.get("code") instanceof Number code
+            && code.intValue() == expected;
     }
 
-    record DeliveryResult(boolean delivered, String failureCategory) {
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
+    }
+
+    private static String idempotencyKey(String chatId, String propertyId, String eventId, String prefix) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] input = (chatId + "\n" + propertyId + "\n" + eventId)
+                .getBytes(StandardCharsets.UTF_8);
+            int hashLength = IDEMPOTENCY_KEY_MAX_LENGTH - prefix.length();
+            return prefix + HexFormat.of().formatHex(digest.digest(input)).substring(0, hashLength);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 is unavailable", e);
+        }
+    }
+
+    private record CachedAccessToken(String value, Instant refreshAt) {}
+
+    private record TokenResult(String accessToken, String failureCategory) {
+        private static TokenResult success(String token) {
+            return new TokenResult(token, null);
+        }
+
+        private static TokenResult failed(String category) {
+            return new TokenResult(null, category);
+        }
+    }
+
+    public record DeliveryResult(boolean delivered, String failureCategory) {
         static DeliveryResult success() {
             return new DeliveryResult(true, null);
         }

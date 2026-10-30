@@ -12,6 +12,11 @@ import io.tapstate.cloud.sdk.api.SubscriptionApi;
 import io.tapstate.cloud.sdk.model.LoginRequest;
 import io.tapstate.cloud.sdk.model.LoginResult;
 import io.tapstate.cloud.sdk.model.RegisterRequest;
+import io.tapstate.cloud.sdk.model.CreateOrganizationRequest;
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoClients;
+import org.bson.Document;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -24,6 +29,8 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.time.Instant;
+import java.util.Date;
 
 /**
  * Base class for failsafe integration tests — runs against a LIVE Spring Boot
@@ -125,10 +132,32 @@ public abstract class BaseIT {
 
     // ---- Auth helpers ----
 
-    /** Register a new user (auto-verified in Week 2 preview). */
+    /** Seed an already-verified account for tests that exercise authenticated APIs. */
     protected void register(String email, String password) throws ApiException {
-        authApi.register(new io.tapstate.cloud.sdk.model.RegisterRequest()
-            .email(email).password(password).displayName(email.split("@")[0]));
+        try (MongoClient mongo = MongoClients.create(MONGO_URI)) {
+            mongo.getDatabase(MONGO_DB).getCollection("users").insertOne(new Document()
+                .append("email", email.trim().toLowerCase(java.util.Locale.ROOT))
+                .append("passwordHash", new BCryptPasswordEncoder().encode(password))
+                .append("displayName", email.split("@")[0])
+                .append("emailVerified", true)
+                .append("status", "active")
+                .append("createdAt", Date.from(Instant.now()))
+                .append("updatedAt", Date.from(Instant.now())));
+        }
+    }
+
+    protected long countUsers(String email) {
+        try (MongoClient mongo = MongoClients.create(MONGO_URI)) {
+            return mongo.getDatabase(MONGO_DB).getCollection("users")
+                .countDocuments(new Document("email", email.trim().toLowerCase(java.util.Locale.ROOT)));
+        }
+    }
+
+    protected long countMembers(String email) {
+        try (MongoClient mongo = MongoClients.create(MONGO_URI)) {
+            return mongo.getDatabase(MONGO_DB).getCollection("org_members")
+                .countDocuments(new Document("userEmail", email.trim().toLowerCase(java.util.Locale.ROOT)));
+        }
     }
 
     /** Login — SDK ApiClient uses Apache HttpClient which does NOT auto-persist session
@@ -185,10 +214,11 @@ public abstract class BaseIT {
     protected String signupWithOrg(String orgName) throws Exception {
         long suffix = System.nanoTime();
         signupAndLogin("it-" + suffix + "@tapstate.io", "StrongPass123!");
-        return orgsApi.create(Map.of(
-            "name", orgName,
-            "slug", orgName.toLowerCase().replaceAll("[^a-z0-9]+", "-") + "-" + suffix
-        )).getData().getId();
+        return orgsApi.create(organizationRequest(orgName)).getData().getId();
+    }
+
+    protected CreateOrganizationRequest organizationRequest(String name) {
+        return new CreateOrganizationRequest().name(name);
     }
 
     /** Create an anonymous AuthApi (no session cookie) — for unauthenticated endpoint tests. */
@@ -445,13 +475,39 @@ public abstract class BaseIT {
      * Poll cluster state up to {@code maxAttempts} times, waiting {@code intervalMs} between polls.
      * Throws AssertionError if target state never observed.
      */
+    /**
+     * Poll the Cluster until it reaches {@code targetState}, a terminal failure state,
+     * or the deadline. Fails immediately on terminal failure states so the test does
+     * not wait the full deadline and discards the actual provision error message.
+     *
+     * Terminal failure states that short-circuit (only when waiting for READY; if the
+     * target IS one of these we return normally):
+     * <ul>
+     *   <li>{@code PROVISIONING_FAILED} — CloudFormation / Atlas failure during provisioning</li>
+     *   <li>{@code TERMINATED} while provisioning — a concurrent cancel</li>
+     * </ul>
+     */
     protected void waitForClusterState(String orgId, String clusterId,
                                         String targetState, int maxAttempts, int intervalMs) throws Exception {
+        java.util.Set<String> terminalFailures = java.util.Set.of(
+            "PROVISIONING_FAILED", "TERMINATED");
+        boolean waitingForReady = "READY".equals(targetState);
+
         for (int i = 0; i < maxAttempts; i++) {
             try {
                 var resp = clustersApi.getCluster(orgId, clusterId).getData();
                 String state = resp.getState().getValue();
                 if (targetState.equals(state)) return;
+                if (waitingForReady && terminalFailures.contains(state)) {
+                    // Surface the provisioning error code instead of waiting out the deadline.
+                    // SDK ClusterResponse has provisionErrorCode (enum) and cleanupErrorCode/DebugDetail.
+                    var code = resp.getProvisionErrorCode();
+                    String codeStr = code != null ? code.getValue() : "(null)";
+                    throw new AssertionError("Cluster " + clusterId + " reached terminal failure state: " + state
+                        + " (expected READY). provisionErrorCode=" + codeStr);
+                }
+            } catch (AssertionError a) {
+                throw a; // re-raise our own fail-fast
             } catch (Exception ignored) { /* keep polling */ }
             Thread.sleep(intervalMs);
         }
