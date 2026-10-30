@@ -1,6 +1,6 @@
 /*
  * Tapstate Cloud — Global Control Plane API
- * Global Control Plane backend API for Tapstate Cloud.  ## Authentication  Three authentication contexts (ADR-0122 D2): - **Session Cookie** — Cloud Console users (type ①) - **Static Token** — SDK status sender (type ②, `/api/sdk/_*`) - **Resolve JWT** — issued by this service for Cluster Console access  ## Regions  Week 2: only `ap-southeast-1` (Singapore) available. Production regions to be added post-W4.  ## Clusters  Clusters are auto-provisioned via CloudFormation + EC2 + Docker. Lifecycle state machine has 6 states in Week 2. 
+ * Global Control Plane backend API for Tapstate Cloud.  ## Authentication  Three authentication contexts (ADR-0122 D2): - **Session Cookie** — Cloud Console users (type ①) - **Static Token** — SDK status sender (type ②, `/api/sdk/_*`) - **Resolve JWT** — issued by this service for Cluster Console access  ## Regions  Week 2: only `ap-southeast-1` (Singapore) available. Production regions to be added post-W4.  ## Clusters  Clusters are auto-provisioned via CloudFormation + EC2 + Docker. Lifecycle state machine has 6 states in Week 2.
  *
  * The version of the OpenAPI document: v1
  * Contact: cloud@tapstate.io
@@ -35,7 +35,8 @@ import java.util.StringJoiner;
   EmailRegistrationRequest.JSON_PROPERTY_CODE,
   EmailRegistrationRequest.JSON_PROPERTY_PASSWORD,
   EmailRegistrationRequest.JSON_PROPERTY_DISPLAY_NAME,
-  EmailRegistrationRequest.JSON_PROPERTY_ORGANIZATION_NAME
+  EmailRegistrationRequest.JSON_PROPERTY_ORGANIZATION_NAME,
+  EmailRegistrationRequest.JSON_PROPERTY_DEFER_ORGANIZATION_CREATION
 })
 @jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", comments = "Generator version: 7.25.0")
 public class EmailRegistrationRequest {
@@ -63,11 +64,15 @@ public class EmailRegistrationRequest {
   @jakarta.annotation.Nullable
   private String organizationName;
 
+  public static final String JSON_PROPERTY_DEFER_ORGANIZATION_CREATION = "deferOrganizationCreation";
+  @jakarta.annotation.Nullable
+  private Boolean deferOrganizationCreation;
+
   public EmailRegistrationRequest() {
   }
 
   public EmailRegistrationRequest email(@jakarta.annotation.Nonnull String email) {
-    
+
     this.email = email;
     return this;
   }
@@ -92,7 +97,7 @@ public class EmailRegistrationRequest {
   }
 
   public EmailRegistrationRequest invitationToken(@jakarta.annotation.Nullable String invitationToken) {
-    
+
     this.invitationToken = invitationToken;
     return this;
   }
@@ -117,7 +122,7 @@ public class EmailRegistrationRequest {
   }
 
   public EmailRegistrationRequest code(@jakarta.annotation.Nonnull String code) {
-    
+
     this.code = code;
     return this;
   }
@@ -142,7 +147,7 @@ public class EmailRegistrationRequest {
   }
 
   public EmailRegistrationRequest password(@jakarta.annotation.Nonnull String password) {
-    
+
     this.password = password;
     return this;
   }
@@ -167,7 +172,7 @@ public class EmailRegistrationRequest {
   }
 
   public EmailRegistrationRequest displayName(@jakarta.annotation.Nullable String displayName) {
-    
+
     this.displayName = displayName;
     return this;
   }
@@ -192,7 +197,7 @@ public class EmailRegistrationRequest {
   }
 
   public EmailRegistrationRequest organizationName(@jakarta.annotation.Nullable String organizationName) {
-    
+
     this.organizationName = organizationName;
     return this;
   }
@@ -216,6 +221,31 @@ public class EmailRegistrationRequest {
     this.organizationName = organizationName;
   }
 
+  public EmailRegistrationRequest deferOrganizationCreation(@jakarta.annotation.Nullable Boolean deferOrganizationCreation) {
+
+    this.deferOrganizationCreation = deferOrganizationCreation;
+    return this;
+  }
+
+  /**
+   * Create the authenticated account first and defer Organization creation to Cloud onboarding.
+   * @return deferOrganizationCreation
+   */
+  @jakarta.annotation.Nullable
+  @JsonProperty(value = JSON_PROPERTY_DEFER_ORGANIZATION_CREATION, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+
+  public Boolean isDeferOrganizationCreation() {
+    return deferOrganizationCreation;
+  }
+
+
+  @JsonProperty(value = JSON_PROPERTY_DEFER_ORGANIZATION_CREATION, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+  public void setDeferOrganizationCreation(@jakarta.annotation.Nullable Boolean deferOrganizationCreation) {
+    this.deferOrganizationCreation = deferOrganizationCreation;
+  }
+
 
   @Override
   public boolean equals(Object o) {
@@ -231,12 +261,13 @@ public class EmailRegistrationRequest {
         Objects.equals(this.code, emailRegistrationRequest.code) &&
         Objects.equals(this.password, emailRegistrationRequest.password) &&
         Objects.equals(this.displayName, emailRegistrationRequest.displayName) &&
-        Objects.equals(this.organizationName, emailRegistrationRequest.organizationName);
+        Objects.equals(this.organizationName, emailRegistrationRequest.organizationName) &&
+        Objects.equals(this.deferOrganizationCreation, emailRegistrationRequest.deferOrganizationCreation);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(email, invitationToken, code, password, displayName, organizationName);
+    return Objects.hash(email, invitationToken, code, password, displayName, organizationName, deferOrganizationCreation);
   }
 
   @Override
@@ -249,6 +280,7 @@ public class EmailRegistrationRequest {
     sb.append("    password: ").append(toIndentedString(password)).append("\n");
     sb.append("    displayName: ").append(toIndentedString(displayName)).append("\n");
     sb.append("    organizationName: ").append(toIndentedString(organizationName)).append("\n");
+    sb.append("    deferOrganizationCreation: ").append(toIndentedString(deferOrganizationCreation)).append("\n");
     sb.append("}");
     return sb.toString();
   }
@@ -353,8 +385,17 @@ public class EmailRegistrationRequest {
       }
     }
 
+    // add `deferOrganizationCreation` to the URL query string
+    if (isDeferOrganizationCreation() != null) {
+      try {
+        joiner.add(String.format(java.util.Locale.ROOT, "%sdeferOrganizationCreation%s=%s", prefix, suffix, URLEncoder.encode(String.valueOf(isDeferOrganizationCreation()), "UTF-8").replaceAll("\\+", "%20")));
+      } catch (UnsupportedEncodingException e) {
+        // Should never happen, UTF-8 is always supported
+        throw new RuntimeException(e);
+      }
+    }
+
     return joiner.toString();
   }
 
 }
-

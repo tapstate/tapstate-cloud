@@ -43,9 +43,27 @@ public class OrganizationService {
         return saveOrganization(name, slug, ownerEmail);
     }
 
+    @Transactional
+    public Organization createOrganizationWithoutSlug(String name, String ownerEmail,
+                                                       boolean allowExistingMembership) {
+        validateOrganizationName(name);
+        List<Member> existingMemberships = memberRepository.findByUserEmail(ownerEmail);
+        if (!allowExistingMembership && !existingMemberships.isEmpty()) {
+            throw new BusinessException(AppErrorCode.ORG_LIMIT_REACHED, 409);
+        }
+        return saveOrganization(name.trim(), null, ownerEmail, false);
+    }
+
     private Organization saveOrganization(String name, String slug, String ownerEmail) {
-        // Auto-generate slug if not provided
-        String effectiveSlug = slug != null ? slug : generateSlug(name);
+        return saveOrganization(name, slug, ownerEmail, true);
+    }
+
+    private Organization saveOrganization(String name, String slug, String ownerEmail,
+                                          boolean generateSlugWhenMissing) {
+        String effectiveSlug = slug;
+        if (effectiveSlug == null && generateSlugWhenMissing) {
+            effectiveSlug = generateSlug(name);
+        }
 
         Organization org = Organization.builder()
             .name(name)
@@ -69,6 +87,12 @@ public class OrganizationService {
 
         log.info("Organization created: {} (owner: {}, orgId: {})", saved.getName(), ownerEmail, saved.getId());
         return saved;
+    }
+
+    private void validateOrganizationName(String name) {
+        if (name == null || name.isBlank() || name.length() > 100) {
+            throw new BusinessException(AppErrorCode.BAD_REQUEST, 400);
+        }
     }
 
     @Transactional

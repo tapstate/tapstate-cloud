@@ -4,6 +4,7 @@ import io.tapstate.cloud.common.api.AppErrorCode;
 import io.tapstate.cloud.common.api.BusinessException;
 import io.tapstate.cloud.org.MemberRepository;
 import io.tapstate.cloud.org.OrganizationService;
+import org.bson.types.ObjectId;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -143,6 +144,30 @@ class IdentityAuthenticationServiceTest {
         verify(identities).save(argThat(identity -> "google".equals(identity.getProvider())
             && "new-subject".equals(identity.getSubject())
             && "new@example.com".equals(identity.getUserEmail())));
+    }
+
+    @Test
+    void trialProviderSignupCanAuthenticateBeforeCreatingTheOrganization() {
+        OrganizationService organizations = mock(OrganizationService.class);
+        OrganizationInvitation invitation = OrganizationInvitation.builder()
+            .id(new ObjectId()).invitedEmail("new@example.com").build();
+        User user = User.builder().email("new@example.com").status("active").build();
+        when(identities.findByProviderAndSubject("google", "new-subject")).thenReturn(Optional.empty());
+        when(users.existsByEmail("new@example.com")).thenReturn(false);
+        when(invitations.requireUsableHash("invite-hash", "new@example.com")).thenReturn(invitation);
+        when(invitations.isTrial(invitation)).thenReturn(true);
+        when(users.save(any(User.class))).thenReturn(user);
+
+        IdentityAuthenticationService service = new IdentityAuthenticationService(identities, users, members,
+            invitations, new TrialCodePolicy(true), new BCryptPasswordEncoder(), organizations);
+        User result = service.authenticate("google", "new-subject", "new@example.com", true, "New User",
+            "signup", null, null, "invite-hash", null, true);
+
+        assertSame(user, result);
+        verify(invitations).consume(invitation, "new@example.com");
+        verify(invitations, never()).requireOrganizationName(any());
+        verify(organizations, never()).createTrialOrganization(any(), any());
+        verify(members, never()).save(any());
     }
 
     @Test

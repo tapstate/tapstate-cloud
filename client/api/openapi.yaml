@@ -59,6 +59,8 @@ tags:
   description: Health check endpoints
 - name: Organizations
   description: Organization management — isolation boundary for Clusters
+- name: Organizations V2
+  description: Organization management using display names and stable IDs without URL slugs
 - name: Auth
   description: "Cloud Console authentication, session management and trial access"
 - name: Subscription
@@ -270,6 +272,76 @@ paths:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseOrganizationResponse"
+  /v2/api/orgs:
+    get:
+      tags:
+      - Organizations V2
+      summary: List current user's organizations without slug fields
+      operationId: listMyOrganizationsV2
+      responses:
+        "200":
+          description: List of organizations the caller belongs to
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseListOrganizationV2Response"
+        "401":
+          description: Not authenticated
+    post:
+      tags:
+      - Organizations V2
+      summary: Create an organization from its display name
+      description: Creates a slugless Organization and makes the caller its owner.
+      operationId: createOrganizationV2
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateOrganizationV2Request"
+      responses:
+        "200":
+          description: Organization created
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseOrganizationV2Response"
+        "400":
+          description: Organization name is invalid
+        "401":
+          description: Not authenticated
+        "403":
+          description: Trial invitation email does not match the authenticated account
+        "409":
+          description: Caller already belongs to an organization
+        "410":
+          description: Trial invitation has expired or was revoked
+  /v2/api/orgs/{orgId}:
+    get:
+      tags:
+      - Organizations V2
+      summary: Get an organization by stable ID
+      operationId: getOrganizationV2
+      parameters:
+      - name: orgId
+        in: path
+        description: Organization UUID
+        required: true
+        schema:
+          type: string
+      responses:
+        "200":
+          description: Organization details without a slug field
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseOrganizationV2Response"
+        "401":
+          description: Not authenticated
+        "403":
+          description: Not a member of this Organization
+        "404":
+          description: Organization not found
   /v1/api/orgs/{orgId}/subscriptions/{subscriptionId}/finalize-provisioning:
     post:
       tags:
@@ -846,7 +918,8 @@ paths:
       - Auth
       summary: Start Google or GitHub sign-in
       description: Stores a hashed invitation or identity-link intent in the server
-        session and returns the provider authorization path.
+        session and returns the provider authorization path. New Cloud Console clients
+        may defer trial Organization creation until the authenticated onboarding step.
       operationId: startOAuth
       parameters:
       - name: provider
@@ -936,6 +1009,7 @@ paths:
       - Auth
       summary: Accept an organization invitation
       description: Adds the authenticated existing account to the invitation's organization.
+        For a trial code, clients may instead defer Organization creation to onboarding.
       operationId: acceptInvitation
       requestBody:
         content:
@@ -1031,9 +1105,11 @@ paths:
       tags:
       - Auth
       summary: Complete email registration
-      description: Verifies the one-time code and creates the account and organization
-        membership. A valid invitation is required while trial-code registration is
-        enabled.
+      description: Verifies the one-time code and creates the account. Organization
+        invitations add the account to their target Organization. A valid invitation
+        is required while trial-code registration is enabled. New Cloud Console
+        clients may defer trial Organization creation until the authenticated onboarding
+        step.
       operationId: registerWithEmailCode
       requestBody:
         content:
@@ -2226,6 +2302,63 @@ components:
         data:
           $ref: "#/components/schemas/OrganizationResponse"
           description: "Response payload — object or array, null on void responses"
+    ApiResponseOrganizationV2Response:
+      type: object
+      description: Global API response envelope
+      properties:
+        opId:
+          type: string
+          description: Request correlation ID — unique per request
+        code:
+          type: string
+          description: Business result code
+        msg:
+          type: string
+          description: Detailed message
+        data:
+          $ref: "#/components/schemas/OrganizationV2Response"
+    ApiResponseListOrganizationV2Response:
+      type: object
+      description: Global API response envelope
+      properties:
+        opId:
+          type: string
+          description: Request correlation ID — unique per request
+        code:
+          type: string
+          description: Business result code
+        msg:
+          type: string
+          description: Detailed message
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrganizationV2Response"
+    CreateOrganizationV2Request:
+      type: object
+      required:
+      - name
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Organization display name
+    OrganizationV2Response:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Organization UUID
+        name:
+          type: string
+          description: Organization display name
+        ownerEmail:
+          type: string
+          description: Owner user email
+        status:
+          type: string
+          description: Organization status
     OrganizationResponse:
       type: object
       properties:
@@ -2815,6 +2948,9 @@ components:
           type: string
         organizationName:
           type: string
+        deferOrganizationCreation:
+          type: boolean
+          description: Complete account authentication first and create the Organization in Cloud onboarding.
       required:
       - flow
     ApiResponseOAuthStartResult:
@@ -3004,6 +3140,9 @@ components:
           minLength: 1
         organizationName:
           type: string
+        deferOrganizationCreation:
+          type: boolean
+          description: For a trial code, retain one-time creation authority in the Cloud session until onboarding.
       required:
       - invitationToken
     ReauthenticationRequest:
@@ -3111,6 +3250,9 @@ components:
           type: string
           maxLength: 100
           minLength: 0
+        deferOrganizationCreation:
+          type: boolean
+          description: Create the authenticated account first and defer Organization creation to Cloud onboarding.
       required:
       - code
       - email
