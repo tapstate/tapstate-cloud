@@ -12,6 +12,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doThrow;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -19,18 +20,24 @@ import io.tapstate.cloud.common.api.AppErrorCode;
 import io.tapstate.cloud.common.api.BusinessException;
 import io.tapstate.cloud.identity.User;
 import io.tapstate.cloud.identity.UserRepository;
+import io.tapstate.cloud.org.Organization;
+import io.tapstate.cloud.org.OrganizationService;
 import java.util.List;
 import java.util.Optional;
 import org.bson.types.ObjectId;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InOrder;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 
+@ExtendWith(OutputCaptureExtension.class)
 class JiraTicketServiceTest {
 
     private static final String EMAIL = "unverified@example.com";
@@ -40,6 +47,8 @@ class JiraTicketServiceTest {
     private JiraCustomerProvisioner customerProvisioner;
     private CloudTicketRepository tickets;
     private UserRepository users;
+    private OrganizationService organizations;
+    private JiraTicketNotificationSender notificationSender;
     private JiraTicketService service;
     private User user;
 
@@ -49,7 +58,9 @@ class JiraTicketServiceTest {
         customerProvisioner = mock(JiraCustomerProvisioner.class);
         tickets = mock(CloudTicketRepository.class);
         users = mock(UserRepository.class);
-        service = new JiraTicketService(jira, customerProvisioner, tickets, users);
+        organizations = mock(OrganizationService.class);
+        notificationSender = mock(JiraTicketNotificationSender.class);
+        service = new JiraTicketService(jira, customerProvisioner, tickets, users, organizations, notificationSender);
         user = User.builder()
             .id(new ObjectId())
             .email(EMAIL)
@@ -100,6 +111,100 @@ class JiraTicketServiceTest {
         assertEquals("TSSD-12", ticket.jiraKey());
         verify(customerProvisioner, never()).isEnabled();
         verify(customerProvisioner, never()).createOrAddCustomer(anyString(), anyString());
+    }
+
+    @Test
+    void sendsNotificationWithSortedOrganizationsOnlyAfterTheCloudMappingIsSaved() throws Exception {
+        String description = "Need help **soon** <script>alert('x')</script> [link](https://example.com)";
+        when(jira.findExactCustomers(EMAIL))
+            .thenReturn(List.of(new JiraTicketClient.Customer(EMAIL, "existing-account")));
+        when(jira.createRequest("existing-account", "Help", description))
+            .thenReturn(createdRequest("TSSD-12"));
+        when(organizations.listUserOrganizations(EMAIL)).thenReturn(List.of(
+            Organization.builder().name("Zulu Workspace").build(),
+            Organization.builder().name("Alpha Workspace").build()));
+
+        JiraTicketService.Ticket ticket = service.create(" Help ", " " + description + " ");
+
+        assertEquals("TSSD-12", ticket.jiraKey());
+        InOrder order = inOrder(tickets, notificationSender);
+        order.verify(tickets).save(any(CloudTicket.class));
+        order.verify(notificationSender).send(new JiraTicketNotification(
+            List.of("Alpha Workspace", "Zulu Workspace"),
+            EMAIL,
+            "TSSD-12",
+            "Help",
+            description,
+            "https://tapdata.atlassian.net/browse/TSSD-12"));
+    }
+
+    @Test
+    void notifiesWithoutOrganizationsUsingAnExplicitPlaceholder() throws Exception {
+        when(jira.findExactCustomers(EMAIL))
+            .thenReturn(List.of(new JiraTicketClient.Customer(EMAIL, "existing-account")));
+        when(jira.createRequest("existing-account", "Help", "Need help."))
+            .thenReturn(createdRequest("TSSD-43"));
+        when(organizations.listUserOrganizations(EMAIL)).thenReturn(List.of());
+
+        JiraTicketService.Ticket ticket = service.create("Help", "Need help.");
+
+        assertEquals("TSSD-43", ticket.jiraKey());
+        verify(notificationSender).send(new JiraTicketNotification(
+            List.of("未关联组织"), EMAIL, "TSSD-43", "Help", "Need help.",
+            "https://tapdata.atlassian.net/browse/TSSD-43"));
+    }
+
+    @Test
+    void continuesTicketCreationWhenOrganizationLookupFails(CapturedOutput output) throws Exception {
+        when(jira.findExactCustomers(EMAIL))
+            .thenReturn(List.of(new JiraTicketClient.Customer(EMAIL, "existing-account")));
+        when(jira.createRequest("existing-account", "Help", "private body"))
+            .thenReturn(createdRequest("TSSD-46"));
+        when(organizations.listUserOrganizations(EMAIL))
+            .thenThrow(new IllegalStateException("private lookup detail"));
+
+        JiraTicketService.Ticket ticket = service.create("Help", "private body");
+
+        assertEquals("TSSD-46", ticket.jiraKey());
+        verify(notificationSender).send(new JiraTicketNotification(
+            List.of("组织信息暂不可用"), EMAIL, "TSSD-46", "Help", "private body",
+            "https://tapdata.atlassian.net/browse/TSSD-46"));
+        assertFalse(output.getOut().contains(EMAIL));
+        assertFalse(output.getOut().contains("private body"));
+        assertFalse(output.getOut().contains("private lookup detail"));
+    }
+
+    @Test
+    void doesNotNotifyWhenJiraDoesNotReturnAnAgentLink() throws Exception {
+        when(jira.findExactCustomers(EMAIL))
+            .thenReturn(List.of(new JiraTicketClient.Customer(EMAIL, "existing-account")));
+        when(jira.createRequest("existing-account", "Help", "Need help."))
+            .thenReturn(MAPPER.readTree("{\"issueKey\":\"TSSD-45\"}"));
+
+        JiraTicketService.Ticket ticket = service.create("Help", "Need help.");
+
+        assertEquals("TSSD-45", ticket.jiraKey());
+        verify(tickets).save(any(CloudTicket.class));
+        verify(notificationSender, never()).send(any(JiraTicketNotification.class));
+    }
+
+    @Test
+    void keepsCreatedTicketSuccessfulWhenNotificationFails(CapturedOutput output) throws Exception {
+        String description = "private ticket body";
+        when(jira.findExactCustomers(EMAIL))
+            .thenReturn(List.of(new JiraTicketClient.Customer(EMAIL, "existing-account")));
+        when(jira.createRequest("existing-account", "Help", description))
+            .thenReturn(createdRequest("TSSD-44"));
+        doThrow(new IllegalStateException("failure details " + EMAIL + " " + description))
+            .when(notificationSender).send(any(JiraTicketNotification.class));
+
+        JiraTicketService.Ticket ticket = service.create("Help", description);
+
+        assertEquals("TSSD-44", ticket.jiraKey());
+        verify(jira).createRequest("existing-account", "Help", description);
+        verify(notificationSender).send(any(JiraTicketNotification.class));
+        assertFalse(output.getOut().contains(EMAIL));
+        assertFalse(output.getOut().contains(description));
     }
 
     @Test
@@ -284,6 +389,7 @@ class JiraTicketServiceTest {
         assertEquals(503, failure.getHttpStatus());
         assertEquals(AppErrorCode.TICKET_SUBMISSION_UNCERTAIN, failure.getErrorCode());
         verify(tickets, never()).save(any(CloudTicket.class));
+        verify(notificationSender, never()).send(any(JiraTicketNotification.class));
         verify(jira).createRequest("existing-account", "Help", "I need help.");
     }
 
@@ -301,6 +407,7 @@ class JiraTicketServiceTest {
         assertEquals(503, failure.getHttpStatus());
         assertEquals(AppErrorCode.TICKET_SUBMISSION_UNCERTAIN, failure.getErrorCode());
         verify(jira).createRequest("existing-account", "Help", "I need help.");
+        verify(notificationSender, never()).send(any(JiraTicketNotification.class));
     }
 
     private CloudTicket ownedTicket() {
@@ -314,6 +421,7 @@ class JiraTicketServiceTest {
     }
 
     private static JsonNode createdRequest(String issueKey) throws Exception {
-        return MAPPER.readTree("{\"issueKey\":\"" + issueKey + "\"}");
+        return MAPPER.readTree("{\"issueKey\":\"" + issueKey + "\",\"_links\":{\"agent\":\"https://tapdata.atlassian.net/browse/"
+            + issueKey + "\"}}");
     }
 }

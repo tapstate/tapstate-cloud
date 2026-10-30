@@ -78,6 +78,37 @@ class FeishuBotClientTest {
     }
 
     @Test
+    void sendsInteractiveTicketCardWithStableJiraKeyIdempotency() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        FeishuBotClient client = new FeishuBotClient(
+            builder.build(), "app-id", "app-secret", "oc_tapstate_launch",
+            TOKEN_ENDPOINT, MESSAGE_ENDPOINT);
+        String card = "{\"schema\":\"2.0\"}";
+
+        server.expect(requestTo(TOKEN_ENDPOINT))
+            .andRespond(withSuccess(
+                "{\"code\":0,\"tenant_access_token\":\"access-token\",\"expire\":7200}",
+                MediaType.APPLICATION_JSON));
+        for (int attempt = 0; attempt < 2; attempt++) {
+            server.expect(requestTo(MESSAGE_ENDPOINT))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(header("Authorization", "Bearer access-token"))
+                .andExpect(jsonPath("$.receive_id").value("oc_tapstate_launch"))
+                .andExpect(jsonPath("$.msg_type").value("interactive"))
+                .andExpect(jsonPath("$.uuid").value("ticket-b355e8342fa99b773029090f277f4e044d26a66888d"))
+                .andExpect(jsonPath("$.content").value(card))
+                .andRespond(withSuccess(
+                    "{\"code\":0,\"data\":{\"message_id\":\"om_card_stub\"}}",
+                    MediaType.APPLICATION_JSON));
+        }
+
+        assertTrue(client.sendInteractive("TSSD-42", card).delivered());
+        assertTrue(client.sendInteractive("TSSD-42", card).delivered());
+        server.verify();
+    }
+
+    @Test
     void clearsCachedTokenOnGenericInvalidTokenError() {
         RestClient.Builder builder = RestClient.builder();
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
