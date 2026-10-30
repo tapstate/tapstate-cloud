@@ -187,6 +187,18 @@ class EmailVerificationServiceTest {
     }
 
     @Test
+    void unknownLoginEmailDoesNotSendOrCreateAChallenge() {
+        String email = "unknown@example.com";
+        when(users.findByEmail(email)).thenReturn(Optional.empty());
+        when(mongoTemplate.findAndModify(any(Query.class), any(Update.class), any(FindAndModifyOptions.class),
+            eq(AuthRateLimitWindow.class))).thenReturn(new AuthRateLimitWindow("rate", 1, Instant.now().plusSeconds(7200)));
+        ReflectionTestUtils.setField(service, "maxHourlySends", 5);
+
+        assertDoesNotThrow(() -> service.requestLoginCode(email, "127.0.0.1"));
+        verifyNoInteractions(challenges, mailer);
+    }
+
+    @Test
     void registrationCodeCannotAuthenticateAsLoginCode() throws Exception {
         String email = "guest@example.com";
         String registrationKey = InvitationService.hash("open:" + email);
