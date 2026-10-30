@@ -12,6 +12,8 @@ public interface OrganizationRepository extends MongoRepository<Organization, Ob
 
     Optional<Organization> findBySlug(String slug);
 
+    Optional<Organization> findByCreationKey(String creationKey);
+
     List<Organization> findByOwnerEmail(String ownerEmail);
 
     List<Organization> findByStatus(String status);

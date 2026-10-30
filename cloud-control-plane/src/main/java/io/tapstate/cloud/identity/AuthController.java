@@ -125,7 +125,7 @@ public class AuthController extends BaseController {
     public record AccessType(String type) {}
 
     @PostMapping("/email/register")
-    @Operation(summary = "Complete email registration", description = "Verifies the one-time code and creates the account and organization membership. A valid invitation is required while trial-code registration is enabled.")
+    @Operation(summary = "Complete email registration", description = "Verifies the one-time code and creates the account. Organization invitations add the account to their target Organization. A valid invitation is required while trial-code registration is enabled. New Cloud Console clients may defer trial Organization creation until the authenticated onboarding step.")
     @ApiResponses(value = {
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "Account created and signed in"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Invalid or unusable verification code"),
@@ -145,25 +145,29 @@ public class AuthController extends BaseController {
                 "legal.agreed-version-mismatch");
         }
         User user = emailVerificationService.verifyAndRegister(request.invitationToken(), request.email(),
-            request.code(), request.password(), request.displayName(), request.organizationName());
+            request.code(), request.password(), request.displayName(), request.organizationName(),
+            request.deferOrganizationCreation());
         authenticateSession(user, httpRequest);
         return okCreated(new LoginResult(user.getEmail(), user.getDisplayName(), user.getAgreedLegalVersion()));
     }
 
     @PostMapping("/invitations/accept")
-    @Operation(summary = "Accept an organization invitation", description = "Adds the authenticated existing account to the invitation's organization.")
+    @Operation(summary = "Accept an organization invitation", description = "Adds the authenticated existing account to the invitation's organization. For a trial code, clients may instead defer Organization creation to onboarding.")
     public ResponseEntity<ApiResponse<LoginResult>> acceptInvitation(
             @Valid @RequestBody AcceptInvitationRequest request, HttpServletRequest httpRequest) {
         String email = CurrentUser.getEmail();
         if (email == null) {
             return fail(AppErrorCode.UNAUTHORIZED, HttpStatus.UNAUTHORIZED);
         }
-        User user = invitationService.acceptForExistingUser(request.invitationToken(), email, request.organizationName());
+        User user = request.deferOrganizationCreation()
+            ? invitationService.deferTrialForExistingUser(request.invitationToken(), email,
+                httpRequest.getSession(true))
+            : invitationService.acceptForExistingUser(request.invitationToken(), email, request.organizationName());
         return ok(new LoginResult(user.getEmail(), user.getDisplayName(), user.getAgreedLegalVersion()));
     }
 
     @PostMapping("/oauth/{provider}/start")
-    @Operation(summary = "Start Google or GitHub sign-in", description = "Stores a hashed invitation or identity-link intent in the server session and returns the provider authorization path.")
+    @Operation(summary = "Start Google or GitHub sign-in", description = "Stores a hashed invitation or identity-link intent in the server session and returns the provider authorization path. New Cloud Console clients may defer trial Organization creation until the authenticated onboarding step.")
     @ApiResponses(value = {
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Provider authorization path returned"),
         @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Unsupported OAuth flow"),
@@ -184,9 +188,13 @@ public class AuthController extends BaseController {
         if (!("login".equals(flow) || "signup".equals(flow) || "link".equals(flow))) {
             return fail(AppErrorCode.BAD_REQUEST, HttpStatus.BAD_REQUEST);
         }
+        if (oauthRequest.deferOrganizationCreation() && "link".equals(flow)) {
+            return fail(AppErrorCode.BAD_REQUEST, HttpStatus.BAD_REQUEST);
+        }
         String invitationTokenHash = null;
+        boolean trialInvitation = false;
         if (invitationToken != null && !invitationToken.isBlank()) {
-            invitationService.requireUsable(invitationToken, null);
+            trialInvitation = invitationService.isTrial(invitationService.requireUsable(invitationToken, null));
             invitationTokenHash = InvitationService.hash(invitationToken);
         }
         var session = request.getSession(true);
@@ -217,6 +225,16 @@ public class AuthController extends BaseController {
             session.removeAttribute("TAPSTATE_OAUTH_ORGANIZATION_NAME");
         } else {
             session.setAttribute("TAPSTATE_OAUTH_ORGANIZATION_NAME", oauthRequest.organizationName().trim());
+        }
+        session.setAttribute("TAPSTATE_OAUTH_DEFER_ORGANIZATION_CREATION",
+            oauthRequest.deferOrganizationCreation());
+        session.setAttribute("TAPSTATE_OAUTH_TRIAL_INVITATION",
+            oauthRequest.deferOrganizationCreation() && trialInvitation);
+        if (oauthRequest.deferOrganizationCreation() && trialInvitation) {
+            session.setAttribute("TAPSTATE_OAUTH_TRIAL_ORGANIZATION_CREATION_KEY",
+                java.util.UUID.randomUUID().toString());
+        } else {
+            session.removeAttribute("TAPSTATE_OAUTH_TRIAL_ORGANIZATION_CREATION_KEY");
         }
         return ok(new OAuthStartResult(request.getContextPath() + "/oauth2/authorization/" + provider));
     }
@@ -382,6 +400,14 @@ public class AuthController extends BaseController {
 
     private void authenticateSession(User user, HttpServletRequest request, Authentication authentication) {
         var session = request.getSession(true);
+        String previousEmail = CurrentUser.getEmail();
+        if (previousEmail == null && session.getAttribute(SESSION_USER_EMAIL) instanceof String storedEmail) {
+            previousEmail = storedEmail;
+        }
+        if (previousEmail == null || !InvitationService.normalizeEmail(previousEmail)
+                .equals(InvitationService.normalizeEmail(user.getEmail()))) {
+            InvitationService.clearPendingTrialOrganization(session);
+        }
         request.changeSessionId();
         SecurityContext context = SecurityContextHolder.createEmptyContext();
         context.setAuthentication(authentication);
@@ -443,12 +469,16 @@ public class AuthController extends BaseController {
         @Size(max = 100) String displayName,
         @Size(max = 100) String organizationName,
         @Schema(description = "Legal document version the user agreed to (must match current version)")
-        String agreedLegalVersion
+        String agreedLegalVersion,
+        @Schema(description = "Create the Organization after the user completes Cloud onboarding")
+        boolean deferOrganizationCreation
     ) {}
 
-    public record AcceptInvitationRequest(@NotBlank String invitationToken, String organizationName) {}
+    public record AcceptInvitationRequest(@NotBlank String invitationToken, String organizationName,
+                                          boolean deferOrganizationCreation) {}
 
-    public record OAuthStartRequest(@NotBlank String flow, String invitationToken, String organizationName) {}
+    public record OAuthStartRequest(@NotBlank String flow, String invitationToken, String organizationName,
+                                    boolean deferOrganizationCreation) {}
 
     public record OAuthStartResult(String authorizationUrl) {}
 

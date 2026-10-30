@@ -1,5 +1,6 @@
 package io.tapstate.cloud.identity;
 
+import jakarta.servlet.http.HttpSession;
 import lombok.RequiredArgsConstructor;
 import org.bson.Document;
 import org.bson.types.ObjectId;
@@ -35,6 +36,11 @@ import java.util.regex.Pattern;
 @Service
 @RequiredArgsConstructor
 public class InvitationService {
+
+    public static final String PENDING_TRIAL_ORGANIZATION_SESSION_ATTRIBUTE =
+        "TAPSTATE_PENDING_TRIAL_ORGANIZATION_INVITATION";
+    public static final String PENDING_TRIAL_ORGANIZATION_CREATION_KEY_SESSION_ATTRIBUTE =
+        "TAPSTATE_PENDING_TRIAL_ORGANIZATION_CREATION_KEY";
 
     private static final String INVITATION_CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
     private static final Pattern INVITATION_CODE_PATTERN =
@@ -212,6 +218,35 @@ public class InvitationService {
         return user;
     }
 
+    @Transactional
+    public User deferTrialForExistingUser(String token, String authenticatedEmail, HttpSession session) {
+        String email = normalizeEmail(authenticatedEmail);
+        User user = users.findByEmail(email)
+            .orElseThrow(() -> new BusinessException(AppErrorCode.USER_NOT_FOUND, 404, email));
+        OrganizationInvitation invitation = requireUsable(token, email);
+        if (!isTrial(invitation)) {
+            throw new BusinessException(AppErrorCode.BAD_REQUEST, HttpStatus.BAD_REQUEST.value());
+        }
+        session.setAttribute(PENDING_TRIAL_ORGANIZATION_SESSION_ATTRIBUTE, invitation.getTokenHash());
+        session.setAttribute(PENDING_TRIAL_ORGANIZATION_CREATION_KEY_SESSION_ATTRIBUTE,
+            java.util.UUID.randomUUID().toString());
+        return user;
+    }
+
+    public OrganizationInvitation requireUsableTrialHash(String tokenHash, String email) {
+        OrganizationInvitation invitation = requireUsableHash(tokenHash, email);
+        if (!isTrial(invitation)) {
+            throw new BusinessException(AppErrorCode.BAD_REQUEST, HttpStatus.BAD_REQUEST.value());
+        }
+        return invitation;
+    }
+
+    @Transactional
+    public void consumeTrialHash(String tokenHash, String email) {
+        OrganizationInvitation invitation = requireUsableTrialHash(tokenHash, email);
+        consume(invitation, email);
+    }
+
     public void requireOrganizationName(String organizationName) {
         if (organizationName == null || organizationName.isBlank() || organizationName.length() > 100) {
             throw new BusinessException(AppErrorCode.BAD_REQUEST, HttpStatus.BAD_REQUEST.value());
@@ -297,6 +332,12 @@ public class InvitationService {
         } catch (NoSuchAlgorithmException exception) {
             throw new IllegalStateException("SHA-256 is unavailable", exception);
         }
+    }
+
+    public static void clearPendingTrialOrganization(HttpSession session) {
+        if (session == null) return;
+        session.removeAttribute(PENDING_TRIAL_ORGANIZATION_SESSION_ATTRIBUTE);
+        session.removeAttribute(PENDING_TRIAL_ORGANIZATION_CREATION_KEY_SESSION_ATTRIBUTE);
     }
 
     private String generateInvitationCode() {

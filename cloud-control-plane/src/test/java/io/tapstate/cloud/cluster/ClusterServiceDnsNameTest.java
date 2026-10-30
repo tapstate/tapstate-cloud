@@ -12,6 +12,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.mongodb.core.MongoTemplate;
 
+import java.util.concurrent.atomic.AtomicInteger;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -58,12 +60,14 @@ class ClusterServiceDnsNameTest {
     }
 
     @Test
-    void persistsTheNameDerivedDnsLabel() {
+    void preservesTheDisplayNameAndDerivesADnsLabelWithTheClusterId() {
         Cluster saved = clusterService.createCluster(orgId, new ObjectId(),
             "ap-southeast-1", "My Production Cluster", "basic",
             "user@example.com", "1.0.0");
 
-        assertThat(saved.getDnsLabel()).isEqualTo("my-production-cluster");
+        assertThat(saved.getName()).isEqualTo("My Production Cluster");
+        assertThat(saved.getDnsLabel()).startsWith("my-production-cluster-");
+        assertThat(saved.getDnsLabel()).endsWith(saved.getId().toHexString());
     }
 
     @Test
@@ -87,16 +91,18 @@ class ClusterServiceDnsNameTest {
     }
 
     @Test
-    void rejectsDnsLabelTakenInAnotherOrgOrRegion() {
-        when(clusterRepository.existsByDnsLabelAndStateNot("production", ClusterState.TERMINATED))
-            .thenReturn(true);
+    void preservesDisplayNameAndUsesUniqueDnsLabelWhenNormalizedNameIsTaken() {
+        AtomicInteger dnsLabelChecks = new AtomicInteger();
+        when(clusterRepository.existsByDnsLabelAndStateNot(anyString(), any()))
+            .thenAnswer(invocation -> dnsLabelChecks.getAndIncrement() == 0);
 
-        assertThatThrownBy(() -> clusterService.createCluster(orgId, new ObjectId(),
-            "us-east-1", "Production", "basic", "user@example.com", "1.0.0"))
-            .isInstanceOfSatisfying(BusinessException.class, ex -> {
-                assertThat(ex.getErrorCode()).isEqualTo(AppErrorCode.CLUSTER_DNS_LABEL_CONFLICT);
-                assertThat(ex.getHttpStatus()).isEqualTo(409);
-            });
+        Cluster saved = clusterService.createCluster(orgId, new ObjectId(),
+            "us-east-1", "Production", "basic", "user@example.com", "1.0.0");
+
+        assertThat(saved.getName()).isEqualTo("Production");
+        assertThat(saved.getDnsLabel()).startsWith("production-");
+        assertThat(saved.getDnsLabel()).endsWith(saved.getId().toHexString() + "-1");
+        assertThat(DnsLabels.isValidLabel(saved.getDnsLabel())).isTrue();
     }
 
     @Test

@@ -91,22 +91,19 @@ public class ClusterService {
             throw new BusinessException(AppErrorCode.CLUSTER_ALREADY_EXISTS, 409, name, orgId, region);
         }
 
-        // The public domain prefix is the display name normalized into one DNS
-        // label. Reject names with no usable letter/digit (e.g. CJK-only) or an
-        // over-long normalized form instead of provisioning an invalid domain.
-        String dnsLabel = DnsLabels.normalize(name);
-        if (!DnsLabels.isValidLabel(dnsLabel)) {
+        // Keep the display name intact; normalize it for DNS and add a stable
+        // Cluster-ID suffix so concurrent creates cannot claim the same label.
+        ObjectId clusterId = new ObjectId();
+        String baseDnsLabel = DnsLabels.normalize(name);
+        if (!DnsLabels.isValidLabel(baseDnsLabel)) {
             throw new BusinessException(AppErrorCode.CLUSTER_NAME_DNS_INVALID, 400,
-                name, dnsLabel, DnsLabels.MAX_LABEL_LENGTH);
+                name, baseDnsLabel, DnsLabels.MAX_LABEL_LENGTH);
         }
-        // The hosted zone is shared per environment across every org/region, so
-        // the derived subdomain must be globally unique among active Clusters.
-        if (clusterRepository.existsByDnsLabelAndStateNot(dnsLabel, ClusterState.TERMINATED)) {
-            throw new BusinessException(AppErrorCode.CLUSTER_DNS_LABEL_CONFLICT, 409, dnsLabel);
-        }
+        String dnsLabel = uniqueDnsLabel(baseDnsLabel, clusterId);
 
         // ---- Cluster record ----
         Cluster cluster = Cluster.builder()
+            .id(clusterId)
             .orgId(new ObjectId(orgId))
             .subscriptionId(subscriptionId)
             .region(region)
@@ -149,6 +146,22 @@ public class ClusterService {
         log.info("Cluster created: {} (provisioning pending until started)",
             saved.getId().toHexString());
         return saved;
+    }
+
+    private String uniqueDnsLabel(String baseDnsLabel, ObjectId clusterId) {
+        String clusterIdSuffix = clusterId.toHexString();
+        for (int attempt = 0; attempt < 100; attempt++) {
+            String suffix = attempt == 0 ? clusterIdSuffix : clusterIdSuffix + "-" + attempt;
+            int prefixLength = DnsLabels.MAX_LABEL_LENGTH - suffix.length() - 1;
+            String prefix = baseDnsLabel.substring(0, Math.min(baseDnsLabel.length(), prefixLength))
+                .replaceAll("-+$", "");
+            String candidate = prefix + "-" + suffix;
+            if (DnsLabels.isValidLabel(candidate)
+                    && !clusterRepository.existsByDnsLabelAndStateNot(candidate, ClusterState.TERMINATED)) {
+                return candidate;
+            }
+        }
+        throw new BusinessException(AppErrorCode.CLUSTER_DNS_LABEL_CONFLICT, 409, clusterIdSuffix);
     }
 
     /**

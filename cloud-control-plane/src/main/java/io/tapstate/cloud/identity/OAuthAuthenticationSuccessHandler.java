@@ -97,16 +97,34 @@ public class OAuthAuthenticationSuccessHandler implements AuthenticationSuccessH
 
         String invitation = (String) session.getAttribute(INVITATION_TOKEN);
         String organizationName = (String) session.getAttribute("TAPSTATE_OAUTH_ORGANIZATION_NAME");
+        boolean deferOrganizationCreation = Boolean.TRUE.equals(
+            session.getAttribute("TAPSTATE_OAUTH_DEFER_ORGANIZATION_CREATION"));
+        boolean trialInvitation = Boolean.TRUE.equals(session.getAttribute("TAPSTATE_OAUTH_TRIAL_INVITATION"));
         String currentEmail = (String) session.getAttribute(AuthController.SESSION_USER_EMAIL);
         Instant reauthenticatedAt = session.getAttribute(REAUTH_AT) instanceof Instant at ? at : null;
+        boolean linkedIdentity = identityAuthenticationService.hasLinkedIdentity(provider, subject);
         User user;
         try {
             user = identityAuthenticationService.authenticate(provider, subject, email, verified, displayName,
-                flow, currentEmail, reauthenticatedAt, invitation, organizationName);
+                flow, currentEmail, reauthenticatedAt, invitation, organizationName, deferOrganizationCreation);
         } catch (RuntimeException exception) {
             OAuthSessionSupport.reject(session);
             response.sendRedirect(authRedirect(errorKey(exception), flow));
             return;
+        }
+
+        if (currentEmail == null || !InvitationService.normalizeEmail(currentEmail)
+                .equals(InvitationService.normalizeEmail(user.getEmail()))) {
+            InvitationService.clearPendingTrialOrganization(session);
+        }
+        boolean organizationSetupRequired = deferOrganizationCreation
+            && ((!linkedIdentity && invitation == null && "signup".equals(flow))
+                || (trialInvitation && invitation != null));
+        if (deferOrganizationCreation && trialInvitation && linkedIdentity && invitation != null) {
+            session.setAttribute(InvitationService.PENDING_TRIAL_ORGANIZATION_SESSION_ATTRIBUTE, invitation);
+            Object creationKey = session.getAttribute("TAPSTATE_OAUTH_TRIAL_ORGANIZATION_CREATION_KEY");
+            session.setAttribute(InvitationService.PENDING_TRIAL_ORGANIZATION_CREATION_KEY_SESSION_ATTRIBUTE,
+                creationKey instanceof String key ? key : java.util.UUID.randomUUID().toString());
         }
 
         request.changeSessionId();
@@ -127,7 +145,7 @@ public class OAuthAuthenticationSuccessHandler implements AuthenticationSuccessH
         session.setAttribute(AuthController.SESSION_USER_EMAIL, user.getEmail());
         session.setAttribute("TAPSTATE_AUTHENTICATED_AT", Instant.now());
         OAuthSessionSupport.clearFlow(session);
-        response.sendRedirect(authRedirect("success"));
+        response.sendRedirect(authRedirect("success", null, organizationSetupRequired));
     }
 
     private GitHubEmail verifiedGitHubEmail(OAuth2AuthenticationToken authentication, String provider) {
@@ -160,9 +178,15 @@ public class OAuthAuthenticationSuccessHandler implements AuthenticationSuccessH
     }
 
     private String authRedirect(String outcome, String flow) {
+        return authRedirect(outcome, flow, false);
+    }
+
+    private String authRedirect(String outcome, String flow, boolean organizationSetupRequired) {
         String redirect = consoleUrl.replaceAll("/$", "") + "/auth?oauth="
             + URLEncoder.encode(outcome, StandardCharsets.UTF_8);
-        return "signup".equals(flow) ? redirect + "&mode=register" : redirect;
+        if ("signup".equals(flow)) redirect += "&mode=register";
+        if (organizationSetupRequired) redirect += "&onboarding=organization";
+        return redirect;
     }
 
     private record GitHubEmail(String email, boolean verified) {}

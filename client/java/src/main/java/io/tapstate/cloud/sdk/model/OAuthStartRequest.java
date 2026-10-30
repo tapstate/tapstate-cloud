@@ -1,6 +1,6 @@
 /*
  * Tapstate Cloud — Global Control Plane API
- * Global Control Plane backend API for Tapstate Cloud.  ## Authentication  Three authentication contexts (ADR-0122 D2): - **Session Cookie** — Cloud Console users (type ①) - **Static Token** — SDK status sender (type ②, `/api/sdk/_*`) - **Resolve JWT** — issued by this service for Cluster Console access  ## Regions  Week 2: only `ap-southeast-1` (Singapore) available. Production regions to be added post-W4.  ## Clusters  Clusters are auto-provisioned via CloudFormation + EC2 + Docker. Lifecycle state machine has 6 states in Week 2. 
+ * Global Control Plane backend API for Tapstate Cloud.  ## Authentication  Three authentication contexts (ADR-0122 D2): - **Session Cookie** — Cloud Console users (type ①) - **Static Token** — SDK status sender (type ②, `/api/sdk/_*`) - **Resolve JWT** — issued by this service for Cluster Console access  ## Regions  Week 2: only `ap-southeast-1` (Singapore) available. Production regions to be added post-W4.  ## Clusters  Clusters are auto-provisioned via CloudFormation + EC2 + Docker. Lifecycle state machine has 6 states in Week 2.
  *
  * The version of the OpenAPI document: v1
  * Contact: cloud@tapstate.io
@@ -32,7 +32,8 @@ import java.util.StringJoiner;
 @JsonPropertyOrder({
   OAuthStartRequest.JSON_PROPERTY_FLOW,
   OAuthStartRequest.JSON_PROPERTY_INVITATION_TOKEN,
-  OAuthStartRequest.JSON_PROPERTY_ORGANIZATION_NAME
+  OAuthStartRequest.JSON_PROPERTY_ORGANIZATION_NAME,
+  OAuthStartRequest.JSON_PROPERTY_DEFER_ORGANIZATION_CREATION
 })
 @jakarta.annotation.Generated(value = "org.openapitools.codegen.languages.JavaClientCodegen", comments = "Generator version: 7.25.0")
 public class OAuthStartRequest {
@@ -48,11 +49,15 @@ public class OAuthStartRequest {
   @jakarta.annotation.Nullable
   private String organizationName;
 
+  public static final String JSON_PROPERTY_DEFER_ORGANIZATION_CREATION = "deferOrganizationCreation";
+  @jakarta.annotation.Nullable
+  private Boolean deferOrganizationCreation;
+
   public OAuthStartRequest() {
   }
 
   public OAuthStartRequest flow(@jakarta.annotation.Nonnull String flow) {
-    
+
     this.flow = flow;
     return this;
   }
@@ -77,7 +82,7 @@ public class OAuthStartRequest {
   }
 
   public OAuthStartRequest invitationToken(@jakarta.annotation.Nullable String invitationToken) {
-    
+
     this.invitationToken = invitationToken;
     return this;
   }
@@ -102,7 +107,7 @@ public class OAuthStartRequest {
   }
 
   public OAuthStartRequest organizationName(@jakarta.annotation.Nullable String organizationName) {
-    
+
     this.organizationName = organizationName;
     return this;
   }
@@ -126,6 +131,31 @@ public class OAuthStartRequest {
     this.organizationName = organizationName;
   }
 
+  public OAuthStartRequest deferOrganizationCreation(@jakarta.annotation.Nullable Boolean deferOrganizationCreation) {
+
+    this.deferOrganizationCreation = deferOrganizationCreation;
+    return this;
+  }
+
+  /**
+   * Complete account authentication first and create the Organization in Cloud onboarding.
+   * @return deferOrganizationCreation
+   */
+  @jakarta.annotation.Nullable
+  @JsonProperty(value = JSON_PROPERTY_DEFER_ORGANIZATION_CREATION, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+
+  public Boolean isDeferOrganizationCreation() {
+    return deferOrganizationCreation;
+  }
+
+
+  @JsonProperty(value = JSON_PROPERTY_DEFER_ORGANIZATION_CREATION, required = false)
+  @JsonInclude(value = JsonInclude.Include.USE_DEFAULTS)
+  public void setDeferOrganizationCreation(@jakarta.annotation.Nullable Boolean deferOrganizationCreation) {
+    this.deferOrganizationCreation = deferOrganizationCreation;
+  }
+
 
   @Override
   public boolean equals(Object o) {
@@ -138,12 +168,13 @@ public class OAuthStartRequest {
     OAuthStartRequest oauthStartRequest = (OAuthStartRequest) o;
     return Objects.equals(this.flow, oauthStartRequest.flow) &&
         Objects.equals(this.invitationToken, oauthStartRequest.invitationToken) &&
-        Objects.equals(this.organizationName, oauthStartRequest.organizationName);
+        Objects.equals(this.organizationName, oauthStartRequest.organizationName) &&
+        Objects.equals(this.deferOrganizationCreation, oauthStartRequest.deferOrganizationCreation);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(flow, invitationToken, organizationName);
+    return Objects.hash(flow, invitationToken, organizationName, deferOrganizationCreation);
   }
 
   @Override
@@ -153,6 +184,7 @@ public class OAuthStartRequest {
     sb.append("    flow: ").append(toIndentedString(flow)).append("\n");
     sb.append("    invitationToken: ").append(toIndentedString(invitationToken)).append("\n");
     sb.append("    organizationName: ").append(toIndentedString(organizationName)).append("\n");
+    sb.append("    deferOrganizationCreation: ").append(toIndentedString(deferOrganizationCreation)).append("\n");
     sb.append("}");
     return sb.toString();
   }
@@ -227,8 +259,17 @@ public class OAuthStartRequest {
       }
     }
 
+    // add `deferOrganizationCreation` to the URL query string
+    if (isDeferOrganizationCreation() != null) {
+      try {
+        joiner.add(String.format(java.util.Locale.ROOT, "%sdeferOrganizationCreation%s=%s", prefix, suffix, URLEncoder.encode(String.valueOf(isDeferOrganizationCreation()), "UTF-8").replaceAll("\\+", "%20")));
+      } catch (UnsupportedEncodingException e) {
+        // Should never happen, UTF-8 is always supported
+        throw new RuntimeException(e);
+      }
+    }
+
     return joiner.toString();
   }
 
 }
-
