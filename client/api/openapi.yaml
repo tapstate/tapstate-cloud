@@ -1020,6 +1020,42 @@ paths:
             '*/*':
               schema:
                 $ref: "#/components/schemas/ApiResponseLoginResult"
+  /v1/api/auth/email/login/code:
+    post:
+      tags: [Auth]
+      summary: Request an email sign-in code
+      operationId: requestEmailLoginCode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailLoginCodeRequest"
+      responses:
+        "202":
+          description: Request accepted
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseVoid"
+  /v1/api/auth/email/login:
+    post:
+      tags: [Auth]
+      summary: Sign in using an email verification code
+      operationId: loginWithEmailCode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailLoginRequest"
+      responses:
+        "200":
+          description: Login successful, session cookie set
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ApiResponseLoginResult"
   /v1/api/auth/email/code:
     post:
       tags:
@@ -3026,6 +3062,24 @@ components:
       - code
       - email
       - password
+    EmailLoginCodeRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          minLength: 1
+      required: [email]
+    EmailLoginRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          minLength: 1
+        code:
+          type: string
+          minLength: 6
+          maxLength: 6
+      required: [email, code]
     EmailCodeRequest:
       type: object
       properties:

@@ -150,6 +150,57 @@ class EmailVerificationServiceTest {
         verify(invitations, never()).consume(any(), any());
     }
 
+    @Test
+    void validLoginCodeIsConsumedOnceAndReturnsTheActiveAccount() throws Exception {
+        String email = "guest@example.com";
+        String key = InvitationService.hash("login:" + email);
+        EmailVerificationChallenge challenge = EmailVerificationChallenge.builder()
+            .id(new ObjectId()).key(key).codeHmac(codeHmac(key, "123456"))
+            .expiresAt(Instant.now().plusSeconds(600)).attempts(1).build();
+        User account = User.builder().email(email).status("active").build();
+        when(users.findByEmail(email)).thenReturn(Optional.of(account));
+        when(mongoTemplate.findAndModify(any(Query.class), any(Update.class), any(FindAndModifyOptions.class),
+            eq(EmailVerificationChallenge.class))).thenReturn(challenge, challenge, null);
+
+        assertSame(account, service.verifyLoginCode(email, "123456"));
+        BusinessException replay = assertThrows(BusinessException.class,
+            () -> service.verifyLoginCode(email, "123456"));
+        assertEquals(AppErrorCode.EMAIL_CODE_INVALID, replay.getErrorCode());
+    }
+
+    @Test
+    void loginCodeIsIssuedUnderItsOwnPurposeScopedKey() {
+        String email = "guest@example.com";
+        String key = InvitationService.hash("login:" + email);
+        when(users.findByEmail(email)).thenReturn(Optional.of(User.builder().email(email).status("active").build()));
+        when(challenges.findByKey(key)).thenReturn(Optional.empty());
+        when(challenges.save(any(EmailVerificationChallenge.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(mongoTemplate.findAndModify(any(Query.class), any(Update.class), any(FindAndModifyOptions.class),
+            eq(AuthRateLimitWindow.class))).thenReturn(new AuthRateLimitWindow("rate", 1, Instant.now().plusSeconds(7200)));
+        ReflectionTestUtils.setField(service, "maxHourlySends", 5);
+        ReflectionTestUtils.setField(service, "codeLifetimeMinutes", 10L);
+
+        service.requestLoginCode(email, "127.0.0.1");
+
+        verify(challenges).save(argThat(challenge -> key.equals(challenge.getKey()) && challenge.getInvitationId() == null));
+        verify(mailer).send(eq(email), matches("[0-9]{6}"));
+    }
+
+    @Test
+    void registrationCodeCannotAuthenticateAsLoginCode() throws Exception {
+        String email = "guest@example.com";
+        String registrationKey = InvitationService.hash("open:" + email);
+        EmailVerificationChallenge registration = EmailVerificationChallenge.builder()
+            .id(new ObjectId()).key(registrationKey).codeHmac(codeHmac(registrationKey, "123456"))
+            .expiresAt(Instant.now().plusSeconds(600)).attempts(1).build();
+        when(mongoTemplate.findAndModify(any(Query.class), any(Update.class), any(FindAndModifyOptions.class),
+            eq(EmailVerificationChallenge.class))).thenReturn(registration);
+
+        BusinessException error = assertThrows(BusinessException.class,
+            () -> service.verifyLoginCode(email, "123456"));
+        assertEquals(AppErrorCode.EMAIL_CODE_INVALID, error.getErrorCode());
+    }
+
     private String challengeKey(ObjectId invitationId, String email) {
         return InvitationService.hash(invitationId.toHexString() + ":" + email);
     }

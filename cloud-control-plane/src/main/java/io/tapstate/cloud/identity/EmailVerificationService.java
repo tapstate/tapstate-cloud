@@ -75,7 +75,47 @@ public class EmailVerificationService {
         String key = challengeKey(invitation == null ? null : invitation.getId(), email);
         String code = String.format(Locale.ROOT, "%06d", secureRandom.nextInt(1_000_000));
         Optional<EmailVerificationChallenge> reservation = reserveChallenge(key,
-            invitation == null ? null : invitation.getId(), email, codeHmac(key, code), now);
+            invitation == null ? null : invitation.getId(), email, codeHmac(key, code), now, false);
+        deliverCode(reservation, email, code, now);
+    }
+
+    public void requestLoginCode(String suppliedEmail, String sourceAddress) {
+        String email = InvitationService.normalizeEmail(suppliedEmail);
+        requireHmacKey();
+        Instant now = Instant.now();
+        int emailCount = consumeRateLimit("email", InvitationService.hash(email), now);
+        int sourceCount = consumeRateLimit("source", InvitationService.hash(sourceAddress == null ? "unknown" : sourceAddress), now);
+        if (emailCount > maxHourlySends || sourceCount > maxHourlySends) {
+            throw new BusinessException(AppErrorCode.EMAIL_CODE_RATE_LIMITED, HttpStatus.TOO_MANY_REQUESTS.value());
+        }
+        if (users.findByEmail(email).filter(user -> "active".equals(user.getStatus())).isEmpty()) return;
+        String key = InvitationService.hash("login:" + email);
+        String code = String.format(Locale.ROOT, "%06d", secureRandom.nextInt(1_000_000));
+        deliverCode(reserveChallenge(key, null, email, codeHmac(key, code), now, true), email, code, now);
+    }
+
+    public User verifyLoginCode(String suppliedEmail, String code) {
+        String email = InvitationService.normalizeEmail(suppliedEmail);
+        requireHmacKey();
+        String key = InvitationService.hash("login:" + email);
+        Instant now = Instant.now();
+        EmailVerificationChallenge challenge = incrementAttempt(key, now);
+        if (!MessageDigest.isEqual(challenge.getCodeHmac().getBytes(StandardCharsets.US_ASCII),
+                codeHmac(key, code).getBytes(StandardCharsets.US_ASCII))) {
+            throw new BusinessException(AppErrorCode.EMAIL_CODE_INVALID, HttpStatus.BAD_REQUEST.value());
+        }
+        User user = users.findByEmail(email).filter(candidate -> "active".equals(candidate.getStatus()))
+            .orElseThrow(() -> new BusinessException(AppErrorCode.EMAIL_CODE_INVALID, HttpStatus.BAD_REQUEST.value()));
+        Query query = Query.query(Criteria.where("_id").is(challenge.getId()).and("consumedAt").is(null)
+            .and("expiresAt").gt(now).and("codeHmac").is(challenge.getCodeHmac()));
+        EmailVerificationChallenge consumed = mongoTemplate.findAndModify(query,
+            new Update().set("consumedAt", now), FindAndModifyOptions.options().returnNew(true),
+            EmailVerificationChallenge.class);
+        if (consumed == null) throw new BusinessException(AppErrorCode.EMAIL_CODE_INVALID, HttpStatus.BAD_REQUEST.value());
+        return user;
+    }
+
+    private void deliverCode(Optional<EmailVerificationChallenge> reservation, String email, String code, Instant now) {
         if (reservation.isEmpty()) {
             return;
         }
@@ -123,7 +163,7 @@ public class EmailVerificationService {
     }
 
     private Optional<EmailVerificationChallenge> reserveChallenge(String key, ObjectId invitationId, String email,
-                                                                  String codeHmac, Instant now) {
+                                                                  String codeHmac, Instant now, boolean allowConsumed) {
         EmailVerificationChallenge existing = challenges.findByKey(key).orElse(null);
         if (existing == null) {
             try {
@@ -135,17 +175,19 @@ public class EmailVerificationService {
                 existing = challenges.findByKey(key).orElseThrow(() -> exception);
             }
         }
-        if (existing.getConsumedAt() != null) {
+        if (existing.getConsumedAt() != null && !allowConsumed) {
             return Optional.empty();
         }
         if (existing.getLastSentAt() != null && existing.getLastSentAt().isAfter(now.minusSeconds(cooldownSeconds))) {
             throw new BusinessException(AppErrorCode.EMAIL_CODE_COOLDOWN, HttpStatus.TOO_MANY_REQUESTS.value());
         }
+        Criteria reservationCriteria = Criteria.where("_id").is(existing.getId())
+            .and("lastSentAt").lte(now.minusSeconds(cooldownSeconds)).and("codeHmac").is(existing.getCodeHmac());
+        if (!allowConsumed) reservationCriteria.and("consumedAt").is(null);
         EmailVerificationChallenge reserved = mongoTemplate.findAndModify(
-            Query.query(Criteria.where("_id").is(existing.getId()).and("lastSentAt").lte(now.minusSeconds(cooldownSeconds))
-                .and("consumedAt").is(null)),
+            Query.query(reservationCriteria),
             new Update().set("lastSentAt", now).set("expiresAt", now.plus(codeLifetimeMinutes, ChronoUnit.MINUTES))
-                .set("issuedAt", now).set("codeHmac", codeHmac).inc("resends", 1).set("attempts", 0),
+                .set("issuedAt", now).set("codeHmac", codeHmac).unset("consumedAt").inc("resends", 1).set("attempts", 0),
             FindAndModifyOptions.options().returnNew(true), EmailVerificationChallenge.class);
         if (reserved == null) {
             throw new BusinessException(AppErrorCode.EMAIL_CODE_COOLDOWN, HttpStatus.TOO_MANY_REQUESTS.value());
