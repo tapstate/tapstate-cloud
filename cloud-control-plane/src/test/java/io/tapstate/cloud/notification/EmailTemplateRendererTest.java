@@ -5,6 +5,8 @@ import io.tapstate.cloud.event.EventSeverity;
 import org.bson.types.ObjectId;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import java.time.Instant;
 import java.util.Map;
@@ -70,6 +72,33 @@ class EmailTemplateRendererTest {
 
         assertThat(email.htmlBody()).doesNotContain("<script>alert(1)</script>")
             .contains("&lt;script&gt;alert(1)&lt;/script&gt;");
+    }
+
+    @ParameterizedTest
+    @CsvSource({"pipeline, acceptance-pipeline", "source, inventory", "cluster-node, node-a",
+        "cluster-storage, cache", "custom-resource, extension-resource"})
+    void clusterAlertEmailsIdentifyTheActualResource(String kind, String id) {
+        var alert = alertRecord("acme-prod", "Cluster alert");
+        alert.setEventType("cluster.alert.test.fault");
+        alert.setDetails(Map.of("resourceKind", kind, "resourceId", id, "clusterId", "acme-prod"));
+
+        var email = renderer.renderAlert(alert);
+
+        assertThat(email.textBody()).contains("Affected resource: " + kind + " / " + id)
+            .doesNotContain("Affected task: -");
+        assertThat(email.htmlBody()).contains("Affected resource", kind + " / " + id);
+    }
+
+    @Test
+    void resourceIdentityIsEscapedAndExistingTaskDetailsKeepTheirMeaning() {
+        var alert = alertRecord("acme-prod", "Cluster alert");
+        alert.setDetails(Map.of("resourceKind", "source", "resourceId", "<script>resource</script>"));
+        var email = renderer.renderAlert(alert);
+        assertThat(email.htmlBody()).contains("source / &lt;script&gt;resource&lt;/script&gt;")
+            .doesNotContain("<script>resource</script>");
+        alert.setDetails(Map.of("taskId", "task-42", "resourceKind", "source", "resourceId", "inventory"));
+        assertThat(renderer.renderAlert(alert).textBody()).contains("Affected task: task-42")
+            .doesNotContain("Affected resource:");
     }
 
     private AlertRecord alertRecord(String clusterName, String subject) {

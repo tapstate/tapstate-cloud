@@ -41,6 +41,12 @@ public class EmailTemplateRenderer {
     public RenderedEmail renderAlert(AlertRecord alert) {
         String severity = alert.getSeverity() == null ? "INFO" : alert.getSeverity().name();
         String subject = alert.getSubject() == null ? alert.getEventType() : alert.getSubject();
+        String task = detail(alert, "taskId", "taskName", "pipelineId", "jobId");
+        String resource = detail(alert, "resourceId");
+        String resourceKind = detail(alert, "resourceKind");
+        String affectedLabel = task == null && resource != null ? "Affected resource" : "Affected task";
+        String affected = task != null || resource == null ? task
+            : resourceKind == null ? resource : resourceKind + " / " + resource;
         String accent = switch (severity) {
             case "CRITICAL" -> "#dc2626";
             case "WARNING" -> "#d97706";
@@ -52,7 +58,7 @@ public class EmailTemplateRenderer {
             Policy: %s
             Event type: %s
             Severity: %s
-            Affected task: %s
+            %s: %s
             Cluster: %s
             Reason: %s
             Actor: %s
@@ -66,7 +72,8 @@ public class EmailTemplateRenderer {
             value(alert.getPolicyName()),
             value(alert.getEventType()),
             severity,
-            value(detail(alert, "taskId", "taskName", "pipelineId", "jobId")),
+            affectedLabel,
+            value(affected),
             value(detail(alert, "clusterId", "clusterName")),
             value(detail(alert, "reason", "message", "error")),
             value(alert.getActor()),
@@ -87,7 +94,7 @@ public class EmailTemplateRenderer {
             row("Policy", alert.getPolicyName())
                 + row("Event type", alert.getEventType())
                 + row("Severity", severity)
-                + row("Affected task", detail(alert, "taskId", "taskName", "pipelineId", "jobId"))
+                + row(affectedLabel, affected)
                 + row("Cluster", detail(alert, "clusterId", "clusterName"))
                 + row("Reason", detail(alert, "reason", "message", "error"))
                 + row("Actor", alert.getActor())
